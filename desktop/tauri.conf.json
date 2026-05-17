@@ -1,0 +1,39 @@
+{
+  "productName": "penligent-local",
+  "version": "0.1.0",
+  "identifier": "ai.penligent.local",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Penligent Local",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1000,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "deb",
+    "icon": ["icons/icon.png"],
+    "resources": [],
+    "externalBin": []
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    }
+  }
+}

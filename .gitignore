@@ -1,0 +1,21 @@
+# Rust / Tauri
+desktop/target/
+desktop/ui/dist/
+desktop/ui/node_modules/
+
+# Python
+mcp-server/.venv/
+mcp-server/__pycache__/
+mcp-server/**/__pycache__/
+mcp-server/**/*.pyc
+mcp-server/*.egg-info/
+
+# Runtime data
+*.db
+*.db-wal
+*.db-shm
+config.json
+
+# OS
+.DS_Store
+Thumbs.db
