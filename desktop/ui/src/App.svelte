@@ -4,6 +4,7 @@
   import { listen } from "@tauri-apps/api/event";
   import Sidebar from "./lib/Sidebar.svelte";
   import Chat from "./routes/Chat.svelte";
+  import Findings from "./lib/Findings.svelte";
   import StatusBar from "./lib/StatusBar.svelte";
   import Settings from "./lib/Settings.svelte";
 
@@ -74,6 +75,7 @@
       <Sidebar {activeProject} onSelect={handleProjectSelect} />
     </div>
     <Chat project={activeProject} {sessionId} />
+    <Findings project={activeProject} />
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'settings' ? 'flex' : 'none'}">
