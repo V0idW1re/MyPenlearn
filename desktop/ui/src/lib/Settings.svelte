@@ -163,6 +163,8 @@
     font-weight: 600;
     margin: 0 0 4px;
     letter-spacing: 0.01em;
+    border-left: 2px solid #30363d;
+    padding-left: 10px;
   }
 
   .pl-section p {

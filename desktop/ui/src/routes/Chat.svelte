@@ -26,15 +26,13 @@
   let sending      = $state(false);
   let scrollEl     = $state(null);
   let textareaEl   = $state(null);
+  let atBottom     = $state(true);
   let unlistenChunk, unlistenDone;
   let findings     = $state([]);
   let openFinding  = $state(null);
 
-  // Reset textarea height when input is cleared programmatically
   $effect(() => {
-    if (textareaEl && !input) {
-      textareaEl.style.height = "22px";
-    }
+    if (textareaEl && !input) textareaEl.style.height = "22px";
   });
 
   $effect(() => {
@@ -42,12 +40,8 @@
     pendingParts = [];
     findings = [];
     openFinding = null;
-    if (pid) {
-      loadHistory(pid);
-      loadFindings();
-    } else {
-      messages = [];
-    }
+    if (pid) { loadHistory(pid); loadFindings(); }
+    else { messages = []; }
   });
 
   async function loadHistory(pid) {
@@ -66,13 +60,8 @@
 
   async function persistMessage(role, parts) {
     if (!project?.id) return;
-    try {
-      await invoke("save_message", {
-        projectId: project.id,
-        role,
-        content: JSON.stringify(parts),
-      });
-    } catch (_) {}
+    try { await invoke("save_message", { projectId: project.id, role, content: JSON.stringify(parts) }); }
+    catch (_) {}
   }
 
   onMount(async () => {
@@ -106,10 +95,7 @@
     });
   });
 
-  onDestroy(() => {
-    unlistenChunk?.();
-    unlistenDone?.();
-  });
+  onDestroy(() => { unlistenChunk?.(); unlistenDone?.(); });
 
   async function send() {
     const text = input.trim();
@@ -130,6 +116,13 @@
     }
   }
 
+  function clearSession() {
+    messages = [];
+    pendingParts = [];
+    sending = false;
+    invoke("claude_clear_session").catch(() => {});
+  }
+
   function handleKey(e) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   }
@@ -139,7 +132,11 @@
     scrollEl?.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
   }
 
-  // Textarea auto-resize action
+  function onScroll() {
+    if (!scrollEl) return;
+    atBottom = (scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight) < 80;
+  }
+
   function autosize(node) {
     function resize() {
       node.style.height = "22px";
@@ -150,39 +147,116 @@
     return { destroy() { node.removeEventListener("input", resize); } };
   }
 
-  // ── Markdown renderer (zero dependencies) ───────────────────────────────────
+  // Event delegation: copy buttons injected by renderMarkdown
+  function codeCopy(node) {
+    function onClick(e) {
+      const btn = e.target.closest(".pl-copy-btn");
+      if (!btn) return;
+      const code = btn.closest(".pl-code-wrap")?.querySelector("code")?.textContent ?? "";
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = "Copied!";
+        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+      }).catch(() => {});
+    }
+    node.addEventListener("click", onClick);
+    return { destroy() { node.removeEventListener("click", onClick); } };
+  }
+
+  // ── Markdown renderer ─────────────────────────────────────────────────────
+
   function esc(s) {
-    return s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   function renderInline(s) {
     let h = esc(s);
-    // Inline code
     h = h.replace(/`([^`\n]{1,400})`/g, '<code class="pl-ic">$1</code>');
-    // Bold
     h = h.replace(/\*\*([^*\n]{1,300})\*\*/g, "<strong>$1</strong>");
+    h = h.replace(/\*([^*\n]{1,300})\*/g, "<em>$1</em>");
+    h = h.replace(/~~([^~\n]{1,300})~~/g, "<del>$1</del>");
     return h;
   }
 
-  function renderMarkdown(text) {
-    if (!text) return "";
+  function renderTextBlock(raw) {
+    const lines = raw.split("\n");
     const out = [];
-    const re = /```(\w*)\n?([\s\S]*?)```/g;
-    let last = 0, m;
-    while ((m = re.exec(text)) !== null) {
-      if (m.index > last) out.push(renderInline(text.slice(last, m.index)));
-      const code = m[2].replace(/\n$/, "");
-      out.push(`<pre class="pl-code-block"><code>${esc(code)}</code></pre>`);
-      last = m.index + m[0].length;
+    let inUl = false, inOl = false;
+    const flush = () => {
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      if (inOl) { out.push("</ol>"); inOl = false; }
+    };
+    for (const line of lines) {
+      const h3 = line.match(/^### (.+)/);
+      const h2 = line.match(/^## (.+)/);
+      const h1 = line.match(/^# (.+)/);
+      if (h3) { flush(); out.push(`<div class="pl-h3">${renderInline(h3[1])}</div>`); continue; }
+      if (h2) { flush(); out.push(`<div class="pl-h2">${renderInline(h2[1])}</div>`); continue; }
+      if (h1) { flush(); out.push(`<div class="pl-h1">${renderInline(h1[1])}</div>`); continue; }
+      if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flush(); out.push('<div class="pl-hr"></div>'); continue; }
+      if (/^> /.test(line)) { flush(); out.push(`<div class="pl-bq">${renderInline(line.slice(2))}</div>`); continue; }
+      const ulM = line.match(/^[\-\*\+] (.*)/);
+      if (ulM) {
+        if (inOl) { out.push("</ol>"); inOl = false; }
+        if (!inUl) { out.push('<ul class="pl-ul">'); inUl = true; }
+        out.push(`<li>${renderInline(ulM[1])}</li>`);
+        continue;
+      }
+      const olM = line.match(/^\d+[\.\)] (.*)/);
+      if (olM) {
+        if (inUl) { out.push("</ul>"); inUl = false; }
+        if (!inOl) { out.push('<ol class="pl-ol">'); inOl = true; }
+        out.push(`<li>${renderInline(olM[1])}</li>`);
+        continue;
+      }
+      flush();
+      if (!line.trim()) { out.push('<div class="pl-gap"></div>'); continue; }
+      out.push(`<div class="pl-line">${renderInline(line)}</div>`);
     }
-    if (last < text.length) out.push(renderInline(text.slice(last)));
+    flush();
     return out.join("");
   }
 
-  // Truncate long tool args for display
+  function renderCodeBlock(lang, code) {
+    const langTag = lang ? `<span class="pl-code-lang">${esc(lang)}</span>` : "<span></span>";
+    return (
+      `<div class="pl-code-wrap">` +
+      `<div class="pl-code-head">${langTag}<button class="pl-copy-btn">Copy</button></div>` +
+      `<pre class="pl-code-block"><code>${esc(code)}</code></pre>` +
+      `</div>`
+    );
+  }
+
+  const ACTION_PHRASE = "Let me know when you have completed these steps and I will continue.";
+
+  function renderMarkdown(text) {
+    if (!text) return "";
+    let body = text;
+    let hasAction = false;
+    const aIdx = text.lastIndexOf(ACTION_PHRASE);
+    if (aIdx !== -1) {
+      body = text.slice(0, aIdx).trimEnd();
+      hasAction = true;
+    }
+    const out = [];
+    const re = /```(\w*)\n?([\s\S]*?)```/g;
+    let last = 0, m;
+    while ((m = re.exec(body)) !== null) {
+      if (m.index > last) out.push(renderTextBlock(body.slice(last, m.index)));
+      out.push(renderCodeBlock(m[1] || "", m[2].replace(/\n$/, "")));
+      last = m.index + m[0].length;
+    }
+    if (last < body.length) out.push(renderTextBlock(body.slice(last)));
+    if (hasAction) {
+      out.push(
+        `<div class="pl-action-req">` +
+        `<span class="pl-action-icon">⚠</span>` +
+        `<span>Manual action required — complete the steps above, then respond here.</span>` +
+        `</div>`
+      );
+    }
+    return out.join("");
+  }
+
   function fmtArgs(args) {
     if (!args) return "";
     const s = Object.entries(args)
@@ -195,114 +269,135 @@
 {#if project}
   {@const k = KINDS[project.kind]}
 
-  <!-- Chat column -->
   <div class="pl-chat">
     <div class="pl-chat-head">
       <span class="pl-chat-title">{project.name}</span>
       <span class="pl-pill" style="border-color:{k?.color ?? '#8b949e'};color:{k?.color ?? '#8b949e'}">
         {k?.name ?? project.kind}
       </span>
+      <div class="pl-head-right">
+        {#if project.target}
+          <span class="pl-target">{project.target}</span>
+        {/if}
+        <button class="pl-clear-btn" onclick={clearSession}>Clear</button>
+      </div>
     </div>
 
-    <div class="pl-messages" bind:this={scrollEl}>
-      {#each messages as msg}
-        {#if msg.role === "user"}
-          {#each msg.parts as part}
-            {#if part.kind === "text"}
-              <div class="pl-msg">
-                <div class="pl-avatar user">U</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">You</div>
-                  <div class="pl-msg-text">{part.text}</div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        {:else}
-          {#each msg.parts as part}
-            {#if part.kind === "text"}
-              <div class="pl-msg">
-                <div class="pl-avatar ai">C</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">Claude · Sonnet 4.6</div>
-                  <div class="pl-msg-text">{@html renderMarkdown(part.text)}</div>
-                </div>
-              </div>
-            {:else if part.kind === "tool_use"}
-              <div class="pl-msg pl-msg-tool">
-                <div class="pl-avatar tool">⚙</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">tool</div>
-                  <div class="pl-tool-call">
-                    <span class="pl-tool-name">{part.tool_name}</span>
-                    {#if fmtArgs(part.tool_input)}
-                      <span class="pl-tool-args">{fmtArgs(part.tool_input)}</span>
-                    {/if}
-                  </div>
-                </div>
-              </div>
-            {:else if part.kind === "error"}
-              <div class="pl-msg">
-                <div class="pl-avatar ai">C</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">error</div>
-                  <div class="pl-msg-error">{part.text}</div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        {/if}
-      {/each}
-
-      <!-- Streaming / pending -->
-      {#if sending}
-        {#if pendingParts.length > 0}
-          {#each pendingParts as part}
-            {#if part.kind === "text"}
-              <div class="pl-msg">
-                <div class="pl-avatar ai">C</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">Claude · Sonnet 4.6</div>
-                  <div class="pl-msg-text">
-                    {@html renderMarkdown(part.text)}<span class="pl-cursor">▌</span>
-                  </div>
-                </div>
-              </div>
-            {:else if part.kind === "tool_use"}
-              <div class="pl-msg pl-msg-tool">
-                <div class="pl-avatar tool">⚙</div>
-                <div class="pl-msg-body">
-                  <div class="pl-msg-author">tool</div>
-                  <div class="pl-tool-call">
-                    <span class="pl-tool-name">{part.tool_name}</span>
-                    {#if fmtArgs(part.tool_input)}
-                      <span class="pl-tool-args">{fmtArgs(part.tool_input)}</span>
-                    {/if}
-                    <span class="pl-tool-spin">…</span>
-                  </div>
-                </div>
-              </div>
-            {/if}
-          {/each}
-        {:else}
-          <div class="pl-msg">
-            <div class="pl-avatar ai">C</div>
-            <div class="pl-msg-body">
-              <div class="pl-thinking">
-                <span class="d"></span><span class="d"></span><span class="d"></span>
-              </div>
-            </div>
-          </div>
-        {/if}
+    <div class="pl-session-strip">
+      <span>{messages.length} {messages.length === 1 ? 'message' : 'messages'}</span>
+      {#if sessionId}
+        <span class="s-sep">·</span>
+        <span class="s-id">sid:{sessionId.slice(-8)}</span>
       {/if}
     </div>
 
-    <!-- Input -->
+    <div class="pl-chat-body">
+      <div class="pl-messages" bind:this={scrollEl} use:codeCopy onscroll={onScroll}>
+        {#each messages as msg}
+          {#if msg.role === "user"}
+            {#each msg.parts as part}
+              {#if part.kind === "text"}
+                <div class="pl-msg">
+                  <div class="pl-avatar user">U</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">You</div>
+                    <div class="pl-user-bubble">{part.text}</div>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          {:else}
+            {#each msg.parts as part}
+              {#if part.kind === "text"}
+                <div class="pl-msg">
+                  <div class="pl-avatar ai">C</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-md">{@html renderMarkdown(part.text)}</div>
+                  </div>
+                </div>
+              {:else if part.kind === "tool_use"}
+                <div class="pl-msg pl-msg-tool">
+                  <div class="pl-avatar tool">⚙</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">agent</div>
+                    <div class="pl-tool-call">
+                      <div class="pl-tool-hd">
+                        <span class="pl-tool-ps">$</span>
+                        <span class="pl-tool-nm">{part.tool_name}</span>
+                      </div>
+                      {#if fmtArgs(part.tool_input)}
+                        <div class="pl-tool-argv">{fmtArgs(part.tool_input)}</div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {:else if part.kind === "error"}
+                <div class="pl-msg">
+                  <div class="pl-avatar ai">C</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">error</div>
+                    <div class="pl-msg-error">{part.text}</div>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          {/if}
+        {/each}
+
+        {#if sending}
+          {#if pendingParts.length > 0}
+            {#each pendingParts as part}
+              {#if part.kind === "text"}
+                <div class="pl-msg">
+                  <div class="pl-avatar ai">C</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-md">{@html renderMarkdown(part.text)}<span class="pl-cursor">▌</span></div>
+                  </div>
+                </div>
+              {:else if part.kind === "tool_use"}
+                <div class="pl-msg pl-msg-tool">
+                  <div class="pl-avatar tool">⚙</div>
+                  <div class="pl-msg-body">
+                    <div class="pl-msg-author">agent</div>
+                    <div class="pl-tool-call pl-tool-live">
+                      <div class="pl-tool-hd">
+                        <span class="pl-tool-ps">$</span>
+                        <span class="pl-tool-nm">{part.tool_name}</span>
+                        <span class="pl-tool-running">running</span>
+                      </div>
+                      {#if fmtArgs(part.tool_input)}
+                        <div class="pl-tool-argv">{fmtArgs(part.tool_input)}</div>
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              {/if}
+            {/each}
+          {:else}
+            <div class="pl-msg">
+              <div class="pl-avatar ai">C</div>
+              <div class="pl-msg-body">
+                <div class="pl-thinking">
+                  <span class="d"></span><span class="d"></span><span class="d"></span>
+                </div>
+              </div>
+            </div>
+          {/if}
+        {/if}
+      </div>
+
+      {#if !atBottom}
+        <button class="pl-scroll-btn" onclick={scrollToBottom} aria-label="Scroll to bottom">↓</button>
+      {/if}
+    </div>
+
     <div class="pl-input-area">
-      <div class="pl-input-wrap" class:focused={false}>
+      <div class="pl-input-wrap">
         <textarea
           class="pl-input"
-          placeholder={sending ? "Claude is thinking…" : "Tell the agent what to do…  (Shift+Enter for newline)"}
+          placeholder={sending ? "Claude is thinking…" : "Message the agent…"}
           bind:value={input}
           bind:this={textareaEl}
           onkeydown={handleKey}
@@ -314,10 +409,10 @@
           Send
         </button>
       </div>
+      <div class="pl-input-hint">Shift+Enter for newline</div>
     </div>
   </div>
 
-  <!-- Findings rail -->
   <div class="pl-findings">
     <div class="pl-find-head">
       <span class="pl-rail-label">Findings</span>
@@ -370,6 +465,8 @@
     background: #0d1117;
   }
 
+  /* ── Header ──────────────────────────────────────────────────── */
+
   .pl-chat-head {
     padding: 12px 18px;
     border-bottom: 1px solid #30363d;
@@ -380,15 +477,10 @@
     background: #010409;
   }
 
-  .pl-chat-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: #e6edf3;
-    letter-spacing: 0.01em;
-  }
+  .pl-chat-title { font-size: 14px; font-weight: 500; color: #e6edf3; }
 
   .pl-pill {
-    padding: 1px 8px;
+    padding: 2px 8px;
     border-radius: 10px;
     font-size: 11px;
     border: 1px solid;
@@ -396,7 +488,41 @@
     font-weight: 500;
   }
 
+  .pl-head-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .pl-target {
+    font-family: "JetBrains Mono", monospace;
+    color: #8b949e;
+    font-size: 12px;
+  }
+
+  .pl-clear-btn {
+    background: transparent;
+    border: 1px solid #30363d;
+    color: #6e7681;
+    font-size: 11px;
+    font-family: inherit;
+    padding: 3px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+  .pl-clear-btn:hover { background: #1c2128; color: #c9d1d9; border-color: #8b949e; }
+
   /* ── Messages ─────────────────────────────────────────────────── */
+
+  .pl-chat-body {
+    flex: 1;
+    position: relative;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
 
   .pl-messages {
     flex: 1;
@@ -434,18 +560,90 @@
     font-weight: 500;
   }
 
-  .pl-msg-text {
+  .pl-user-bubble {
     font-size: 13px;
     line-height: 1.6;
     color: #c9d1d9;
+    background: rgba(31,111,235,0.07);
+    border: 1px solid rgba(31,111,235,0.12);
+    border-radius: 8px;
+    padding: 10px 14px;
     white-space: pre-wrap;
     word-break: break-word;
   }
 
-  /* Elements injected by renderMarkdown */
+  .pl-msg-md {
+    font-size: 13px;
+    line-height: 1.55;
+    color: #c9d1d9;
+    word-break: break-word;
+  }
+
+  /* ── Markdown elements (injected HTML) ───────────────────────── */
+
+  :global(.pl-line) { display: block; line-height: 1.6; }
+  :global(.pl-gap)  { height: 8px; display: block; }
+
+  :global(.pl-h1) { display: block; font-size: 16px; font-weight: 600; color: #e6edf3; margin: 14px 0 6px; line-height: 1.3; }
+  :global(.pl-h2) { display: block; font-size: 14px; font-weight: 600; color: #e6edf3; margin: 12px 0 5px; padding-bottom: 5px; border-bottom: 1px solid #21262d; line-height: 1.3; }
+  :global(.pl-h3) { display: block; font-size: 13px; font-weight: 600; color: #e6edf3; margin: 10px 0 4px; line-height: 1.3; }
+
+  :global(.pl-ul), :global(.pl-ol) { padding-left: 20px; margin: 4px 0; }
+  :global(.pl-ul li), :global(.pl-ol li) { line-height: 1.6; color: #c9d1d9; margin: 2px 0; font-size: 13px; }
+  :global(.pl-ul li::marker), :global(.pl-ol li::marker) { color: #484f58; }
+
+  :global(.pl-hr) { display: block; border: none; border-top: 1px solid #30363d; margin: 10px 0; }
+
+  :global(.pl-bq) {
+    display: block;
+    border-left: 3px solid #30363d;
+    padding: 3px 12px;
+    color: #8b949e;
+    font-style: italic;
+    margin: 6px 0;
+  }
+
+  :global(.pl-msg-md strong) { color: #e6edf3; font-weight: 600; }
+  :global(.pl-msg-md em)     { font-style: italic; }
+  :global(.pl-msg-md del)    { color: #6e7681; text-decoration: line-through; }
+
+  /* Code block */
+  :global(.pl-code-wrap) {
+    margin: 10px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid #30363d;
+  }
+  :global(.pl-code-head) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+  }
+  :global(.pl-code-lang) {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    color: #6e7681;
+    letter-spacing: 0.04em;
+  }
+  :global(.pl-copy-btn) {
+    background: transparent;
+    border: none;
+    color: #484f58;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.1s;
+  }
+  :global(.pl-copy-btn:hover) { color: #c9d1d9; }
+  :global(.pl-code-wrap .pl-code-block) { margin: 0; border-radius: 0; border: none; }
+
   :global(.pl-code-block) {
     background: #010409;
-    border: 1px solid #21262d;
+    border: 1px solid #30363d;
     border-radius: 6px;
     padding: 12px 14px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -480,40 +678,81 @@
     line-height: 1.5;
   }
 
+  /* ── Session strip ───────────────────────────────────────────── */
+
+  .pl-session-strip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 18px;
+    background: #010409;
+    border-bottom: 1px solid #161b22;
+    font-size: 10px;
+    color: #30363d;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+  .s-sep { color: #21262d; }
+  .s-id  { color: #21262d; }
+
+  /* ── Tool call (terminal style) ──────────────────────────────── */
+
   .pl-tool-call {
-    background: #161b22;
-    border: 1px solid #30363d;
-    border-radius: 6px;
-    padding: 8px 10px;
+    background: #0a0d14;
+    border: 1px solid #21262d;
+    border-left: 2px solid rgba(159,239,0,0.4);
+    border-radius: 0 5px 5px 0;
+    padding: 7px 10px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 11px;
     line-height: 1.5;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: baseline;
   }
-  .pl-tool-name { color: #9fef00; font-weight: 500; }
-  .pl-tool-args { color: #8b949e; word-break: break-all; }
-  .pl-tool-spin { color: #484f58; animation: blink 1s step-end infinite; }
+  .pl-tool-live { border-left-color: #9fef00; }
+
+  .pl-tool-hd {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .pl-tool-ps { color: #30363d; user-select: none; }
+  .pl-tool-nm { color: #9fef00; font-weight: 500; }
+  .pl-tool-running {
+    margin-left: auto;
+    font-size: 9px;
+    color: #9fef00;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    opacity: 0.7;
+    animation: blink 1.5s step-end infinite;
+  }
+  .pl-tool-argv {
+    color: #6e7681;
+    margin-top: 3px;
+    padding-left: 16px;
+    word-break: break-all;
+    line-height: 1.6;
+  }
 
   /* ── Thinking / cursor ───────────────────────────────────────── */
 
   .pl-thinking {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     padding: 6px 0;
+    color: #6e7681;
+    font-size: 12px;
   }
   .pl-thinking .d {
     width: 4px; height: 4px;
     border-radius: 50%;
-    background: #484f58;
-    animation: plBlink 1.3s ease-in-out infinite;
+    background: #6e7681;
+    animation: plBlink 1.2s infinite;
   }
-  .pl-thinking .d:nth-child(2) { animation-delay: 0.18s; }
-  .pl-thinking .d:nth-child(3) { animation-delay: 0.36s; }
-  @keyframes plBlink { 0%, 60%, 100% { opacity: 0.2; } 30% { opacity: 1; } }
+  .pl-thinking .d:nth-child(2) { animation-delay: 0.2s; }
+  .pl-thinking .d:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes plBlink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
 
   :global(.pl-cursor) {
     display: inline;
@@ -522,10 +761,31 @@
   }
   @keyframes blink { 50% { opacity: 0; } }
 
-  /* ── Input area ──────────────────────────────────────────────── */
+  /* ── Scroll button ───────────────────────────────────────────── */
+
+  .pl-scroll-btn {
+    position: absolute;
+    bottom: 12px;
+    right: 24px;
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: #21262d;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    transition: background 0.1s, color 0.1s;
+  }
+  .pl-scroll-btn:hover { background: #30363d; color: #e6edf3; }
+
+  /* ── Input ───────────────────────────────────────────────────── */
 
   .pl-input-area {
-    padding: 12px 18px;
+    padding: 10px 18px 8px;
     border-top: 1px solid #30363d;
     flex-shrink: 0;
   }
@@ -575,6 +835,14 @@
   .pl-send:hover:not(:disabled) { background: #2ea043; }
   .pl-send:disabled { opacity: 0.35; cursor: default; }
 
+  .pl-input-hint {
+    font-size: 10px;
+    color: #21262d;
+    text-align: right;
+    margin-top: 4px;
+    user-select: none;
+  }
+
   /* ── Findings rail ───────────────────────────────────────────── */
 
   .pl-findings {
@@ -611,11 +879,7 @@
     font-weight: 500;
   }
 
-  .pl-find-list {
-    flex: 1;
-    overflow-y: auto;
-    padding: 4px 8px;
-  }
+  .pl-find-list { flex: 1; overflow-y: auto; padding: 4px 8px; }
 
   .pl-finding {
     background: #1c2128;
@@ -669,12 +933,25 @@
     word-break: break-word;
   }
 
-  .pl-empty {
-    color: #484f58;
+  .pl-empty { color: #484f58; font-size: 12px; padding: 20px 8px; text-align: center; }
+
+  /* ── Action required callout ─────────────────────────────────── */
+
+  :global(.pl-action-req) {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+    background: rgba(210,153,34,0.07);
+    border: 1px solid rgba(210,153,34,0.22);
+    border-left: 3px solid #d29922;
+    border-radius: 0 6px 6px 0;
+    padding: 9px 12px;
+    margin: 12px 0 4px;
     font-size: 12px;
-    padding: 20px 8px;
-    text-align: center;
+    color: #d29922;
+    line-height: 1.5;
   }
+  :global(.pl-action-icon) { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
 
   /* ── Empty state ─────────────────────────────────────────────── */
 
@@ -686,28 +963,23 @@
     background: #0d1117;
   }
 
-  .pl-empty-state {
-    text-align: center;
-    user-select: none;
-  }
+  .pl-empty-state { text-align: center; user-select: none; }
 
   .pl-empty-icon {
-    font-size: 36px;
+    font-size: 44px;
     color: #21262d;
-    margin-bottom: 12px;
+    margin-bottom: 14px;
     line-height: 1;
+    filter: drop-shadow(0 0 16px rgba(88,166,255,0.06));
   }
 
   .pl-empty-title {
-    font-size: 15px;
+    font-size: 16px;
     font-weight: 600;
     color: #30363d;
     margin-bottom: 6px;
     letter-spacing: 0.02em;
   }
 
-  .pl-empty-sub {
-    font-size: 12px;
-    color: #30363d;
-  }
+  .pl-empty-sub { font-size: 12px; color: #21262d; }
 </style>

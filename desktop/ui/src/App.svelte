@@ -58,7 +58,15 @@
       <button class="pl-tab" class:active={activeTab === "settings"}
         onclick={() => activeTab = "settings"}>Settings</button>
     </div>
-    <div class="pl-app-name">Penligent Local 0.1.0</div>
+    <div class="pl-app-name">
+      {#if activeProject}
+        <span class="pl-crumb">Penligent</span>
+        <span class="pl-crumb-sep">/</span>
+        <span class="pl-engagement">{activeProject.name}</span>
+      {:else}
+        Penligent Local
+      {/if}
+    </div>
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'chat' ? 'flex' : 'none'}">
@@ -134,7 +142,13 @@
     color: #6e7681;
     font-weight: 500;
     letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    gap: 0;
   }
+  .pl-crumb      { color: #484f58; }
+  .pl-crumb-sep  { color: #30363d; margin: 0 5px; }
+  .pl-engagement { color: #e6edf3; font-weight: 600; letter-spacing: 0.01em; }
 
   .pl-main {
     flex: 1;

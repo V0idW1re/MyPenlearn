@@ -5,28 +5,26 @@
   let { activeProject, onSelect } = $props();
 
   const KINDS = {
-    htb_machine:        { name: "HTB Machine", icon: "🖥",  color: "#9fef00", desc: "training labs" },
-    htb_ctf:            { name: "CTF Event",   icon: "🚩",  color: "#f85149", desc: "time-bound flag hunting" },
-    bug_bounty:         { name: "Bug Bounty",  icon: "🐛",  color: "#d29922", desc: "public scope" },
-    authorized_pentest: { name: "Pentest",     icon: "📋",  color: "#58a6ff", desc: "authorized engagement" },
+    htb_machine:        { name: "HTB Machine", color: "#9fef00", desc: "training labs" },
+    htb_ctf:            { name: "CTF Event",   color: "#f85149", desc: "time-bound flag hunting" },
+    bug_bounty:         { name: "Bug Bounty",  color: "#d29922", desc: "public scope" },
+    authorized_pentest: { name: "Pentest",     color: "#58a6ff", desc: "authorized engagement" },
+  };
+
+  const KIND_ICONS = {
+    htb_machine: "🖥", htb_ctf: "🚩", bug_bounty: "🐛", authorized_pentest: "📋",
   };
 
   let projects    = $state([]);
-  let modalStep   = $state(0);   // 0=closed 1=pick-kind 2=name
+  let modalStep   = $state(0);
   let pickedKind  = $state("");
   let newName     = $state("");
   let creating    = $state(false);
-
-  // Context menu
-  let ctxMenu     = $state(null);  // { x, y, proj }
-  let savedId     = $state(null);  // project id that just showed "Saved ✓"
-
-  // Rename inline
+  let ctxMenu     = $state(null);
+  let savedId     = $state(null);
   let renamingId  = $state(null);
   let renameVal   = $state("");
-
-  // Delete confirm
-  let deleteTarget = $state(null);  // project to delete
+  let deleteTarget = $state(null);
 
   onMount(async () => {
     try { projects = await invoke("list_projects"); } catch (_) {}
@@ -39,7 +37,6 @@
     document.removeEventListener("contextmenu", handleDocCtx);
   });
 
-  // Close ctx menu unless the click was inside it or on a project button
   function closeCtx(e) {
     if (!e.target.closest(".ctx-menu")) ctxMenu = null;
   }
@@ -54,7 +51,6 @@
     ctxMenu = { x: e.clientX, y: e.clientY, proj };
   }
 
-  // --- New project modal ---
   function openModal() { modalStep = 1; pickedKind = ""; newName = ""; }
   function closeModal() { modalStep = 0; }
 
@@ -62,9 +58,7 @@
     if (!newName.trim()) return;
     creating = true;
     try {
-      const project = await invoke("create_project", {
-        name: newName.trim(), target: "", kind: pickedKind,
-      });
+      const project = await invoke("create_project", { name: newName.trim(), target: "", kind: pickedKind });
       projects = [...projects, project];
       closeModal();
       onSelect(project);
@@ -72,7 +66,6 @@
     finally { creating = false; }
   }
 
-  // --- Rename ---
   function startRename(proj) {
     ctxMenu = null;
     renamingId = proj.id;
@@ -94,11 +87,7 @@
     if (e.key === "Escape") renamingId = null;
   }
 
-  // --- Delete ---
-  function askDelete(proj) {
-    ctxMenu = null;
-    deleteTarget = proj;
-  }
+  function askDelete(proj) { ctxMenu = null; deleteTarget = proj; }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
@@ -110,34 +99,27 @@
     deleteTarget = null;
   }
 
-  // --- Save feedback ---
   function showSaved(proj) {
     ctxMenu = null;
     savedId = proj.id;
     setTimeout(() => { savedId = null; }, 1500);
   }
 
-  // Svelte action: focus and select input on mount
-  function focusOnMount(node) {
-    node.focus();
-    node.select();
-    return {};
-  }
+  function focusOnMount(node) { node.focus(); node.select(); return {}; }
 </script>
 
 <div class="sidebar-inner">
   <div class="pl-side-head">
     <span class="pl-side-label">Engagements</span>
-    <button class="pl-plus" onclick={openModal} aria-label="New project">+</button>
+    <button class="pl-plus" onclick={openModal} aria-label="New engagement">+</button>
   </div>
 
   <div class="pl-projects">
     {#each projects as proj (proj.id)}
       {@const k = KINDS[proj.kind]}
       {#if renamingId === proj.id}
-        <!-- Inline rename input -->
         <div class="pl-project rename-row">
-          <span class="pl-kind-dot" style="background:{k?.color ?? '#8b949e'}"></span>
+          <span class="pl-dot" style="background:{k?.color ?? '#8b949e'}"></span>
           <input
             class="rename-input"
             bind:value={renameVal}
@@ -150,19 +132,23 @@
         <button
           class="pl-project"
           class:active={activeProject?.id === proj.id}
-          style="border-left-color:{activeProject?.id === proj.id ? (k?.color ?? '#8b949e') : 'transparent'}"
+          style="--kc:{k?.color ?? '#8b949e'}"
           onclick={() => onSelect(proj)}
           oncontextmenu={(e) => openCtx(e, proj)}
         >
-          <span class="pl-kind-dot" style="background:{k?.color ?? '#8b949e'}"></span>
+          <span class="pl-dot" style="background:{k?.color ?? '#8b949e'}"></span>
           <div class="pl-project-info">
             <div class="pl-project-name">
               {proj.name}
-              {#if savedId === proj.id}<span class="saved-badge">✓ Saved</span>{/if}
+              {#if savedId === proj.id}<span class="saved-badge">✓</span>{/if}
             </div>
-            {#if proj.target}
-              <div class="pl-project-target">{proj.target}</div>
-            {/if}
+            <div class="pl-project-meta">
+              <span class="pl-kind-tag">{k?.name ?? proj.kind}</span>
+              {#if proj.target}
+                <span class="meta-sep">·</span>
+                <span class="pl-project-ip">{proj.target}</span>
+              {/if}
+            </div>
           </div>
         </button>
       {/if}
@@ -172,12 +158,8 @@
   </div>
 </div>
 
-<!-- Context menu — no onclick needed; closeCtx checks .ctx-menu before closing -->
 {#if ctxMenu}
-  <div
-    class="ctx-menu"
-    style="left:{ctxMenu.x}px;top:{ctxMenu.y}px"
-  >
+  <div class="ctx-menu" style="left:{ctxMenu.x}px;top:{ctxMenu.y}px">
     <button class="ctx-item" onclick={() => startRename(ctxMenu.proj)}>
       <span class="ctx-icon">✏</span> Rename
     </button>
@@ -191,7 +173,6 @@
   </div>
 {/if}
 
-<!-- Delete confirmation modal -->
 {#if deleteTarget}
   <div class="pl-modal-bg" role="dialog" aria-modal="true" tabindex="-1"
     onclick={(e) => { if (e.target === e.currentTarget) deleteTarget = null; }}
@@ -207,18 +188,18 @@
   </div>
 {/if}
 
-<!-- New project modal -->
 {#if modalStep > 0}
   <div class="pl-modal-bg" role="dialog" aria-modal="true" tabindex="-1"
     onclick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
     onkeydown={(e) => { if (e.key === "Escape") closeModal(); }}>
     <div class="pl-modal">
       {#if modalStep === 1}
-        <h2>What are you doing?</h2>
+        <h2>New Engagement</h2>
+        <p class="modal-sub">Select the type of engagement to begin.</p>
         <div class="pl-kind-grid">
           {#each Object.entries(KINDS) as [id, k]}
-            <button class="pl-kind-card" onclick={() => { pickedKind = id; modalStep = 2; }}>
-              <div class="pl-kind-icon" style="color:{k.color}">{k.icon}</div>
+            <button class="pl-kind-card" style="--kc:{k.color}" onclick={() => { pickedKind = id; modalStep = 2; }}>
+              <div class="pl-kind-icon">{KIND_ICONS[id]}</div>
               <div class="pl-kind-name">{k.name}</div>
               <div class="pl-kind-desc">{k.desc}</div>
             </button>
@@ -230,12 +211,12 @@
       {:else}
         {@const k = KINDS[pickedKind]}
         <div class="modal-pill-row">
-          <span class="pl-pill" style="border-color:{k.color};color:{k.color}">{k.icon}&nbsp;&nbsp;{k.name}</span>
+          <span class="pl-pill" style="border-color:{k.color};color:{k.color}">{KIND_ICONS[pickedKind]}&nbsp;&nbsp;{k.name}</span>
         </div>
         <h2>Name your engagement</h2>
         <div class="pl-field">
           <span class="pl-field-label">Project name</span>
-          <span class="pl-field-hint">The agent will discover targets automatically.</span>
+          <span class="pl-field-hint">Used as the workspace directory name. Keep it short and filesystem-safe.</span>
           <input class="pl-text-input" placeholder="e.g. Cap" bind:value={newName}
             onkeydown={(e) => e.key === "Enter" && createProject()} />
         </div>
@@ -243,7 +224,7 @@
           <button class="pl-btn" onclick={() => { modalStep = 1; }}>Back</button>
           <button class="pl-btn pl-btn-primary" onclick={createProject}
             disabled={creating || !newName.trim()}>
-            {creating ? "Creating…" : "Create project"}
+            {creating ? "Creating…" : "Create engagement"}
           </button>
         </div>
       {/if}
@@ -252,26 +233,25 @@
 {/if}
 
 <style>
-  .sidebar-inner {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
+  .sidebar-inner { display: flex; flex-direction: column; height: 100%; }
+
+  /* ── Header ──────────────────────────────────────────────────── */
 
   .pl-side-head {
-    padding: 14px 14px 8px;
+    padding: 14px 14px 10px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
+    border-bottom: 1px solid #21262d;
   }
 
   .pl-side-label {
-    font-size: 11px;
-    color: #6e7681;
-    letter-spacing: 0.08em;
+    font-size: 10px;
+    color: #484f58;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    font-weight: 500;
+    font-weight: 600;
   }
 
   .pl-plus {
@@ -287,19 +267,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    transition: background 0.1s;
   }
   .pl-plus:hover { background: #30363d; color: #fff; }
 
-  .pl-projects {
-    padding: 4px 6px;
-    overflow-y: auto;
-    flex: 1;
-  }
+  /* ── Project list ────────────────────────────────────────────── */
+
+  .pl-projects { padding: 6px 6px; overflow-y: auto; flex: 1; }
 
   .pl-project {
     display: flex;
-    align-items: center;
-    gap: 10px;
+    align-items: flex-start;
+    gap: 9px;
     padding: 8px 10px;
     border-radius: 6px;
     cursor: pointer;
@@ -312,15 +291,16 @@
     font-family: inherit;
     font-size: inherit;
     color: inherit;
+    transition: background 0.1s, border-color 0.1s;
   }
-  .pl-project:hover { background: #1c2128; }
-  .pl-project.active { background: #1c2128; }
+  .pl-project:hover { background: #1c2128; border-left-color: var(--kc); }
+  .pl-project.active { background: #1c2128; border-left-color: var(--kc); }
 
   .rename-row {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 4px 10px;
+    gap: 9px;
+    padding: 8px 10px;
     margin-bottom: 2px;
   }
 
@@ -336,10 +316,11 @@
     outline: none;
   }
 
-  .pl-kind-dot {
-    width: 8px; height: 8px;
+  .pl-dot {
+    width: 7px; height: 7px;
     border-radius: 50%;
     flex-shrink: 0;
+    margin-top: 4px;
   }
 
   .pl-project-info { flex: 1; min-width: 0; }
@@ -356,30 +337,39 @@
     gap: 6px;
   }
 
-  .pl-project-target {
-    font-size: 11px;
-    color: #6e7681;
+  .pl-project-meta {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 2px;
+    min-width: 0;
+  }
+
+  .pl-kind-tag {
+    font-size: 10px;
+    color: #484f58;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .meta-sep { font-size: 10px; color: #30363d; flex-shrink: 0; }
+
+  .pl-project-ip {
     font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    color: #6e7681;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .saved-badge {
-    font-size: 10px;
-    color: #9fef00;
-    font-weight: 500;
-    opacity: 0.85;
-  }
+  .saved-badge { font-size: 10px; color: #9fef00; font-weight: 600; }
 
-  .pl-empty {
-    color: #6e7681;
-    font-size: 12px;
-    padding: 16px 8px;
-    text-align: center;
-  }
+  .pl-empty { color: #484f58; font-size: 12px; padding: 20px 8px; text-align: center; }
 
-  /* Context menu */
+  /* ── Context menu ────────────────────────────────────────────── */
+
   .ctx-menu {
     position: fixed;
     background: #1c2128;
@@ -388,7 +378,7 @@
     padding: 4px;
     min-width: 140px;
     z-index: 100;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
   }
 
   .ctx-item {
@@ -411,16 +401,12 @@
   .ctx-item.danger:hover { background: rgba(248,81,73,0.1); }
 
   .ctx-icon { font-size: 12px; width: 14px; text-align: center; }
+  .ctx-sep { height: 1px; background: #30363d; margin: 4px 0; }
 
-  .ctx-sep {
-    height: 1px;
-    background: #30363d;
-    margin: 4px 0;
-  }
+  /* ── Modals ──────────────────────────────────────────────────── */
 
-  /* Delete confirm & new-project modals */
   .pl-modal-bg {
-    background: rgba(1, 4, 9, 0.7);
+    background: rgba(1,4,9,0.75);
     position: fixed;
     inset: 0;
     display: flex;
@@ -434,29 +420,17 @@
     border: 1px solid #30363d;
     border-radius: 8px;
     padding: 22px;
-    width: 400px;
+    width: 420px;
     max-width: 90vw;
   }
 
-  .pl-modal h2 {
-    font-size: 16px;
-    color: #e6edf3;
-    margin: 0 0 12px;
-    font-weight: 500;
-  }
+  .pl-modal h2 { font-size: 16px; color: #e6edf3; margin: 0 0 4px; font-weight: 600; }
 
-  .delete-warn {
-    font-size: 12px;
-    color: #8b949e;
-    margin: 0 0 16px;
-    line-height: 1.5;
-  }
+  .modal-sub { font-size: 12px; color: #6e7681; margin: 0 0 16px; }
 
-  .pl-kind-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
+  .delete-warn { font-size: 12px; color: #8b949e; margin: 0 0 16px; line-height: 1.5; }
+
+  .pl-kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 0; }
 
   .pl-kind-card {
     background: #0d1117;
@@ -467,19 +441,15 @@
     text-align: center;
     font-family: inherit;
     color: inherit;
+    transition: background 0.1s, border-color 0.1s;
   }
-  .pl-kind-card:hover { background: #1c2128; border-color: #8b949e; }
+  .pl-kind-card:hover { background: #1c2128; border-color: var(--kc); }
 
   .pl-kind-icon { font-size: 22px; margin-bottom: 6px; line-height: 1; }
   .pl-kind-name { font-size: 13px; color: #e6edf3; font-weight: 500; }
   .pl-kind-desc { font-size: 11px; color: #6e7681; margin-top: 2px; }
 
-  .pl-modal-actions {
-    display: flex;
-    gap: 8px;
-    justify-content: flex-end;
-    margin-top: 16px;
-  }
+  .pl-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 
   .pl-btn {
     background: #21262d;
@@ -491,6 +461,7 @@
     font-size: 12px;
     font-family: inherit;
     font-weight: 500;
+    transition: background 0.1s;
   }
   .pl-btn:hover { background: #30363d; }
 
@@ -512,12 +483,7 @@
     font-weight: 500;
   }
 
-  .pl-field {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    margin-bottom: 14px;
-  }
+  .pl-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
   .pl-field:last-of-type { margin-bottom: 0; }
 
   .pl-field-label { font-size: 12px; color: #c9d1d9; font-weight: 500; }
@@ -533,6 +499,7 @@
     font-family: "JetBrains Mono", monospace;
     outline: none;
     width: 100%;
+    transition: border-color 0.12s;
   }
   .pl-text-input:focus { border-color: #58a6ff; }
 </style>
