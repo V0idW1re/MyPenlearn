@@ -111,7 +111,12 @@
 <div class="sidebar-inner">
   <div class="pl-side-head">
     <span class="pl-side-label">Engagements</span>
-    <button class="pl-plus" onclick={openModal} aria-label="New engagement">+</button>
+    <div class="pl-side-right">
+      {#if projects.length > 0}
+        <span class="pl-side-count">{projects.length}</span>
+      {/if}
+      <button class="pl-plus" onclick={openModal} aria-label="New engagement">+</button>
+    </div>
   </div>
 
   <div class="pl-projects">
@@ -244,6 +249,13 @@
     justify-content: space-between;
     flex-shrink: 0;
     border-bottom: 1px solid #21262d;
+  }
+
+  .pl-side-right { display: flex; align-items: center; gap: 6px; }
+  .pl-side-count {
+    font-size: 10px;
+    color: #484f58;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 
   .pl-side-label {

@@ -380,7 +380,9 @@
               <div class="pl-avatar ai">C</div>
               <div class="pl-msg-body">
                 <div class="pl-thinking">
-                  <span class="d"></span><span class="d"></span><span class="d"></span>
+                  <span class="pl-think-ps">›</span>
+                  <span class="pl-think-text">processing</span>
+                  <span class="pl-think-cursor">█</span>
                 </div>
               </div>
             </div>
@@ -449,9 +451,17 @@
 {:else}
   <div class="pl-no-project">
     <div class="pl-empty-state">
-      <div class="pl-empty-icon">⬡</div>
-      <div class="pl-empty-title">Penligent Local</div>
-      <div class="pl-empty-sub">Select or create an engagement to begin.</div>
+      <div class="pl-empty-logo">
+        <span class="pl-logo-bracket">[</span>
+        <span class="pl-logo-text">PENLIGENT</span>
+        <span class="pl-logo-bracket">]</span>
+      </div>
+      <div class="pl-empty-tag">autonomous penetration testing</div>
+      <div class="pl-empty-hints">
+        <div class="pl-hint-row">→ create an engagement in the sidebar to begin</div>
+        <div class="pl-hint-row">→ connect vpn before targeting lab machines</div>
+        <div class="pl-hint-row">→ findings and session history are stored per engagement</div>
+      </div>
     </div>
   </div>
 {/if}
@@ -564,8 +574,8 @@
     font-size: 13px;
     line-height: 1.6;
     color: #c9d1d9;
-    background: rgba(31,111,235,0.07);
-    border: 1px solid rgba(31,111,235,0.12);
+    background: linear-gradient(135deg, rgba(31,111,235,0.1) 0%, rgba(31,111,235,0.04) 100%);
+    border: 1px solid rgba(31,111,235,0.15);
     border-radius: 8px;
     padding: 10px 14px;
     white-space: pre-wrap;
@@ -612,15 +622,16 @@
     margin: 10px 0;
     border-radius: 6px;
     overflow: hidden;
-    border: 1px solid #30363d;
+    border: 1px solid #21262d;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
   }
   :global(.pl-code-head) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px 12px;
-    background: #161b22;
-    border-bottom: 1px solid #30363d;
+    padding: 5px 12px;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
   }
   :global(.pl-code-lang) {
     font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -642,7 +653,7 @@
   :global(.pl-code-wrap .pl-code-block) { margin: 0; border-radius: 0; border: none; }
 
   :global(.pl-code-block) {
-    background: #010409;
+    background: #060a0f;
     border: 1px solid #30363d;
     border-radius: 6px;
     padding: 12px 14px;
@@ -651,7 +662,7 @@
     line-height: 1.55;
     overflow-x: auto;
     margin: 8px 0;
-    color: #c9d1d9;
+    color: #cdd9e5;
     white-space: pre;
     display: block;
   }
@@ -699,7 +710,7 @@
   /* ── Tool call (terminal style) ──────────────────────────────── */
 
   .pl-tool-call {
-    background: #0a0d14;
+    background: #060a0f;
     border: 1px solid #21262d;
     border-left: 2px solid rgba(159,239,0,0.4);
     border-radius: 0 5px 5px 0;
@@ -740,19 +751,18 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 6px 0;
-    color: #6e7681;
-    font-size: 12px;
+    padding: 4px 0;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
   }
-  .pl-thinking .d {
-    width: 4px; height: 4px;
-    border-radius: 50%;
-    background: #6e7681;
-    animation: plBlink 1.2s infinite;
+  .pl-think-ps { color: #30363d; }
+  .pl-think-text { color: #484f58; letter-spacing: 0.04em; }
+  .pl-think-cursor {
+    color: #388bfd;
+    font-size: 10px;
+    animation: blink 1s step-end infinite;
+    opacity: 0.8;
   }
-  .pl-thinking .d:nth-child(2) { animation-delay: 0.2s; }
-  .pl-thinking .d:nth-child(3) { animation-delay: 0.4s; }
-  @keyframes plBlink { 0%, 60%, 100% { opacity: 0.3; } 30% { opacity: 1; } }
 
   :global(.pl-cursor) {
     display: inline;
@@ -800,7 +810,7 @@
     padding: 8px 10px;
     transition: border-color 0.12s;
   }
-  .pl-input-wrap:focus-within { border-color: #58a6ff; }
+  .pl-input-wrap:focus-within { border-color: #58a6ff; box-shadow: 0 0 0 3px rgba(88,166,255,0.08); }
 
   .pl-input {
     flex: 1;
@@ -960,26 +970,45 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #0d1117;
+    background:
+      radial-gradient(ellipse 70% 45% at 50% 50%, rgba(88,166,255,0.035) 0%, transparent 70%),
+      repeating-linear-gradient(0deg, transparent, transparent 39px, rgba(88,166,255,0.018) 39px, rgba(88,166,255,0.018) 40px),
+      repeating-linear-gradient(90deg, transparent, transparent 39px, rgba(88,166,255,0.018) 39px, rgba(88,166,255,0.018) 40px),
+      #0d1117;
   }
 
   .pl-empty-state { text-align: center; user-select: none; }
 
-  .pl-empty-icon {
-    font-size: 44px;
+  .pl-empty-logo {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    margin-bottom: 10px;
+  }
+  .pl-logo-bracket { color: rgba(88,166,255,0.3); }
+  .pl-logo-text    { color: #30363d; }
+
+  .pl-empty-tag {
+    font-size: 10px;
     color: #21262d;
-    margin-bottom: 14px;
-    line-height: 1;
-    filter: drop-shadow(0 0 16px rgba(88,166,255,0.06));
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 30px;
   }
 
-  .pl-empty-title {
-    font-size: 16px;
-    font-weight: 600;
+  .pl-empty-hints {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .pl-hint-row {
+    font-size: 11px;
     color: #30363d;
-    margin-bottom: 6px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
     letter-spacing: 0.02em;
   }
-
-  .pl-empty-sub { font-size: 12px; color: #21262d; }
 </style>
