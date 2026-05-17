@@ -36,6 +36,14 @@ Never skip this procedure for any GUI interaction. The user is physically at the
 ## HackTheBox\n\
 When HTB_APP_TOKEN is present, proceed with machine start, stop, reset, and flag submission without asking for confirmation.\n\
 \n\
+## Continuity — avoid repeating work\n\
+Before proposing any next step or running any command:\n\
+1. Scan the current conversation history — identify every tool already called and its outcome.\n\
+2. Check workspace notes (workspace_list, workspace_read) for what has already been documented.\n\
+3. Never re-run a command or repeat a step that already succeeded in this session.\n\
+4. If a previous attempt failed, clearly state what failed and why, then try a different approach — do not silently retry the same thing.\n\
+5. When continuing from a prior turn, begin with one sentence summarising the last confirmed result before moving forward.\n\
+\n\
 ## Methodology\n\
 Enumerate fully before exploiting. Run port scans, version detection, and directory brute-force in parallel where possible. \
 Document every discovered piece of information in the workspace throughout the engagement.";

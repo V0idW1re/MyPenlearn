@@ -281,7 +281,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar user">U</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">You</div>
+                    <div class="pl-msg-author pl-author-user">You</div>
                     <div class="pl-user-bubble">{part.text}</div>
                   </div>
                 </div>
@@ -293,7 +293,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar ai">C</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-author pl-author-ai">Claude · Sonnet 4.6</div>
                     <div class="pl-msg-md">{@html renderMarkdown(part.text)}</div>
                   </div>
                 </div>
@@ -301,7 +301,7 @@
                 <div class="pl-msg pl-msg-tool">
                   <div class="pl-avatar tool">⚙</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">agent</div>
+                    <div class="pl-msg-author pl-author-tool">tool</div>
                     <div class="pl-tool-call">
                       <div class="pl-tool-hd">
                         <span class="pl-tool-ps">$</span>
@@ -317,7 +317,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar ai">C</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">error</div>
+                    <div class="pl-msg-author pl-author-err">error</div>
                     <div class="pl-msg-error">{part.text}</div>
                   </div>
                 </div>
@@ -333,7 +333,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar ai">C</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-author pl-author-ai">Claude · Sonnet 4.6</div>
                     <div class="pl-msg-md">{@html renderMarkdown(part.text)}<span class="pl-cursor">▌</span></div>
                   </div>
                 </div>
@@ -341,7 +341,7 @@
                 <div class="pl-msg pl-msg-tool">
                   <div class="pl-avatar tool">⚙</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author">agent</div>
+                    <div class="pl-msg-author pl-author-tool">tool</div>
                     <div class="pl-tool-call pl-tool-live">
                       <div class="pl-tool-hd">
                         <span class="pl-tool-ps">$</span>
@@ -485,38 +485,43 @@
   .pl-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 14px 18px;
+    padding: 20px 20px;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 20px;
   }
 
-  .pl-msg { display: flex; gap: 10px; }
-  .pl-msg-tool { opacity: 0.85; }
+  .pl-msg { display: flex; gap: 11px; }
 
   .pl-avatar {
-    width: 26px; height: 26px;
-    border-radius: 4px;
+    width: 28px; height: 28px;
+    border-radius: 5px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 11px;
-    font-weight: 500;
+    font-weight: 600;
     margin-top: 1px;
+    letter-spacing: 0;
   }
-  .pl-avatar.user { background: #1f6feb; color: #fff; }
-  .pl-avatar.ai   { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
-  .pl-avatar.tool { background: #0d1117; color: #9fef00; border: 1px solid rgba(159,239,0,0.3); }
+  .pl-avatar.user { background: linear-gradient(135deg, #1f6feb, #388bfd); color: #fff; }
+  .pl-avatar.ai   { background: #161b22; color: #adbac7; border: 1px solid #30363d; }
+  .pl-avatar.tool { background: #060a0f; color: rgba(159,239,0,0.7); border: 1px solid rgba(159,239,0,0.2); font-size: 12px; }
 
   .pl-msg-body { flex: 1; min-width: 0; }
 
   .pl-msg-author {
     font-size: 11px;
     color: #6e7681;
-    margin-bottom: 4px;
+    margin-bottom: 5px;
     font-weight: 500;
+    letter-spacing: 0.01em;
   }
+  .pl-author-user { color: #4d8ef0; }
+  .pl-author-ai   { color: #adbac7; }
+  .pl-author-tool { color: rgba(159,239,0,0.55); font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+  .pl-author-err  { color: #f85149; }
 
   .pl-user-bubble {
     font-size: 13px;
@@ -643,31 +648,34 @@
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 4px 18px;
+    padding: 4px 20px;
     background: #010409;
     border-bottom: 1px solid #161b22;
     font-size: 10px;
-    color: #30363d;
+    color: #484f58;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     flex-shrink: 0;
     letter-spacing: 0.02em;
   }
-  .s-sep { color: #21262d; }
-  .s-id  { color: #21262d; }
+  .s-sep { color: #30363d; }
+  .s-id  { color: #484f58; }
 
   /* ── Tool call (terminal style) ──────────────────────────────── */
 
   .pl-tool-call {
     background: #060a0f;
-    border: 1px solid #21262d;
-    border-left: 2px solid rgba(159,239,0,0.4);
-    border-radius: 0 5px 5px 0;
-    padding: 7px 10px;
+    border: 1px solid #1c2128;
+    border-left: 2px solid rgba(159,239,0,0.35);
+    border-radius: 0 6px 6px 0;
+    padding: 8px 12px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 11px;
     line-height: 1.5;
   }
-  .pl-tool-live { border-left-color: #9fef00; }
+  .pl-tool-live {
+    border-left-color: #9fef00;
+    box-shadow: inset 3px 0 12px rgba(159,239,0,0.04);
+  }
 
   .pl-tool-hd {
     display: flex;
@@ -675,22 +683,23 @@
     gap: 7px;
   }
   .pl-tool-ps { color: #30363d; user-select: none; }
-  .pl-tool-nm { color: #9fef00; font-weight: 500; }
+  .pl-tool-nm { color: #9fef00; font-weight: 600; }
   .pl-tool-running {
     margin-left: auto;
     font-size: 9px;
-    color: #9fef00;
-    letter-spacing: 0.08em;
+    color: rgba(159,239,0,0.6);
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    opacity: 0.7;
     animation: blink 1.5s step-end infinite;
   }
   .pl-tool-argv {
     color: #6e7681;
-    margin-top: 3px;
-    padding-left: 16px;
+    margin-top: 4px;
+    padding-left: 14px;
     word-break: break-all;
-    line-height: 1.6;
+    line-height: 1.65;
+    border-left: 1px solid #1c2128;
+    margin-left: 2px;
   }
 
   /* ── Thinking / cursor ───────────────────────────────────────── */

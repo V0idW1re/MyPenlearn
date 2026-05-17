@@ -21,6 +21,14 @@
     info:     "P4",
   };
 
+  const SEV_LEVELS = [
+    ["critical", "P0", "#f85149"],
+    ["high",     "P1", "#fb8500"],
+    ["medium",   "P2", "#d29922"],
+    ["low",      "P3", "#3fb950"],
+    ["info",     "P4", "#388bfd"],
+  ];
+
   let findings    = $state([]);
   let openFinding = $state(null);
   let unlisten;
@@ -54,9 +62,22 @@
     {/if}
   </div>
 
+  {#if findings.length > 0}
+    <div class="pl-sev-bar">
+      {#each SEV_LEVELS as [sev, prio, color]}
+        {@const cnt = findings.filter(f => f.severity === sev).length}
+        {#if cnt > 0}
+          <span class="pl-sev-chip" style="color:{color}">
+            {prio}<span class="pl-chip-sep">·</span>{cnt}
+          </span>
+        {/if}
+      {/each}
+    </div>
+  {/if}
+
   <div class="pl-find-list">
     {#if !project}
-      <div class="pl-find-empty">—</div>
+      <div class="pl-find-empty">No engagement selected.</div>
     {:else if findings.length === 0}
       <div class="pl-find-empty">No findings yet.</div>
     {:else}
@@ -131,6 +152,31 @@
     color: #8b949e;
     font-weight: 500;
     font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  .pl-sev-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 14px;
+    border-bottom: 1px solid #1c2128;
+    flex-shrink: 0;
+    background: #0d1117;
+  }
+
+  .pl-sev-chip {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+  }
+
+  .pl-chip-sep {
+    color: #30363d;
+    font-weight: 400;
   }
 
   .pl-find-list {
