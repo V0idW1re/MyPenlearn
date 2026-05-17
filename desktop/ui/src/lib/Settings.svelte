@@ -175,8 +175,8 @@
     font-family: "JetBrains Mono", ui-monospace, monospace;
     color: #9fef00;
     font-size: 11px;
-    background: rgba(159,239,0,0.07);
-    padding: 0 3px;
+    background: rgba(159,239,0,0.06);
+    padding: 1px 4px;
     border-radius: 3px;
   }
 
@@ -210,7 +210,7 @@
     outline: none;
     transition: border-color 0.12s;
   }
-  .pl-input:focus { border-color: #388bfd; }
+  .pl-input:focus { border-color: #58a6ff; }
   .pl-input[readonly] { cursor: default; color: #8b949e; }
 
   .pl-btn {
@@ -229,8 +229,8 @@
   .pl-btn:hover:not(:disabled) { background: #30363d; }
   .pl-btn:disabled { opacity: 0.45; cursor: default; }
 
-  .pl-btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
-  .pl-btn-primary:hover:not(:disabled) { background: #388bfd; border-color: #388bfd; }
+  .pl-btn-primary { background: #238636; border-color: #238636; color: #fff; }
+  .pl-btn-primary:hover:not(:disabled) { background: #2ea043; border-color: #2ea043; }
 
   .pl-vpn-actions {
     display: flex;
@@ -245,11 +245,11 @@
 
   .green {
     font-family: "JetBrains Mono", ui-monospace, monospace;
-    color: #3fb950;
+    color: #9fef00;
     font-size: 12px;
   }
-  .check { color: #3fb950; font-size: 13px; }
-  .ok    { font-size: 11px; color: #3fb950; font-weight: 500; }
+  .check { color: #9fef00; font-size: 14px; font-weight: 500; }
+  .ok    { font-size: 11px; color: #9fef00; font-weight: 500; }
   .dim-label { font-size: 12px; color: #6e7681; min-width: 90px; }
   .ml-auto { margin-left: auto; }
 </style>

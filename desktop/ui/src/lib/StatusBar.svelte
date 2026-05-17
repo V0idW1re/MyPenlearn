@@ -1,5 +1,5 @@
 <script>
-  let { vpnState, currentTool, sessionCost } = $props();
+  let { vpnState, currentTool, tokenCount } = $props();
 
   const DOT_COLOR = {
     connected:    "#3fb950",
@@ -17,10 +17,9 @@
     return "VPN · off";
   }
 
-  function fmtCost(usd) {
-    if (!usd || usd < 0.00001) return null;
-    if (usd < 0.01) return `$${(usd * 100).toFixed(3)}¢`;
-    return `$${usd.toFixed(4)}`;
+  function fmtTokens(n) {
+    if (!n || n < 100) return null;
+    return (n / 1000).toFixed(1) + "k";
   }
 </script>
 
@@ -31,49 +30,49 @@
   </div>
 
   {#if currentTool}
-    <div class="pl-status-item pl-tool-item">
+    <div class="pl-status-item">
       <span class="pl-dot pulse" style="background:#9fef00"></span>
+      <span>Tool:</span>
       <code>{currentTool}</code>
     </div>
   {/if}
 
   <div class="pl-status-item ml-auto">
     <span>Sonnet 4.6</span>
-    {#if fmtCost(sessionCost)}
+    {#if fmtTokens(tokenCount)}
       <span class="sep">·</span>
-      <code>{fmtCost(sessionCost)}</code>
+      <code>{fmtTokens(tokenCount)}</code>
+      <span>tokens</span>
     {/if}
   </div>
 </div>
 
 <style>
   .pl-statusbar {
-    height: 26px;
+    height: 28px;
     background: #010409;
-    border-top: 1px solid #21262d;
+    border-top: 1px solid #30363d;
     display: flex;
     align-items: center;
     padding: 0 12px;
-    gap: 16px;
+    gap: 18px;
     font-size: 11px;
-    color: #6e7681;
+    color: #8b949e;
     flex-shrink: 0;
   }
 
   .pl-status-item {
     display: flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     white-space: nowrap;
   }
-
-  .pl-tool-item { color: #c9d1d9; }
 
   .ml-auto { margin-left: auto; }
   .sep { color: #30363d; }
 
   .pl-dot {
-    width: 5px; height: 5px;
+    width: 6px; height: 6px;
     border-radius: 50%;
     flex-shrink: 0;
   }

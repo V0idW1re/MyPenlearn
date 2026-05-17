@@ -311,9 +311,7 @@
           use:autosize
         ></textarea>
         <button class="pl-send" onclick={send} disabled={sending || !input.trim()} aria-label="Send message">
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M.989 8 .064 2.68a1.342 1.342 0 0 1 1.85-1.462l13 6.5a1.25 1.25 0 0 1 0 2.264l-13 6.5a1.342 1.342 0 0 1-1.85-1.462L.989 9H9.75a.75.75 0 0 0 0-1.5H.989z"/>
-          </svg>
+          Send
         </button>
       </div>
     </div>
@@ -373,8 +371,8 @@
   }
 
   .pl-chat-head {
-    padding: 10px 18px;
-    border-bottom: 1px solid #21262d;
+    padding: 12px 18px;
+    border-bottom: 1px solid #30363d;
     display: flex;
     align-items: center;
     gap: 10px;
@@ -403,40 +401,37 @@
   .pl-messages {
     flex: 1;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 14px 18px;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 14px;
   }
 
   .pl-msg { display: flex; gap: 10px; }
   .pl-msg-tool { opacity: 0.85; }
 
   .pl-avatar {
-    width: 24px; height: 24px;
-    border-radius: 5px;
+    width: 26px; height: 26px;
+    border-radius: 4px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 10px;
-    font-weight: 700;
+    font-size: 11px;
+    font-weight: 500;
     margin-top: 1px;
-    letter-spacing: 0;
   }
   .pl-avatar.user { background: #1f6feb; color: #fff; }
-  .pl-avatar.ai   { background: #161b22; color: #8b949e; border: 1px solid #30363d; }
-  .pl-avatar.tool { background: #0d1117; color: #3fb950; border: 1px solid #21262d; font-size: 11px; }
+  .pl-avatar.ai   { background: #21262d; color: #c9d1d9; border: 1px solid #30363d; }
+  .pl-avatar.tool { background: #0d1117; color: #9fef00; border: 1px solid rgba(159,239,0,0.3); }
 
   .pl-msg-body { flex: 1; min-width: 0; }
 
   .pl-msg-author {
-    font-size: 10px;
-    color: #484f58;
-    margin-bottom: 5px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
+    font-size: 11px;
+    color: #6e7681;
+    margin-bottom: 4px;
+    font-weight: 500;
   }
 
   .pl-msg-text {
@@ -486,10 +481,10 @@
   }
 
   .pl-tool-call {
-    background: #010409;
-    border: 1px solid #21262d;
+    background: #161b22;
+    border: 1px solid #30363d;
     border-radius: 6px;
-    padding: 7px 10px;
+    padding: 8px 10px;
     font-family: "JetBrains Mono", ui-monospace, monospace;
     font-size: 11px;
     line-height: 1.5;
@@ -498,8 +493,8 @@
     gap: 6px;
     align-items: baseline;
   }
-  .pl-tool-name { color: #3fb950; font-weight: 600; }
-  .pl-tool-args { color: #6e7681; word-break: break-all; }
+  .pl-tool-name { color: #9fef00; font-weight: 500; }
+  .pl-tool-args { color: #8b949e; word-break: break-all; }
   .pl-tool-spin { color: #484f58; animation: blink 1s step-end infinite; }
 
   /* ── Thinking / cursor ───────────────────────────────────────── */
@@ -530,22 +525,22 @@
   /* ── Input area ──────────────────────────────────────────────── */
 
   .pl-input-area {
-    padding: 10px 18px 12px;
-    border-top: 1px solid #21262d;
+    padding: 12px 18px;
+    border-top: 1px solid #30363d;
     flex-shrink: 0;
   }
 
   .pl-input-wrap {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 8px;
-    background: #010409;
+    background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 8px;
     padding: 8px 10px;
     transition: border-color 0.12s;
   }
-  .pl-input-wrap:focus-within { border-color: #388bfd; }
+  .pl-input-wrap:focus-within { border-color: #58a6ff; }
 
   .pl-input {
     flex: 1;
@@ -565,73 +560,70 @@
   .pl-input::placeholder { color: #484f58; }
 
   .pl-send {
-    background: #1f6feb;
+    background: #238636;
     color: #fff;
     border: none;
-    padding: 6px 10px;
-    border-radius: 5px;
+    padding: 5px 12px;
+    border-radius: 4px;
     cursor: pointer;
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
     transition: background 0.12s;
-    margin-bottom: 1px;
   }
-  .pl-send:hover:not(:disabled) { background: #388bfd; }
+  .pl-send:hover:not(:disabled) { background: #2ea043; }
   .pl-send:disabled { opacity: 0.35; cursor: default; }
 
   /* ── Findings rail ───────────────────────────────────────────── */
 
   .pl-findings {
-    width: 230px;
-    background: #0d1117;
-    border-left: 1px solid #21262d;
+    width: 240px;
+    background: #161b22;
+    border-left: 1px solid #30363d;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
   }
 
   .pl-find-head {
-    padding: 10px 12px 7px;
+    padding: 14px 14px 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-shrink: 0;
-    border-bottom: 1px solid #21262d;
   }
 
   .pl-rail-label {
-    font-size: 10px;
-    color: #484f58;
-    letter-spacing: 0.09em;
+    font-size: 11px;
+    color: #6e7681;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .pl-find-count {
-    background: #161b22;
-    border: 1px solid #30363d;
-    padding: 0 7px;
+    background: #21262d;
+    padding: 1px 8px;
     border-radius: 10px;
-    font-size: 10px;
+    font-size: 11px;
     color: #8b949e;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .pl-find-list {
     flex: 1;
     overflow-y: auto;
-    padding: 8px 8px;
+    padding: 4px 8px;
   }
 
   .pl-finding {
-    background: transparent;
-    border: 1px solid #21262d;
+    background: #1c2128;
+    border: 1px solid #30363d;
     border-left: 3px solid;
-    border-radius: 5px;
-    padding: 7px 8px;
-    margin-bottom: 5px;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 6px;
     cursor: pointer;
     width: 100%;
     text-align: left;
@@ -640,8 +632,8 @@
     color: inherit;
     transition: background 0.1s;
   }
-  .pl-finding:hover { background: #161b22; }
-  .pl-finding.open  { background: #161b22; }
+  .pl-finding:hover { background: #21262d; }
+  .pl-finding.open  { background: #21262d; }
 
   .pl-finding-row { display: flex; align-items: center; gap: 6px; }
 
@@ -659,7 +651,7 @@
 
   .pl-finding-title {
     font-size: 12px;
-    color: #c9d1d9;
+    color: #e6edf3;
     font-weight: 500;
     flex: 1;
     line-height: 1.35;

@@ -259,27 +259,26 @@
   }
 
   .pl-side-head {
-    padding: 10px 12px 7px;
+    padding: 14px 14px 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     flex-shrink: 0;
-    border-bottom: 1px solid #21262d;
   }
 
   .pl-side-label {
-    font-size: 10px;
-    color: #484f58;
-    letter-spacing: 0.09em;
+    font-size: 11px;
+    color: #6e7681;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    font-weight: 600;
+    font-weight: 500;
   }
 
   .pl-plus {
-    background: transparent;
+    background: #21262d;
     border: 1px solid #30363d;
-    color: #6e7681;
-    width: 20px; height: 20px;
+    color: #c9d1d9;
+    width: 22px; height: 22px;
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
@@ -288,9 +287,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.1s, color 0.1s, border-color 0.1s;
   }
-  .pl-plus:hover { background: #161b22; border-color: #8b949e; color: #e6edf3; }
+  .pl-plus:hover { background: #30363d; color: #fff; }
 
   .pl-projects {
     padding: 4px 6px;

@@ -8,11 +8,11 @@
   import Settings from "./lib/Settings.svelte";
 
   let activeProject = $state(null);
-  let vpnState = $state({ status: "disconnected", tun_ip: null, profile_name: null });
-  let sessionId = $state(null);
-  let activeTab = $state("chat");   // "chat" | "settings"
+  let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
+  let sessionId  = $state(null);
+  let activeTab  = $state("chat");
   let currentTool = $state(null);
-  let sessionCost = $state(0);     // USD accumulated for this session
+  let tokenCount = $state(0);   // rough estimate: cost_usd * 200k
 
   onMount(async () => {
     await listen("vpn://state", (e) => { vpnState = e.payload; });
@@ -25,7 +25,7 @@
     await listen("claude://chunk", (e) => {
       const c = e.payload;
       if (c.kind === "tool_use") currentTool = c.tool_name;
-      if (c.cost_usd != null) sessionCost += c.cost_usd;
+      if (c.cost_usd != null) tokenCount += Math.round(c.cost_usd * 200000);
     });
 
     try { vpnState = await invoke("vpn_status"); } catch (_) {}
@@ -35,7 +35,7 @@
     activeProject = project;
     sessionId = null;
     currentTool = null;
-    sessionCost = 0;
+    tokenCount = 0;
     if (project) {
       invoke("claude_set_context", {
         projectId: project.id,
@@ -46,7 +46,6 @@
 </script>
 
 <div class="pl-app">
-  <!-- Titlebar -->
   <div class="pl-titlebar">
     <div class="pl-traffic">
       <span style="background:#ff5f57"></span>
@@ -59,10 +58,9 @@
       <button class="pl-tab" class:active={activeTab === "settings"}
         onclick={() => activeTab = "settings"}>Settings</button>
     </div>
-    <div class="pl-app-name">Penligent Local</div>
+    <div class="pl-app-name">Penligent Local 0.1.0</div>
   </div>
 
-  <!-- Main views -->
   <div class="pl-main" style="display:{activeTab === 'chat' ? 'flex' : 'none'}">
     <div class="pl-sidebar">
       <Sidebar {activeProject} onSelect={handleProjectSelect} />
@@ -74,15 +72,13 @@
     <Settings {vpnState} />
   </div>
 
-  <!-- Status bar -->
-  <StatusBar {vpnState} {currentTool} {sessionCost} />
+  <StatusBar {vpnState} {currentTool} {tokenCount} />
 </div>
 
 <style>
   :global(*, *::before, *::after) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) { background: #0d1117; }
 
-  /* Thin scrollbars globally */
   :global(*::-webkit-scrollbar)       { width: 5px; height: 5px; }
   :global(*::-webkit-scrollbar-track) { background: transparent; }
   :global(*::-webkit-scrollbar-thumb) { background: #30363d; border-radius: 3px; }
@@ -102,51 +98,42 @@
   .pl-titlebar {
     height: 38px;
     background: #010409;
-    border-bottom: 1px solid #21262d;
+    border-bottom: 1px solid #30363d;
     display: flex;
     align-items: center;
     padding: 0 12px;
     gap: 10px;
     flex-shrink: 0;
-    -webkit-app-region: drag;
   }
 
   .pl-traffic { display: flex; gap: 6px; }
   .pl-traffic :global(span) {
     width: 11px; height: 11px; border-radius: 50%; display: block;
-    -webkit-app-region: no-drag;
   }
 
-  .pl-tabs {
-    display: flex;
-    gap: 2px;
-    margin-left: 14px;
-    -webkit-app-region: no-drag;
-  }
+  .pl-tabs { display: flex; gap: 2px; margin-left: 14px; }
 
   .pl-tab {
-    padding: 5px 12px;
+    padding: 6px 12px;
     border-radius: 5px;
     cursor: pointer;
-    color: #6e7681;
+    color: #8b949e;
     font-size: 12px;
     font-weight: 500;
     user-select: none;
     background: none;
     border: none;
     font-family: inherit;
-    transition: color 0.12s, background 0.12s;
   }
-  .pl-tab:hover:not(.active) { background: #161b22; color: #c9d1d9; }
+  .pl-tab:hover:not(.active) { background: #1c2128; }
   .pl-tab.active { background: #21262d; color: #e6edf3; }
 
   .pl-app-name {
     margin-left: auto;
-    font-size: 11px;
-    color: #484f58;
+    font-size: 12px;
+    color: #6e7681;
     font-weight: 500;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+    letter-spacing: 0.02em;
   }
 
   .pl-main {
@@ -158,8 +145,8 @@
 
   .pl-sidebar {
     width: 220px;
-    background: #0d1117;
-    border-right: 1px solid #21262d;
+    background: #161b22;
+    border-right: 1px solid #30363d;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
