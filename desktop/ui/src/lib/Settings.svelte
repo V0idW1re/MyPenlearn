@@ -6,19 +6,24 @@
 
   let { vpnState } = $props();
 
-  let htbToken     = $state("");
-  let htbMcpToken  = $state("");
-  let tokenSaved   = $state(false);
-  let mcpTokenSaved = $state("");  // "" | "saving" | "ok" | error string
-  let ovpnPath     = $state("");
-  let ovpnName     = $state("");
-  let ovpnKind     = $state("");
-  let ovpnRegion   = $state("");
-  let vpnError     = $state("");
-  let connecting   = $state(false);
-  let vpnProfiles  = $state([]);
-  let profileSaved = $state(false);
+  let htbToken        = $state("");
+  let htbTokenVisible = $state(false);
+  let htbTokenStatus  = $state(""); // "" | "saving" | "ok" | error string
+
+  let ovpnPath      = $state("");
+  let ovpnName      = $state("");
+  let ovpnKind      = $state("");
+  let ovpnRegion    = $state("");
+  let vpnError      = $state("");
+  let connecting    = $state(false);
+  let vpnProfiles   = $state([]);
+  let profileSaved  = $state(false);
   let autoReconnect = $state(false);
+
+  let claudeVersion        = $state("");
+  let claudeVersionLoading = $state(true);
+  let toolCount            = $state(null);
+  let toolCountLoading     = $state(false);
 
   onMount(async () => {
     try {
@@ -31,11 +36,42 @@
       if (autoReconnect) await invoke("vpn_set_auto_reconnect", { enabled: true });
     } catch (_) {}
     await loadProfiles();
+    fetchClaudeVersion();
+    fetchToolCount();
   });
+
+  async function fetchClaudeVersion() {
+    claudeVersionLoading = true;
+    try { claudeVersion = await invoke("get_claude_version"); }
+    catch (_) { claudeVersion = ""; }
+    finally { claudeVersionLoading = false; }
+  }
+
+  async function fetchToolCount() {
+    toolCountLoading = true;
+    try { toolCount = await invoke("count_mcp_tools"); }
+    catch (_) { toolCount = null; }
+    finally { toolCountLoading = false; }
+  }
 
   async function loadProfiles() {
     try { vpnProfiles = await invoke("list_vpn_profiles"); }
     catch (_) { vpnProfiles = []; }
+  }
+
+  async function saveToken() {
+    if (!htbToken.trim()) return;
+    htbTokenStatus = "saving";
+    try {
+      await invoke("save_config_value", { key: "htb_app_token", value: htbToken.trim() });
+      await invoke("save_config_value", { key: "htb_mcp_token", value: htbToken.trim() });
+      await invoke("register_htb_mcp_server", { token: htbToken.trim() });
+      htbTokenStatus = "ok";
+      setTimeout(() => { htbTokenStatus = ""; }, 3000);
+    } catch (e) {
+      htbTokenStatus = String(e);
+      setTimeout(() => { htbTokenStatus = ""; }, 5000);
+    }
   }
 
   async function saveProfile() {
@@ -43,8 +79,7 @@
     const name = ovpnName.trim() || ovpnPath.split("/").pop().replace(".ovpn", "");
     try {
       await invoke("save_vpn_profile", {
-        name,
-        ovpnPath,
+        name, ovpnPath,
         kind: ovpnKind || "",
         region: ovpnRegion.trim() || null,
       });
@@ -71,28 +106,6 @@
     ovpnRegion = p.region || "";
   }
 
-  async function saveToken() {
-    try {
-      await invoke("save_config_value", { key: "htb_app_token", value: htbToken.trim() });
-      tokenSaved = true;
-      setTimeout(() => { tokenSaved = false; }, 2000);
-    } catch (e) { console.error(e); }
-  }
-
-  async function saveMcpToken() {
-    if (!htbMcpToken.trim()) return;
-    mcpTokenSaved = "saving";
-    try {
-      await invoke("save_config_value", { key: "htb_mcp_token", value: htbMcpToken.trim() });
-      const msg = await invoke("register_htb_mcp_server", { token: htbMcpToken.trim() });
-      mcpTokenSaved = "ok";
-      setTimeout(() => { mcpTokenSaved = ""; }, 3000);
-    } catch (e) {
-      mcpTokenSaved = String(e);
-      setTimeout(() => { mcpTokenSaved = ""; }, 5000);
-    }
-  }
-
   async function toggleAutoReconnect() {
     autoReconnect = !autoReconnect;
     await invoke("save_config_value", { key: "vpn_auto_reconnect", value: String(autoReconnect) });
@@ -111,16 +124,12 @@
 
   async function connectVpn() {
     if (!ovpnPath) return;
-    connecting = true;
-    vpnError = "";
+    connecting = true; vpnError = "";
     try {
       const profileName = ovpnName.trim() || ovpnPath.split("/").pop().replace(".ovpn", "");
       await invoke("vpn_connect", { ovpnPath, profileName });
-    } catch (e) {
-      vpnError = String(e);
-    } finally {
-      connecting = false;
-    }
+    } catch (e) { vpnError = String(e); }
+    finally { connecting = false; }
   }
 
   async function disconnectVpn() {
@@ -132,60 +141,62 @@
 
 <div class="pl-settings">
 
-  <!-- HTB Credentials -->
+  <!-- HackTheBox -->
   <section class="pl-section">
-    <h3>HackTheBox credentials</h3>
-    <p>Stored locally in <code>~/.local/share/penligent-local/config.json</code> and passed to the MCP server as <code>HTB_APP_TOKEN</code>.</p>
-
-    <div class="pl-field">
-      <span class="pl-label">HTB App Token <span class="dim">· REST API</span></span>
-      <span class="pl-hint">HTB profile → Settings → API → create app token.</span>
-      <div class="pl-row">
-        <input
-          class="pl-input"
-          type="password"
-          placeholder="eyJ0eXAi…"
-          bind:value={htbToken}
-          onkeydown={(e) => e.key === 'Enter' && saveToken()}
-        />
-        <button class="pl-btn pl-btn-primary" onclick={saveToken} disabled={!htbToken.trim()}>
-          {tokenSaved ? "Saved ✓" : "Save"}
-        </button>
-      </div>
+    <div class="pl-section-head">
+      <h3>HackTheBox</h3>
+      <span class="pl-section-sub">REST API + CTF MCP server</span>
     </div>
 
     <div class="pl-field">
-      <span class="pl-label">HTB MCP Bearer Token <span class="dim">· CTF MCP server</span></span>
-      <span class="pl-hint">HTB profile → MCP → copy Bearer token. Saved and auto-registered with <code>claude mcp add</code>.</span>
+      <div class="pl-field-header">
+        <span class="pl-label">API Token</span>
+        {#if htbTokenStatus === 'ok'}
+          <span class="pl-badge pl-badge-ok">● registered</span>
+        {:else if htbTokenStatus === 'saving'}
+          <span class="pl-badge pl-badge-dim">saving…</span>
+        {:else if htbToken && !htbTokenStatus}
+          <span class="pl-badge pl-badge-dim">● saved</span>
+        {/if}
+      </div>
+      <span class="pl-hint">HTB profile → Settings → API → create app token. Used for REST API and MCP server authentication.</span>
       <div class="pl-row">
-        <input
-          class="pl-input"
-          type="password"
-          placeholder="Bearer token from HTB MCP page"
-          bind:value={htbMcpToken}
-          onkeydown={(e) => e.key === 'Enter' && saveMcpToken()}
-        />
-        <button class="pl-btn pl-btn-primary" onclick={saveMcpToken} disabled={!htbMcpToken.trim() || mcpTokenSaved === 'saving'}>
-          {mcpTokenSaved === 'saving' ? 'Registering…' : mcpTokenSaved === 'ok' ? 'Registered ✓' : 'Save & Register'}
+        <div class="pl-input-wrap">
+          <input
+            class="pl-input pl-input-mono"
+            type={htbTokenVisible ? "text" : "password"}
+            placeholder="eyJ0eXAi…"
+            bind:value={htbToken}
+            onkeydown={(e) => e.key === 'Enter' && saveToken()}
+          />
+          <button class="pl-eye" onclick={() => htbTokenVisible = !htbTokenVisible}
+            title={htbTokenVisible ? "Hide" : "Show"}>
+            {htbTokenVisible ? "◉" : "○"}
+          </button>
+        </div>
+        <button class="pl-btn pl-btn-primary" onclick={saveToken}
+          disabled={!htbToken.trim() || htbTokenStatus === 'saving'}>
+          {htbTokenStatus === 'saving' ? 'Saving…' : htbTokenStatus === 'ok' ? 'Saved ✓' : 'Save & Register'}
         </button>
       </div>
-      {#if mcpTokenSaved && mcpTokenSaved !== 'saving' && mcpTokenSaved !== 'ok'}
-        <span class="pl-mcp-err">{mcpTokenSaved}</span>
+      {#if htbTokenStatus && htbTokenStatus !== 'saving' && htbTokenStatus !== 'ok'}
+        <span class="pl-field-err">{htbTokenStatus}</span>
       {/if}
     </div>
   </section>
 
   <!-- OpenVPN -->
   <section class="pl-section">
-    <h3>OpenVPN</h3>
-    <p>Spawned as a managed subprocess. One active tunnel at a time.</p>
+    <div class="pl-section-head">
+      <h3>OpenVPN</h3>
+      <span class="pl-section-sub">One active tunnel at a time</span>
+    </div>
 
     <div class="pl-field">
-      <span class="pl-label">Profile</span>
-      <span class="pl-hint">Select a saved profile or browse for a .ovpn file.</span>
-      <div class="pl-row">
-        <input class="pl-input" bind:value={ovpnName} placeholder="Profile name (optional)" style="flex:0 0 130px" />
-        <select class="pl-input pl-select" bind:value={ovpnKind} style="flex:0 0 140px">
+      <span class="pl-label">Add profile</span>
+      <div class="pl-row" style="flex-wrap:wrap;gap:5px">
+        <input class="pl-input" bind:value={ovpnName} placeholder="Name (optional)" style="flex:0 0 130px" />
+        <select class="pl-input pl-select" bind:value={ovpnKind} style="flex:0 0 150px">
           <option value="">— type —</option>
           <option value="starting_point">Starting Point</option>
           <option value="machines">Machines</option>
@@ -195,10 +206,10 @@
           <option value="release_arena">Release Arena</option>
           <option value="custom_authorized">Custom / Authorized</option>
         </select>
-        <input class="pl-input" bind:value={ovpnRegion} placeholder="Region (e.g. eu-1)" style="flex:0 0 100px" />
+        <input class="pl-input" bind:value={ovpnRegion} placeholder="Region (eu-1)" style="flex:0 0 90px" />
       </div>
-      <div class="pl-row" style="margin-top:4px">
-        <input class="pl-input" value={ovpnPath} placeholder="~/Downloads/lab.ovpn" readonly style="flex:1" />
+      <div class="pl-row" style="margin-top:5px">
+        <input class="pl-input pl-input-mono" value={ovpnPath} placeholder="Select .ovpn file…" readonly style="flex:1" />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
         <button class="pl-btn pl-btn-primary" onclick={saveProfile} disabled={!ovpnPath}>
           {profileSaved ? "Saved ✓" : "Save"}
@@ -212,12 +223,13 @@
         <div class="pl-profiles">
           {#each vpnProfiles as p (p.id)}
             <div class="pl-profile-row" class:is-default={p.is_default}>
-              <button class="pl-profile-load" onclick={() => loadProfile(p)} title="Load this profile">
+              <button class="pl-profile-load" onclick={() => loadProfile(p)}>
                 {#if p.is_default}<span class="pl-default-star">★</span>{/if}
-                {p.name}
-                {#if p.kind}<span class="pl-profile-kind">{p.kind}</span>{/if}
+                <span class="pl-profile-name">{p.name}</span>
+                {#if p.kind}<span class="pl-profile-tag">{p.kind.replace(/_/g, ' ')}</span>{/if}
+                {#if p.region}<span class="pl-profile-region">{p.region}</span>{/if}
               </button>
-              <button class="pl-profile-star" onclick={() => setDefaultProfile(p.id)} title="Set as default">☆</button>
+              <button class="pl-profile-star" onclick={() => setDefaultProfile(p.id)} title="Set default">☆</button>
               <button class="pl-profile-del" onclick={() => removeProfile(p.id)} title="Delete">✕</button>
             </div>
           {/each}
@@ -226,58 +238,85 @@
     {/if}
 
     <div class="pl-field">
-      <span class="pl-label">Auto-reconnect on drop</span>
-      <span class="pl-hint">Automatically reconnect when the VPN tunnel drops (3 s delay).</span>
-      <div class="pl-row">
-        <button class="pl-toggle" class:on={autoReconnect} onclick={toggleAutoReconnect}>
+      <div class="pl-row" style="gap:10px">
+        <span class="pl-label">Auto-reconnect on drop</span>
+        <button class="pl-toggle" class:on={autoReconnect} onclick={toggleAutoReconnect}
+          aria-label="Toggle auto-reconnect" style="margin-left:auto">
           <span class="pl-toggle-knob"></span>
         </button>
-        <span class="pl-toggle-label">{autoReconnect ? 'Enabled' : 'Disabled'}</span>
+        <span class="pl-toggle-label">{autoReconnect ? 'On' : 'Off'}</span>
       </div>
     </div>
 
-    <div class="pl-field">
-      <span class="pl-label">Privilege mode</span>
-      <span class="pl-hint">Narrow sudoers rule — only <code>/usr/sbin/openvpn</code> runs without password.</span>
-      <div class="pl-row">
-        <code class="green">/etc/sudoers.d/penligent-openvpn</code>
-        <span class="check ml-auto">✓</span>
-      </div>
-    </div>
-
-    <div class="pl-vpn-actions">
+    <div class="pl-vpn-bar">
       {#if vpnState?.status === "connected"}
-        <span class="vpn-on">● Connected · {vpnState.tun_ip ?? "—"}</span>
-        <button class="pl-btn" onclick={disconnectVpn}>Disconnect</button>
+        <span class="pl-vpn-dot pl-vpn-on"></span>
+        <span class="pl-vpn-label">{vpnState.profile_name ?? "Connected"} · <code>{vpnState.tun_ip ?? "—"}</code></span>
+        <button class="pl-btn pl-btn-danger" onclick={disconnectVpn} style="margin-left:auto">Disconnect</button>
       {:else if vpnState?.status === "connecting"}
-        <span class="vpn-pending">● Connecting…</span>
+        <span class="pl-vpn-dot pl-vpn-pending"></span>
+        <span class="pl-vpn-label">Connecting…</span>
       {:else}
+        <span class="pl-vpn-dot pl-vpn-off"></span>
+        <span class="pl-vpn-label">Not connected</span>
         <button class="pl-btn pl-btn-primary" onclick={connectVpn}
-          disabled={connecting || !ovpnPath}>
-          {connecting ? "Connecting…" : "Connect VPN"}
+          disabled={connecting || !ovpnPath} style="margin-left:auto">
+          {connecting ? "Connecting…" : "Connect"}
         </button>
       {/if}
-      {#if vpnError}<span class="vpn-err">{vpnError}</span>{/if}
+      {#if vpnError}<span class="pl-field-err">{vpnError}</span>{/if}
     </div>
   </section>
 
-  <!-- Agent runtime -->
+  <!-- Agent Runtime -->
   <section class="pl-section">
-    <h3>Agent runtime</h3>
-    <p>Penligent delegates authentication to Claude Code. Run <code>claude</code> at least once to log in.</p>
-
-    <div class="pl-field">
-      <div class="pl-row">
-        <span class="dim-label">Claude Code</span>
-        <code class="green">~/.local/bin/claude</code>
-        <span class="check ml-auto">✓</span>
-      </div>
+    <div class="pl-section-head">
+      <h3>Agent Runtime</h3>
+      <span class="pl-section-sub">Local-only · no cloud except Anthropic</span>
     </div>
-    <div class="pl-field">
-      <div class="pl-row">
-        <span class="dim-label">MCP server</span>
-        <code class="green">penligent-local</code>
-        <span class="ok ml-auto">connected · 206 tools</span>
+
+    <div class="pl-runtime-grid">
+      <div class="pl-rt-row">
+        <span class="pl-rt-label">Claude Code</span>
+        <code class="pl-rt-path">~/.local/bin/claude</code>
+        <span class="pl-rt-right">
+          {#if claudeVersionLoading}
+            <span class="pl-rt-dim">checking…</span>
+          {:else if claudeVersion}
+            <span class="pl-rt-ok">{claudeVersion}</span>
+          {:else}
+            <span class="pl-rt-warn">not found</span>
+          {/if}
+        </span>
+      </div>
+
+      <div class="pl-rt-row">
+        <span class="pl-rt-label">MCP tools</span>
+        <code class="pl-rt-path">penligent_mcp</code>
+        <span class="pl-rt-right">
+          {#if toolCountLoading}
+            <span class="pl-rt-dim">scanning…</span>
+          {:else if toolCount !== null}
+            <span class="pl-rt-ok">{toolCount} tools registered</span>
+          {:else}
+            <span class="pl-rt-warn">—</span>
+          {/if}
+          <button class="pl-rt-refresh" onclick={fetchToolCount} disabled={toolCountLoading} title="Rescan tools">
+            {toolCountLoading ? "…" : "↻"}
+          </button>
+        </span>
+      </div>
+
+      <div class="pl-rt-row">
+        <span class="pl-rt-label">Data dir</span>
+        <code class="pl-rt-path">~/.local/share/penligent-local</code>
+        <span class="pl-rt-right pl-rt-ok">✓</span>
+      </div>
+
+      <div class="pl-rt-row">
+        <span class="pl-rt-label">Sudoers rule</span>
+        <code class="pl-rt-path">/etc/sudoers.d/penligent-openvpn</code>
+        <span class="pl-rt-right pl-rt-ok">✓ openvpn only</span>
       </div>
     </div>
   </section>
@@ -289,7 +328,7 @@
     padding: 20px 28px;
     overflow-y: auto;
     flex: 1;
-    max-width: 640px;
+    max-width: 660px;
   }
 
   .pl-section {
@@ -298,42 +337,52 @@
   }
   .pl-section:last-child { border-bottom: none; }
 
-  .pl-section h3 {
+  .pl-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .pl-section-head h3 {
     font-size: 13px;
     color: #e6edf3;
     font-weight: 600;
-    margin: 0 0 4px;
+    margin: 0;
     letter-spacing: 0.01em;
     border-left: 2px solid #30363d;
     padding-left: 10px;
   }
-
-  .pl-section p {
-    font-size: 12px;
-    color: #6e7681;
-    margin: 0 0 14px;
-    line-height: 1.55;
-  }
-  .pl-section p code, .pl-hint code {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    color: #9fef00;
+  .pl-section-sub {
     font-size: 11px;
-    background: rgba(159,239,0,0.06);
-    padding: 1px 4px;
-    border-radius: 3px;
+    color: #484f58;
   }
 
   .pl-field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin-bottom: 12px;
+    gap: 5px;
+    margin-bottom: 14px;
   }
   .pl-field:last-child { margin-bottom: 0; }
 
+  .pl-field-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
   .pl-label { font-size: 12px; color: #c9d1d9; font-weight: 500; }
-  .dim { color: #6e7681; font-weight: 400; font-size: 11px; }
-  .pl-hint { font-size: 11px; color: #6e7681; line-height: 1.5; }
+  .pl-hint  { font-size: 11px; color: #6e7681; line-height: 1.5; }
+
+  .pl-badge {
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 10px;
+    letter-spacing: 0.04em;
+  }
+  .pl-badge-ok  { background: rgba(63,185,80,0.12); color: #3fb950; border: 1px solid rgba(63,185,80,0.25); }
+  .pl-badge-dim { background: rgba(139,148,158,0.1); color: #8b949e; border: 1px solid #30363d; }
 
   .pl-row {
     display: flex;
@@ -341,21 +390,53 @@
     align-items: center;
   }
 
-  .pl-input {
+  .pl-input-wrap {
+    position: relative;
     flex: 1;
+  }
+  .pl-input-wrap .pl-input { width: 100%; padding-right: 30px; }
+
+  .pl-eye {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #484f58;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
+    line-height: 1;
+  }
+  .pl-eye:hover { color: #8b949e; }
+
+  .pl-input {
     background: #0d1117;
     border: 1px solid #30363d;
     border-radius: 5px;
     color: #c9d1d9;
     padding: 7px 10px;
     font-size: 12px;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: inherit;
     outline: none;
     transition: border-color 0.12s;
+    box-sizing: border-box;
   }
   .pl-input:focus { border-color: #58a6ff; }
   .pl-input[readonly] { cursor: default; color: #8b949e; }
-  .pl-select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e7681'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px; }
+  .pl-input-mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+  .pl-select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e7681'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+  }
+
+  .pl-field-err { font-size: 11px; color: #f85149; margin-top: 2px; }
 
   .pl-btn {
     background: #21262d;
@@ -372,30 +453,10 @@
   }
   .pl-btn:hover:not(:disabled) { background: #30363d; }
   .pl-btn:disabled { opacity: 0.45; cursor: default; }
-
   .pl-btn-primary { background: #238636; border-color: #238636; color: #fff; }
   .pl-btn-primary:hover:not(:disabled) { background: #2ea043; border-color: #2ea043; }
-
-  .pl-vpn-actions {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-top: 10px;
-  }
-
-  .vpn-on     { font-size: 12px; color: #3fb950; margin-right: auto; }
-  .vpn-pending { font-size: 12px; color: #febc2e; margin-right: auto; }
-  .vpn-err    { font-size: 11px; color: #f85149; }
-
-  .green {
-    font-family: "JetBrains Mono", ui-monospace, monospace;
-    color: #9fef00;
-    font-size: 12px;
-  }
-  .check { color: #9fef00; font-size: 14px; font-weight: 500; }
-  .ok    { font-size: 11px; color: #9fef00; font-weight: 500; }
-  .dim-label { font-size: 12px; color: #6e7681; min-width: 90px; }
-  .ml-auto { margin-left: auto; }
+  .pl-btn-danger { background: transparent; border-color: #f85149; color: #f85149; }
+  .pl-btn-danger:hover:not(:disabled) { background: rgba(248,81,73,0.1); }
 
   .pl-profiles {
     display: flex;
@@ -410,9 +471,9 @@
     background: #0d1117;
     border: 1px solid #21262d;
     border-radius: 4px;
-    padding: 3px 6px;
+    padding: 4px 6px;
   }
-  .pl-profile-row.is-default { border-color: #58a6ff; }
+  .pl-profile-row.is-default { border-color: #388bfd; }
   .pl-profile-load {
     flex: 1;
     background: none;
@@ -429,33 +490,31 @@
     gap: 6px;
   }
   .pl-profile-load:hover { background: #21262d; }
-  .pl-default-star { color: #58a6ff; }
-  .pl-profile-kind { font-size: 10px; color: #8b949e; border: 1px solid #30363d; border-radius: 3px; padding: 0 4px; }
-  .pl-profile-star, .pl-profile-del {
-    background: none;
-    border: none;
-    color: #8b949e;
-    cursor: pointer;
-    font-size: 12px;
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-family: inherit;
-    line-height: 1;
+  .pl-default-star { color: #388bfd; font-size: 11px; }
+  .pl-profile-name { font-weight: 500; }
+  .pl-profile-tag {
+    font-size: 10px; color: #8b949e;
+    border: 1px solid #30363d; border-radius: 3px;
+    padding: 0 5px; text-transform: capitalize;
   }
-  .pl-profile-star:hover { color: #58a6ff; }
+  .pl-profile-region {
+    font-size: 10px; color: #6e7681;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+  .pl-profile-star, .pl-profile-del {
+    background: none; border: none;
+    color: #484f58; cursor: pointer;
+    font-size: 12px; padding: 2px 5px;
+    border-radius: 3px; font-family: inherit; line-height: 1;
+  }
+  .pl-profile-star:hover { color: #388bfd; }
   .pl-profile-del:hover { color: #f85149; }
-
-  .pl-mcp-err { font-size: 11px; color: #f85149; margin-top: 2px; }
 
   .pl-toggle {
     width: 36px; height: 20px;
-    background: #21262d;
-    border: 1px solid #30363d;
-    border-radius: 10px;
-    cursor: pointer;
-    padding: 0;
-    position: relative;
-    flex-shrink: 0;
+    background: #21262d; border: 1px solid #30363d;
+    border-radius: 10px; cursor: pointer; padding: 0;
+    position: relative; flex-shrink: 0;
     transition: background 0.15s, border-color 0.15s;
   }
   .pl-toggle.on { background: #238636; border-color: #238636; }
@@ -463,11 +522,89 @@
     position: absolute;
     top: 2px; left: 2px;
     width: 14px; height: 14px;
-    background: #8b949e;
-    border-radius: 50%;
+    background: #8b949e; border-radius: 50%;
     transition: left 0.15s, background 0.15s;
   }
   .pl-toggle.on .pl-toggle-knob { left: 18px; background: #fff; }
-  .pl-toggle-label { font-size: 12px; color: #8b949e; }
+  .pl-toggle-label { font-size: 11px; color: #6e7681; }
   .pl-toggle.on + .pl-toggle-label { color: #3fb950; }
+
+  .pl-vpn-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    margin-top: 4px;
+  }
+  .pl-vpn-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%; flex-shrink: 0;
+  }
+  .pl-vpn-on      { background: #3fb950; box-shadow: 0 0 5px rgba(63,185,80,0.5); }
+  .pl-vpn-pending { background: #febc2e; }
+  .pl-vpn-off     { background: #484f58; }
+  .pl-vpn-label   { font-size: 12px; color: #c9d1d9; }
+  .pl-vpn-label code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px; color: #9fef00;
+  }
+
+  .pl-runtime-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .pl-rt-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
+  }
+  .pl-rt-row:last-child { border-bottom: none; }
+  .pl-rt-label {
+    font-size: 11px;
+    color: #6e7681;
+    font-weight: 500;
+    width: 90px;
+    flex-shrink: 0;
+  }
+  .pl-rt-path {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: #484f58;
+    flex: 1;
+  }
+  .pl-rt-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    min-width: 140px;
+    justify-content: flex-end;
+  }
+  .pl-rt-ok   { font-size: 11px; color: #3fb950; font-weight: 500; }
+  .pl-rt-warn { font-size: 11px; color: #d29922; }
+  .pl-rt-dim  { font-size: 11px; color: #484f58; }
+  .pl-rt-refresh {
+    background: none;
+    border: 1px solid #30363d;
+    color: #6e7681;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    line-height: 1.4;
+    font-family: inherit;
+    transition: color 0.1s, border-color 0.1s;
+  }
+  .pl-rt-refresh:hover:not(:disabled) { color: #58a6ff; border-color: #58a6ff; }
+  .pl-rt-refresh:disabled { opacity: 0.4; cursor: default; }
 </style>

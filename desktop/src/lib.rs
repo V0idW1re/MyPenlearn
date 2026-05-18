@@ -62,6 +62,8 @@ pub fn run() {
             db_commands::verify_message_chain,
             db_commands::install_sudoers_rule,
             db_commands::read_workspace_file,
+            db_commands::count_mcp_tools,
+            db_commands::get_claude_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running penligent-local");

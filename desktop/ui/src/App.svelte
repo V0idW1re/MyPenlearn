@@ -28,7 +28,6 @@
   let wizardOpen  = $state(false);
   let wizardStep  = $state(1);
   let wzHtbToken  = $state("");
-  let wzMcpToken  = $state("");
   let wzOvpnPath  = $state("");
   let wzSudoersDone = $state(false);
   let wzSudoersErr  = $state("");
@@ -167,10 +166,8 @@
     try {
       if (wzHtbToken.trim()) {
         await invoke("save_config_value", { key: "htb_app_token", value: wzHtbToken.trim() });
-      }
-      if (wzMcpToken.trim()) {
-        await invoke("save_config_value", { key: "htb_mcp_token", value: wzMcpToken.trim() });
-        await invoke("register_htb_mcp_server", { token: wzMcpToken.trim() }).catch(() => {});
+        await invoke("save_config_value", { key: "htb_mcp_token", value: wzHtbToken.trim() });
+        await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() }).catch(() => {});
       }
       if (wzOvpnPath) {
         const name = wzOvpnPath.split("/").pop().replace(".ovpn", "");
@@ -264,7 +261,7 @@
         <div class="pl-wiz-header">
           <span class="pl-wiz-title">Welcome to Penligent Local</span>
           <div class="pl-wiz-steps">
-            {#each [1,2,3,4] as s}
+            {#each [1,2,3] as s}
               <span class="pl-wiz-dot" class:active={s === wizardStep} class:done={s < wizardStep}></span>
             {/each}
           </div>
@@ -272,14 +269,10 @@
 
         <div class="pl-wiz-body">
           {#if wizardStep === 1}
-            <p class="pl-wiz-label">HTB App Token</p>
-            <p class="pl-wiz-hint">HTB profile → Settings → API → create app token. Used for REST API calls.</p>
+            <p class="pl-wiz-label">HTB API Token</p>
+            <p class="pl-wiz-hint">HTB profile → Settings → API → create app token. Used for REST API calls and MCP server authentication.</p>
             <input class="pl-wiz-input" type="password" placeholder="eyJ0eXAi…" bind:value={wzHtbToken} />
           {:else if wizardStep === 2}
-            <p class="pl-wiz-label">HTB MCP Bearer Token</p>
-            <p class="pl-wiz-hint">HTB profile → MCP → copy Bearer token. Enables HTB CTF tools in the agent.</p>
-            <input class="pl-wiz-input" type="password" placeholder="Bearer token from HTB MCP page" bind:value={wzMcpToken} />
-          {:else if wizardStep === 3}
             <p class="pl-wiz-label">OpenVPN privilege</p>
             <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted.</p>
             {#if wzSudoersDone}
@@ -290,7 +283,7 @@
               </button>
               {#if wzSudoersErr}<span class="pl-wiz-err">{wzSudoersErr}</span>{/if}
             {/if}
-          {:else if wizardStep === 4}
+          {:else if wizardStep === 3}
             <p class="pl-wiz-label">Default VPN profile</p>
             <p class="pl-wiz-hint">Select your HTB .ovpn file. You can add more profiles in Settings later.</p>
             <div class="pl-wiz-row">
@@ -301,7 +294,7 @@
         </div>
 
         <div class="pl-wiz-actions">
-          {#if wizardStep < 4}
+          {#if wizardStep < 3}
             <button class="pl-wiz-skip" onclick={() => wizardStep++} disabled={wzBusy}>Skip</button>
             <button class="pl-wiz-next" onclick={() => wizardStep++} disabled={wzBusy}>Next →</button>
           {:else}

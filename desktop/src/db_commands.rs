@@ -1216,3 +1216,48 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
         Err(format!("claude mcp add failed: {stdout}{stderr}"))
     }
 }
+
+#[tauri::command]
+pub fn count_mcp_tools() -> Result<u32, String> {
+    let mut dirs: Vec<std::path::PathBuf> = vec![
+        std::path::PathBuf::from("/usr/lib/penligent-local/mcp-server/penligent_mcp/tools"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            dirs.push(parent.join("../../../mcp-server/penligent_mcp/tools"));
+        }
+    }
+    for dir in &dirs {
+        if !dir.exists() { continue; }
+        let mut count = 0u32;
+        if let Ok(rd) = std::fs::read_dir(dir) {
+            for entry in rd.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("py") { continue; }
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    for line in content.lines() {
+                        if line.starts_with("register(") { count += 1; }
+                    }
+                }
+            }
+        }
+        if count > 0 { return Ok(count); }
+    }
+    Ok(0)
+}
+
+#[tauri::command]
+pub fn get_claude_version() -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let claude_local = format!("{home}/.local/bin/claude");
+    let output = std::process::Command::new(&claude_local)
+        .arg("--version")
+        .output()
+        .or_else(|_| std::process::Command::new("claude").arg("--version").output())
+        .map_err(|e| e.to_string())?;
+    let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if s.is_empty() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    Ok(s)
+}
