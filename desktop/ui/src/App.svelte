@@ -44,7 +44,7 @@
           projectId: project.id,
           workDir: `${home}/penligent/projects/${project.name}/workspace`,
         }).catch(console.error);
-      });
+      }).catch(console.error);
     }
   }
 </script>

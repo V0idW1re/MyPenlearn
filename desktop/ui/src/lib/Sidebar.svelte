@@ -20,6 +20,7 @@
   let pickedKind  = $state("");
   let newName     = $state("");
   let creating    = $state(false);
+  let createError = $state("");
   let ctxMenu     = $state(null);
   let savedId     = $state(null);
   let renamingId  = $state(null);
@@ -51,19 +52,21 @@
     ctxMenu = { x: e.clientX, y: e.clientY, proj };
   }
 
-  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; }
+  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; createError = ""; }
   function closeModal() { modalStep = 0; }
 
   async function createProject() {
     if (!newName.trim()) return;
     creating = true;
+    createError = "";
     try {
       const project = await invoke("create_project", { name: newName.trim(), target: "", kind: pickedKind });
       projects = [...projects, project];
       closeModal();
       onSelect(project);
-    } catch (_) {}
-    finally { creating = false; }
+    } catch (e) {
+      createError = String(e);
+    } finally { creating = false; }
   }
 
   function startRename(proj) {
@@ -224,6 +227,9 @@
           <span class="pl-field-hint">Used as the workspace directory name. Keep it short and filesystem-safe.</span>
           <input class="pl-text-input" placeholder="e.g. Cap" bind:value={newName}
             onkeydown={(e) => e.key === "Enter" && createProject()} />
+          {#if createError}
+            <span class="pl-field-error">{createError}</span>
+          {/if}
         </div>
         <div class="pl-modal-actions">
           <button class="pl-btn" onclick={() => { modalStep = 1; }}>Back</button>
@@ -499,7 +505,8 @@
   .pl-field:last-of-type { margin-bottom: 0; }
 
   .pl-field-label { font-size: 12px; color: #c9d1d9; font-weight: 500; }
-  .pl-field-hint { font-size: 11px; color: #6e7681; line-height: 1.5; }
+  .pl-field-hint  { font-size: 11px; color: #6e7681; line-height: 1.5; }
+  .pl-field-error { font-size: 11px; color: #f85149; line-height: 1.5; }
 
   .pl-text-input {
     background: #0d1117;

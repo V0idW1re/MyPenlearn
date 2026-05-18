@@ -12,8 +12,21 @@ if ! command -v python3 &>/dev/null; then
     exit 0
 fi
 
-python3 -m venv "$VENV"
-"$VENV/bin/pip" install --quiet --no-input "$INSTALL_DIR"
+# Ensure python3-venv is present (Debian splits it from base python3)
+if ! python3 -m venv --help &>/dev/null 2>&1; then
+    apt-get install -y python3-venv 2>/dev/null || true
+fi
+
+if ! python3 -m venv "$VENV"; then
+    echo "penligent-local: python3 -m venv failed — skipping MCP server setup" >&2
+    exit 0
+fi
+
+# Non-fatal: requires internet access the first time
+if ! "$VENV/bin/pip" install --quiet --no-input "$INSTALL_DIR"; then
+    echo "penligent-local: pip install failed (no internet?). Re-run manually:" >&2
+    echo "  sudo $VENV/bin/pip install $INSTALL_DIR" >&2
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Add sudoers rule for passwordless openvpn (so VPN connect works without a

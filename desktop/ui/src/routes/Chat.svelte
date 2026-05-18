@@ -36,7 +36,10 @@
     messages = [];
     try {
       const rows = await invoke("load_messages", { projectId: pid });
-      messages = rows.map(r => ({ role: r.role, parts: JSON.parse(r.content) }));
+      messages = rows.flatMap(r => {
+        try { return [{ role: r.role, parts: JSON.parse(r.content) }]; }
+        catch (_) { return []; }
+      });
     } catch (_) { messages = []; }
   }
 
