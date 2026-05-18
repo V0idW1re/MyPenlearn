@@ -88,6 +88,17 @@ async def _approve_intent(args: dict) -> list[TextContent]:
         return _ok(f"APPROVED: '{intent}' is auto-approved (passive/safe operation).")
 
     async with get_db() as db:
+        # Return existing valid approval rather than creating a duplicate pending row
+        existing = await _get_active_approval_constraints(db, int(project_id), intent)
+        if existing:
+            lines = [f"APPROVED: Active approval exists for '{intent}'."]
+            if existing["seconds_remaining"] is not None:
+                lines.append(f"Expires in: {existing['seconds_remaining']}s")
+            if existing["rate_limit"]:
+                lines.append(f"Rate limit: {existing['rate_limit']} req/min — enforce this")
+            if existing["stop_conditions"]:
+                lines.append(f"Stop conditions: {existing['stop_conditions']} — abort if returned")
+            return _ok("\n".join(lines))
         proj_row = await (await db.execute(
             "SELECT id, kind FROM projects WHERE id=?", (int(project_id),)
         )).fetchone()
@@ -155,6 +166,74 @@ async def _approve_intent(args: dict) -> list[TextContent]:
             "Penligent Local operates on a deny-by-default policy. "
             "If this operation is needed, request approval from the operator."
         )
+
+
+async def _get_active_approval_constraints(db, project_id: int, intent: str) -> dict | None:
+    """Return the most recent approved (non-expired) approval for this intent, or None."""
+    row = await (await db.execute(
+        """SELECT id, rate_limit, stop_conditions_json, time_window, decided_at
+           FROM approvals
+           WHERE project_id=? AND intent=? AND decision='approved'
+           ORDER BY decided_at DESC LIMIT 1""",
+        (project_id, intent),
+    )).fetchone()
+    if not row:
+        return None
+    time_window = row["time_window"]
+    decided_at = row["decided_at"] or 0
+    if time_window and decided_at and (time.time() - decided_at) > time_window:
+        return None  # expired
+    return {
+        "approval_id": row["id"],
+        "rate_limit": row["rate_limit"],
+        "stop_conditions": json.loads(row["stop_conditions_json"]) if row["stop_conditions_json"] else [],
+        "time_window": time_window,
+        "decided_at": decided_at,
+        "seconds_remaining": max(0, time_window - int(time.time() - decided_at)) if time_window else None,
+    }
+
+
+async def _check_approval_valid(args: dict) -> list[TextContent]:
+    project_id = args.get("project_id")
+    intent = (args.get("intent") or "").strip().upper()
+    if not project_id or not intent:
+        return _ok("Error: project_id and intent are required.")
+    async with get_db() as db:
+        constraints = await _get_active_approval_constraints(db, int(project_id), intent)
+    if not constraints:
+        return _ok(
+            f"NO ACTIVE APPROVAL for intent '{intent}'. "
+            "Call approve_intent first and wait for the operator to grant approval."
+        )
+    lines = [f"APPROVAL VALID for intent '{intent}'"]
+    if constraints["seconds_remaining"] is not None:
+        lines.append(f"  Expires in: {constraints['seconds_remaining']}s")
+    if constraints["rate_limit"]:
+        lines.append(f"  Rate limit: {constraints['rate_limit']} req/min — enforce this")
+    if constraints["stop_conditions"]:
+        lines.append(f"  Stop conditions: {constraints['stop_conditions']} — abort if any of these HTTP status codes are returned")
+    if not constraints["rate_limit"] and not constraints["stop_conditions"]:
+        lines.append("  No constraints attached.")
+    return _ok("\n".join(lines))
+
+
+register(
+    Tool(
+        name="check_approval_valid",
+        description=(
+            "Check whether a previously granted approval for an intent is still valid "
+            "(not expired by its time_window). Returns the current constraint state: "
+            "rate_limit, stop_conditions, seconds_remaining. "
+            "Call this at the start of a tool that was previously approved before executing."
+        ),
+        inputSchema=_s(
+            ["project_id", "intent"],
+            project_id=("integer", "Project ID"),
+            intent=("string", "Intent string, e.g. SCAN_ACTIVE, RUN_EXPLOIT, SPAWN_SHELL"),
+        ),
+    ),
+    _check_approval_valid,
+)
 
 
 register(

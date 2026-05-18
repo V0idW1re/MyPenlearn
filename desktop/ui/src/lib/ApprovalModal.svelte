@@ -6,6 +6,12 @@
   let reason = $state("");
   let deciding = $state(false);
 
+  let stopConditions = $derived((() => {
+    if (!approval.stop_conditions_json) return [];
+    try { return JSON.parse(approval.stop_conditions_json); }
+    catch (_) { return []; }
+  })());
+
   async function decide(decision) {
     deciding = true;
     try {
@@ -60,7 +66,18 @@
       {#if approval.time_window}
         <div class="pl-detail-row">
           <span class="pl-detail-label">Time window</span>
-          <span class="pl-detail-value">{approval.time_window}s</span>
+          <span class="pl-detail-value">{approval.time_window}s — approval valid for this duration after granted</span>
+        </div>
+      {/if}
+
+      {#if stopConditions.length > 0}
+        <div class="pl-detail-row">
+          <span class="pl-detail-label">Stop if</span>
+          <ul class="pl-stop-list">
+            {#each stopConditions as cond}
+              <li>{cond}</li>
+            {/each}
+          </ul>
         </div>
       {/if}
 
@@ -264,4 +281,25 @@
 
   .pl-sow-req { font-size: 10px; color: #d29922; font-weight: 400; text-transform: none; letter-spacing: 0; }
   .pl-optional { font-size: 10px; color: #484f58; font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+  .pl-stop-list {
+    list-style: none;
+    padding: 0; margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pl-stop-list li {
+    font-size: 11px;
+    color: #d29922;
+    padding-left: 10px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .pl-stop-list li::before {
+    content: "·";
+    position: absolute;
+    left: 0;
+    color: #484f58;
+  }
 </style>

@@ -2357,10 +2357,12 @@ version = "0.1.0"
 dependencies = [
  "dirs 5.0.1",
  "env_logger",
+ "hex",
  "log",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",

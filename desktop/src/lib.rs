@@ -54,6 +54,14 @@ pub fn run() {
             db_commands::write_project_notes,
             db_commands::register_htb_mcp_server,
             vpn::vpn_set_auto_reconnect,
+            db_commands::get_current_plan,
+            db_commands::get_plan_steps,
+            db_commands::list_execution_results,
+            db_commands::list_evidence_artifacts,
+            db_commands::persist_agent_message,
+            db_commands::verify_message_chain,
+            db_commands::install_sudoers_rule,
+            db_commands::read_workspace_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running penligent-local");

@@ -541,3 +541,153 @@ register(Tool(
     inputSchema=_s(["project_name"],
         project_name=("string", "Project name")),
 ), _task_status)
+
+
+# ---------------------------------------------------------------------------
+# record_evidence_artifact — link an artifact file to a finding
+# ---------------------------------------------------------------------------
+
+async def _record_evidence_artifact(args: dict) -> list[TextContent]:
+    risk_item_id = args.get("risk_item_id")
+    kind = (args.get("kind") or "").strip()
+    path = (args.get("path") or "").strip()
+    sha256 = (args.get("sha256") or "").strip()
+
+    if not risk_item_id:
+        return _ok("Error: risk_item_id is required.")
+    if not kind:
+        return _ok("Error: kind is required (screenshot|http_trace|token_log|pcap|har|dom_diff).")
+    if not path:
+        return _ok("Error: path is required.")
+    if not sha256:
+        # Auto-compute sha256 if file exists
+        p = Path(path)
+        if p.exists():
+            sha256 = hashlib.sha256(p.read_bytes()).hexdigest()
+        else:
+            return _ok(f"Error: sha256 is required (file not found at {path}).")
+
+    har_path = (args.get("har_path") or "").strip() or None
+    pcap_path = (args.get("pcap_path") or "").strip() or None
+    dom_diff_path = (args.get("dom_diff_path") or "").strip() or None
+    console_log_path = (args.get("console_log_path") or "").strip() or None
+    reviewer = (args.get("reviewer") or "").strip() or None
+
+    try:
+        from ..db import get_db as _get_db
+        async with _get_db() as db:
+            row = await (await db.execute(
+                "SELECT id FROM risk_items WHERE id=?", (int(risk_item_id),)
+            )).fetchone()
+            if not row:
+                return _ok(f"Error: risk_item_id {risk_item_id} not found.")
+            cur = await db.execute(
+                """INSERT INTO evidence_artifacts
+                   (risk_item_id, kind, path, sha256, har_path, pcap_path,
+                    dom_diff_path, console_log_path, reviewer)
+                   VALUES(?,?,?,?,?,?,?,?,?)""",
+                (int(risk_item_id), kind, path, sha256, har_path, pcap_path,
+                 dom_diff_path, console_log_path, reviewer),
+            )
+            await db.commit()
+            artifact_id = cur.lastrowid
+    except Exception as e:
+        return _ok(f"DB error: {e}")
+
+    return _ok(
+        f"Evidence artifact recorded: id={artifact_id}\n"
+        f"  kind={kind} risk_item_id={risk_item_id}\n"
+        f"  path={path}\n"
+        f"  sha256={sha256[:16]}…"
+    )
+
+register(Tool(
+    name="record_evidence_artifact",
+    description=(
+        "Link an evidence artifact file to a finding (risk_items row). "
+        "Call after saving an HTTP trace, screenshot, token log, pcap, HAR, or DOM diff "
+        "to disk. The sha256 is auto-computed if omitted and the file exists."
+    ),
+    inputSchema=_s(
+        ["risk_item_id", "kind", "path"],
+        risk_item_id=("integer", "risk_items.id this artifact belongs to"),
+        kind=("string", "Artifact type: screenshot|http_trace|token_log|pcap|har|dom_diff"),
+        path=("string", "Absolute path to the artifact file"),
+        sha256=("string", "SHA-256 hex digest (auto-computed if omitted)"),
+        har_path=("string", "Path to companion HAR file (optional)"),
+        pcap_path=("string", "Path to companion PCAP file (optional)"),
+        dom_diff_path=("string", "Path to DOM diff file (optional)"),
+        console_log_path=("string", "Path to browser console log (optional)"),
+        reviewer=("string", "Reviewer identity (optional)"),
+    ),
+), _record_evidence_artifact)
+
+
+# ---------------------------------------------------------------------------
+# save_binary_artifact — decode base64 → disk, register in evidence_artifacts
+# ---------------------------------------------------------------------------
+
+async def _save_binary_artifact(args: dict) -> list[TextContent]:
+    import base64
+    project_name = (args.get("project_name") or "").strip()
+    kind = (args.get("kind") or "screenshot").strip()
+    filename = (args.get("filename") or "").strip()
+    b64_content = (args.get("base64_content") or "").strip()
+    risk_item_id = args.get("risk_item_id")
+
+    if not project_name or not filename or not b64_content:
+        return _ok("Error: project_name, filename, and base64_content are required.")
+
+    KIND_DIRS = {
+        "screenshot": "evidence/screenshots",
+        "http_trace": "evidence/http",
+        "token_log": "evidence/tokens",
+        "pcap": "evidence/pcap",
+        "har": "evidence/har",
+        "dom_diff": "evidence/dom_diff",
+    }
+    sub = KIND_DIRS.get(kind, f"evidence/{kind}")
+    ws = _ws(project_name)
+    dest_dir = ws / sub
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / filename
+
+    try:
+        data = base64.b64decode(b64_content)
+    except Exception as e:
+        return _ok(f"Error: base64 decode failed — {e}")
+
+    dest.write_bytes(data)
+    sha256 = hashlib.sha256(data).hexdigest()
+
+    # Optionally link to a finding
+    if risk_item_id:
+        await _record_evidence_artifact({
+            "risk_item_id": risk_item_id,
+            "kind": kind,
+            "path": str(dest),
+            "sha256": sha256,
+        })
+
+    return _ok(
+        f"Binary artifact saved: {project_name}/{sub}/{filename}\n"
+        f"  size={len(data)} bytes  sha256={sha256[:16]}…"
+        + (f"\n  linked to risk_item_id={risk_item_id}" if risk_item_id else "")
+    )
+
+register(Tool(
+    name="save_binary_artifact",
+    description=(
+        "Decode a base64-encoded binary and save it to the project workspace under "
+        "evidence/<kind>/. Optionally link it to a finding via risk_item_id. "
+        "Use for screenshots, PCAP files, HAR exports, and other binary evidence."
+    ),
+    inputSchema=_s(
+        ["project_name", "filename", "base64_content"],
+        project_name=("string", "Project name"),
+        kind=("string", "Artifact type: screenshot|http_trace|token_log|pcap|har|dom_diff (default: screenshot)"),
+        filename=("string", "Destination filename, e.g. admin-session.png"),
+        base64_content=("string", "Base64-encoded file content"),
+        risk_item_id=("integer", "Optional risk_items.id to link the artifact to"),
+    ),
+), _save_binary_artifact)

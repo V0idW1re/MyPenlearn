@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use rusqlite::{Connection, params};
 use std::path::PathBuf;
+use sha2::{Sha256, Digest};
 
 // ── Struct definitions ───────────────────────────────────────────────────────
 
@@ -55,6 +56,10 @@ fn config_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_default()
         .join(".local/share/penligent-local/config.json")
+}
+
+pub fn open_db() -> Result<Connection, String> {
+    open()
 }
 
 fn open() -> Result<Connection, String> {
@@ -619,17 +624,18 @@ pub struct VpnProfile {
 }
 
 #[tauri::command]
-pub fn save_vpn_profile(name: String, ovpn_path: String, kind: String) -> Result<VpnProfile, String> {
+pub fn save_vpn_profile(name: String, ovpn_path: String, kind: String, region: Option<String>) -> Result<VpnProfile, String> {
     let name = name.trim().to_string();
     let ovpn_path = ovpn_path.trim().to_string();
     if name.is_empty() || ovpn_path.is_empty() {
         return Err("name and ovpn_path are required".into());
     }
     let kind_opt = if kind.is_empty() { None } else { Some(kind) };
+    let region_opt = region.filter(|s| !s.trim().is_empty());
     let conn = open()?;
     conn.execute(
-        "INSERT INTO vpn_profiles(name, ovpn_path, kind) VALUES(?1,?2,?3)",
-        params![name, ovpn_path, kind_opt],
+        "INSERT INTO vpn_profiles(name, ovpn_path, kind, region) VALUES(?1,?2,?3,?4)",
+        params![name, ovpn_path, kind_opt, region_opt],
     ).map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
     Ok(VpnProfile { id, name, ovpn_path, kind: kind_opt, last_connected_at: None, is_default: false })
@@ -836,6 +842,347 @@ pub fn write_project_notes(project_name: String, content: String) -> Result<(), 
         .join("workspace");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("notes.md"), content).map_err(|e| e.to_string())
+}
+
+// ── Plans ─────────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlanView {
+    pub id: i64,
+    pub project_id: i64,
+    pub objective: String,
+    pub constraints_json: Option<String>,
+    pub version: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PlanStep {
+    pub id: i64,
+    pub plan_id: i64,
+    pub step_idx: i64,
+    pub verb: String,
+    pub target: Option<String>,
+    pub status: String,
+    pub started_at: Option<i64>,
+    pub ended_at: Option<i64>,
+}
+
+#[tauri::command]
+pub fn get_current_plan(project_id: i64) -> Result<Option<PlanView>, String> {
+    let conn = open()?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plans'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !exists { return Ok(None); }
+
+    let row = conn.query_row(
+        "SELECT id, project_id, objective, constraints_json, version, created_at \
+         FROM plans WHERE project_id=?1 ORDER BY created_at DESC LIMIT 1",
+        params![project_id],
+        |r| Ok(PlanView {
+            id: r.get(0)?,
+            project_id: r.get(1)?,
+            objective: r.get(2)?,
+            constraints_json: r.get(3)?,
+            version: r.get(4)?,
+            created_at: r.get(5)?,
+        }),
+    );
+    match row {
+        Ok(p) => Ok(Some(p)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn get_plan_steps(plan_id: i64) -> Result<Vec<PlanStep>, String> {
+    let conn = open()?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plan_steps'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !exists { return Ok(vec![]); }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, plan_id, step_idx, verb, target, status, started_at, ended_at \
+         FROM plan_steps WHERE plan_id=?1 ORDER BY step_idx",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![plan_id], |r| {
+        Ok(PlanStep {
+            id: r.get(0)?,
+            plan_id: r.get(1)?,
+            step_idx: r.get(2)?,
+            verb: r.get(3)?,
+            target: r.get(4)?,
+            status: r.get(5)?,
+            started_at: r.get(6)?,
+            ended_at: r.get(7)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+// ── Execution results ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecResult {
+    pub id: i64,
+    pub project_id: i64,
+    pub tool_name: String,
+    pub args_json: Option<String>,
+    pub exit_code: Option<i64>,
+    pub status: Option<String>,
+    pub started_at: Option<i64>,
+    pub ended_at: Option<i64>,
+    pub artifact_hash: Option<String>,
+    pub mitre_attack_id: Option<String>,
+}
+
+#[tauri::command]
+pub fn list_execution_results(project_id: i64) -> Result<Vec<ExecResult>, String> {
+    let conn = open()?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='execution_results'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !exists { return Ok(vec![]); }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, tool_name, args_json, exit_code, status, \
+         started_at, ended_at, artifact_hash, mitre_attack_id \
+         FROM execution_results WHERE project_id=?1 \
+         ORDER BY COALESCE(started_at, id) DESC LIMIT 50",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![project_id], |r| {
+        Ok(ExecResult {
+            id: r.get(0)?,
+            project_id: r.get(1)?,
+            tool_name: r.get(2)?,
+            args_json: r.get(3)?,
+            exit_code: r.get(4)?,
+            status: r.get(5)?,
+            started_at: r.get(6)?,
+            ended_at: r.get(7)?,
+            artifact_hash: r.get(8)?,
+            mitre_attack_id: r.get(9)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+// ── Evidence artifacts ────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EvidenceArtifact {
+    pub id: i64,
+    pub risk_item_id: i64,
+    pub kind: String,
+    pub path: String,
+    pub sha256: String,
+    pub captured_at: i64,
+}
+
+#[tauri::command]
+pub fn list_evidence_artifacts(risk_item_id: i64) -> Result<Vec<EvidenceArtifact>, String> {
+    let conn = open()?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='evidence_artifacts'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !exists { return Ok(vec![]); }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, risk_item_id, kind, path, sha256, captured_at \
+         FROM evidence_artifacts WHERE risk_item_id=?1 ORDER BY captured_at DESC",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![risk_item_id], |r| {
+        Ok(EvidenceArtifact {
+            id: r.get(0)?,
+            risk_item_id: r.get(1)?,
+            kind: r.get(2)?,
+            path: r.get(3)?,
+            sha256: r.get(4)?,
+            captured_at: r.get(5)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+// ── Agent messages hash chain ─────────────────────────────────────────────────
+
+fn sha256_hex(data: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+#[tauri::command]
+pub fn persist_agent_message(
+    session_id: i64,
+    turn_idx: i64,
+    role: String,
+    content_json: String,
+    tokens: Option<i64>,
+) -> Result<(), String> {
+    let conn = open()?;
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS agent_messages (
+            id           INTEGER PRIMARY KEY,
+            session_id   INTEGER NOT NULL,
+            turn_idx     INTEGER NOT NULL,
+            role         TEXT    NOT NULL,
+            content_json TEXT    NOT NULL,
+            tokens       INTEGER,
+            created_at   INTEGER DEFAULT (strftime('%s','now')),
+            hash_prev    TEXT,
+            hash_self    TEXT    NOT NULL
+        )"
+    );
+
+    let prev_hash: Option<String> = conn.query_row(
+        "SELECT hash_self FROM agent_messages WHERE session_id=?1 ORDER BY turn_idx DESC LIMIT 1",
+        params![session_id],
+        |r| r.get(0),
+    ).ok();
+
+    let chain_input = format!(
+        "{}|{}",
+        &content_json,
+        prev_hash.as_deref().unwrap_or("genesis")
+    );
+    let hash_self = sha256_hex(&chain_input);
+    let hash_prev = prev_hash.as_deref().unwrap_or("genesis").to_string();
+
+    conn.execute(
+        "INSERT INTO agent_messages(session_id, turn_idx, role, content_json, tokens, hash_prev, hash_self)
+         VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![session_id, turn_idx, role, content_json, tokens, hash_prev, hash_self],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn persist_agent_message_internal(
+    session_id: i64,
+    turn_idx: i64,
+    role: &str,
+    content_json: &str,
+    tokens: Option<i64>,
+) {
+    if let Ok(conn) = open() {
+        let _ = conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS agent_messages (
+                id           INTEGER PRIMARY KEY,
+                session_id   INTEGER NOT NULL,
+                turn_idx     INTEGER NOT NULL,
+                role         TEXT    NOT NULL,
+                content_json TEXT    NOT NULL,
+                tokens       INTEGER,
+                created_at   INTEGER DEFAULT (strftime('%s','now')),
+                hash_prev    TEXT,
+                hash_self    TEXT    NOT NULL
+            )"
+        );
+        let prev_hash: Option<String> = conn.query_row(
+            "SELECT hash_self FROM agent_messages WHERE session_id=?1 ORDER BY turn_idx DESC LIMIT 1",
+            params![session_id],
+            |r| r.get(0),
+        ).ok();
+        let chain_input = format!(
+            "{}|{}",
+            content_json,
+            prev_hash.as_deref().unwrap_or("genesis")
+        );
+        let hash_self = sha256_hex(&chain_input);
+        let hash_prev = prev_hash.unwrap_or_else(|| "genesis".to_string());
+        let _ = conn.execute(
+            "INSERT INTO agent_messages(session_id, turn_idx, role, content_json, tokens, hash_prev, hash_self)
+             VALUES(?1,?2,?3,?4,?5,?6,?7)",
+            params![session_id, turn_idx, role, content_json, tokens, hash_prev, hash_self],
+        );
+    }
+}
+
+#[tauri::command]
+pub fn verify_message_chain(session_id: i64) -> Result<bool, String> {
+    let conn = open()?;
+    let exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_messages'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !exists { return Ok(true); }
+
+    let mut stmt = conn.prepare(
+        "SELECT content_json, hash_prev, hash_self FROM agent_messages \
+         WHERE session_id=?1 ORDER BY turn_idx",
+    ).map_err(|e| e.to_string())?;
+
+    let mut prev = "genesis".to_string();
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map(params![session_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for (content_json, hash_prev_stored, hash_self_stored) in &rows {
+        if hash_prev_stored != &prev {
+            return Ok(false);
+        }
+        let chain_input = format!("{}|{}", content_json, hash_prev_stored);
+        let expected = sha256_hex(&chain_input);
+        if &expected != hash_self_stored {
+            return Ok(false);
+        }
+        prev = hash_self_stored.clone();
+    }
+    Ok(true)
+}
+
+// ── Sudoers rule installer ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn install_sudoers_rule() -> Result<(), String> {
+    let user = std::env::var("USER").unwrap_or_else(|_| "kali".to_string());
+    let rule = format!("{user} ALL=(root) NOPASSWD: /usr/sbin/openvpn\n");
+    let tmp = "/tmp/penligent-sudoers";
+    std::fs::write(tmp, &rule).map_err(|e| e.to_string())?;
+    let out = std::process::Command::new("sudo")
+        .args(["install", "-m", "440", "-o", "root", "-g", "root", tmp, "/etc/sudoers.d/penligent-openvpn"])
+        .output()
+        .map_err(|e| format!("sudo install failed: {e}"))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+    }
+}
+
+// ── Read workspace file contents for inline preview ──────────────────────────
+
+#[tauri::command]
+pub fn read_workspace_file(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err(format!("File not found: {path}"));
+    }
+    // Limit preview to 32 KiB
+    let data = std::fs::read(p).map_err(|e| e.to_string())?;
+    let preview = &data[..data.len().min(32768)];
+    match std::str::from_utf8(preview) {
+        Ok(s) => Ok(s.to_string()),
+        Err(_) => Ok(format!("[binary file — {} bytes]", data.len())),
+    }
 }
 
 // ── Register HTB MCP server via `claude mcp add` ──────────────────────────────

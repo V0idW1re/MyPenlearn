@@ -43,18 +43,38 @@
 
   let findings    = $state([]);
   let openFinding = $state(null);
+  let execResults = $state([]);
+  let execOpen    = $state(false);
+  let evidenceMap = $state({});  // risk_item_id -> array of artifacts
   let unlisten;
 
   $effect(() => {
     const pid = project?.id;
     findings = [];
     openFinding = null;
+    execResults = [];
+    evidenceMap = {};
     if (pid) load(pid);
   });
 
   async function load(pid) {
     try { findings = await invoke("list_findings", { projectId: pid }); }
     catch (_) { findings = []; }
+    try { execResults = await invoke("list_execution_results", { projectId: pid }); }
+    catch (_) { execResults = []; }
+  }
+
+  async function loadEvidence(riskItemId) {
+    if (evidenceMap[riskItemId]) return;
+    try {
+      const arts = await invoke("list_evidence_artifacts", { riskItemId });
+      evidenceMap = { ...evidenceMap, [riskItemId]: arts };
+    } catch (_) { evidenceMap = { ...evidenceMap, [riskItemId]: [] }; }
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return "—";
+    return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
   onMount(async () => {
@@ -124,6 +144,21 @@
             {#if f.impact}
               <div class="pl-finding-impact">{f.impact}</div>
             {/if}
+            {#if openFinding === f.id}
+              {loadEvidence(f.id)}
+              {@const arts = evidenceMap[f.id] || []}
+              {#if arts.length > 0}
+                <div class="pl-evidence">
+                  {#each arts as a (a.id)}
+                    <div class="pl-evidence-row" title={a.path}>
+                      <span class="pl-ev-kind">{a.kind}</span>
+                      <span class="pl-ev-path">{a.path.split("/").slice(-2).join("/")}</span>
+                      <span class="pl-ev-hash">{a.sha256.slice(0,8)}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            {/if}
             <div class="pl-finding-meta">
               <span class="pl-meta-status"
                 class:verified={f.status === 'verified'}
@@ -161,6 +196,29 @@
       {/each}
     {/if}
   </div>
+
+  {#if execResults.length > 0}
+    <div class="pl-exec-section">
+      <button class="pl-exec-head" onclick={() => execOpen = !execOpen}>
+        <span class="pl-rail-label">Runs</span>
+        <span class="pl-find-count">{execResults.length}</span>
+        <span class="pl-exec-chevron">{execOpen ? '▴' : '▾'}</span>
+      </button>
+      {#if execOpen}
+        <div class="pl-exec-list">
+          {#each execResults.slice(0, 20) as r (r.id)}
+            <div class="pl-exec-row">
+              <span class="pl-exec-tool">{r.tool_name}</span>
+              <span class="pl-exec-exit" class:ok={r.exit_code === 0} class:fail={r.exit_code !== 0 && r.exit_code != null}>
+                {r.exit_code != null ? r.exit_code : '—'}
+              </span>
+              <span class="pl-exec-time">{fmtTime(r.started_at)}</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -418,5 +476,101 @@
     color: #6e7681;
     line-height: 1.35;
     word-break: break-word;
+  }
+
+  .pl-evidence {
+    margin-top: 6px;
+    border-top: 1px solid #21262d;
+    padding-top: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pl-evidence-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+  .pl-ev-kind {
+    font-size: 8px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #d29922;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+  .pl-ev-path {
+    font-size: 9px;
+    color: #6e7681;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+  .pl-ev-hash {
+    font-size: 8px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #484f58;
+    flex-shrink: 0;
+  }
+
+  .pl-exec-section {
+    border-top: 1px solid #21262d;
+    flex-shrink: 0;
+  }
+  .pl-exec-head {
+    width: 100%;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-exec-head:hover { background: #1c2128; }
+  .pl-exec-chevron { font-size: 9px; color: #484f58; margin-left: auto; }
+
+  .pl-exec-list {
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 2px 8px 6px;
+  }
+  .pl-exec-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 4px;
+    border-radius: 3px;
+    min-width: 0;
+  }
+  .pl-exec-row:hover { background: #1c2128; }
+  .pl-exec-tool {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    color: #8b949e;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pl-exec-exit {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    color: #484f58;
+    flex-shrink: 0;
+    min-width: 14px;
+    text-align: right;
+  }
+  .pl-exec-exit.ok   { color: #3fb950; }
+  .pl-exec-exit.fail { color: #f85149; }
+  .pl-exec-time {
+    font-size: 9px;
+    color: #484f58;
+    flex-shrink: 0;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 </style>

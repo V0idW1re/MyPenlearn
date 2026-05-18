@@ -444,6 +444,29 @@ pub async fn run_turn(
 
     let mut lines = BufReader::new(stdout).lines();
     let mut new_session_id: Option<String> = None;
+    let mut assistant_text_buf = String::new();
+
+    // Persist the user message (best-effort)
+    {
+        let s = state.lock().unwrap();
+        if let Some(db_id) = s.db_session_id {
+            let turn_idx: i64 = {
+                // Quick count of existing rows to derive next idx
+                if let Ok(conn) = crate::db_commands::open_db() {
+                    conn.query_row(
+                        "SELECT COUNT(*) FROM agent_messages WHERE session_id=?1",
+                        rusqlite::params![db_id],
+                        |r| r.get::<_, i64>(0),
+                    ).unwrap_or(0)
+                } else { 0 }
+            };
+            crate::db_commands::persist_agent_message_internal(
+                db_id, turn_idx, "user",
+                &serde_json::to_string(&message).unwrap_or_else(|_| format!("\"{}\"", message)),
+                None,
+            );
+        }
+    }
 
     while let Ok(Some(line)) = lines.next_line().await {
         let line = line.trim().to_string();
@@ -477,13 +500,18 @@ pub async fn run_turn(
                 if let Some(msg) = event.message {
                     for block in msg.content.unwrap_or_default() {
                         let chunk = match block.kind.as_str() {
-                            "text" => ChatChunk {
-                                kind: "text".into(),
-                                text: block.text,
-                                tool_name: None,
-                                tool_input: None,
-                                session_id: event.session_id.clone(),
-                                cost_usd: None,
+                            "text" => {
+                                if let Some(ref t) = block.text {
+                                    assistant_text_buf.push_str(t);
+                                }
+                                ChatChunk {
+                                    kind: "text".into(),
+                                    text: block.text,
+                                    tool_name: None,
+                                    tool_input: None,
+                                    session_id: event.session_id.clone(),
+                                    cost_usd: None,
+                                }
                             },
                             "tool_use" => ChatChunk {
                                 kind: "tool_use".into(),
@@ -552,6 +580,25 @@ pub async fn run_turn(
     let db_id = state.lock().unwrap().db_session_id;
     if let (Some(db_id), Some(ref sid)) = (db_id, &new_session_id) {
         crate::db_commands::write_session_claude_id(db_id, sid);
+    }
+
+    // Persist the assistant response to the hash chain (best-effort)
+    if !assistant_text_buf.is_empty() {
+        let db_id = state.lock().unwrap().db_session_id;
+        if let Some(db_id) = db_id {
+            let turn_idx: i64 = if let Ok(conn) = crate::db_commands::open_db() {
+                conn.query_row(
+                    "SELECT COUNT(*) FROM agent_messages WHERE session_id=?1",
+                    rusqlite::params![db_id],
+                    |r| r.get::<_, i64>(0),
+                ).unwrap_or(0)
+            } else { 0 };
+            let content_json = serde_json::to_string(&assistant_text_buf)
+                .unwrap_or_else(|_| format!("\"{}\"", assistant_text_buf));
+            crate::db_commands::persist_agent_message_internal(
+                db_id, turn_idx, "assistant", &content_json, None,
+            );
+        }
     }
 
     // Signal frontend that the turn is complete

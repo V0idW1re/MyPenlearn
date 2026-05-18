@@ -12,6 +12,8 @@
   let mcpTokenSaved = $state("");  // "" | "saving" | "ok" | error string
   let ovpnPath     = $state("");
   let ovpnName     = $state("");
+  let ovpnKind     = $state("");
+  let ovpnRegion   = $state("");
   let vpnError     = $state("");
   let connecting   = $state(false);
   let vpnProfiles  = $state([]);
@@ -40,7 +42,12 @@
     if (!ovpnPath) return;
     const name = ovpnName.trim() || ovpnPath.split("/").pop().replace(".ovpn", "");
     try {
-      await invoke("save_vpn_profile", { name, ovpnPath, kind: "" });
+      await invoke("save_vpn_profile", {
+        name,
+        ovpnPath,
+        kind: ovpnKind || "",
+        region: ovpnRegion.trim() || null,
+      });
       profileSaved = true;
       setTimeout(() => { profileSaved = false; }, 2000);
       await loadProfiles();
@@ -57,7 +64,12 @@
     catch (_) {}
   }
 
-  function loadProfile(p) { ovpnPath = p.ovpn_path; ovpnName = p.name; }
+  function loadProfile(p) {
+    ovpnPath = p.ovpn_path;
+    ovpnName = p.name;
+    ovpnKind = p.kind || "";
+    ovpnRegion = p.region || "";
+  }
 
   async function saveToken() {
     try {
@@ -172,7 +184,20 @@
       <span class="pl-label">Profile</span>
       <span class="pl-hint">Select a saved profile or browse for a .ovpn file.</span>
       <div class="pl-row">
-        <input class="pl-input" bind:value={ovpnName} placeholder="Profile name (optional)" style="flex:0 0 140px" />
+        <input class="pl-input" bind:value={ovpnName} placeholder="Profile name (optional)" style="flex:0 0 130px" />
+        <select class="pl-input pl-select" bind:value={ovpnKind} style="flex:0 0 140px">
+          <option value="">— type —</option>
+          <option value="starting_point">Starting Point</option>
+          <option value="machines">Machines</option>
+          <option value="fortresses">Fortresses</option>
+          <option value="pro_labs">Pro Labs</option>
+          <option value="seasonal">Seasonal</option>
+          <option value="release_arena">Release Arena</option>
+          <option value="custom_authorized">Custom / Authorized</option>
+        </select>
+        <input class="pl-input" bind:value={ovpnRegion} placeholder="Region (e.g. eu-1)" style="flex:0 0 100px" />
+      </div>
+      <div class="pl-row" style="margin-top:4px">
         <input class="pl-input" value={ovpnPath} placeholder="~/Downloads/lab.ovpn" readonly style="flex:1" />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
         <button class="pl-btn pl-btn-primary" onclick={saveProfile} disabled={!ovpnPath}>
@@ -330,6 +355,7 @@
   }
   .pl-input:focus { border-color: #58a6ff; }
   .pl-input[readonly] { cursor: default; color: #8b949e; }
+  .pl-select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e7681'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 24px; }
 
   .pl-btn {
     background: #21262d;
