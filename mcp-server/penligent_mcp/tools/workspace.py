@@ -1,10 +1,14 @@
 """
-Workspace / file management tools (10 tools).
+Workspace / file management tools.
 Manages a per-project workspace under ~/penligent/projects/<name>/workspace/.
 All paths are constrained to the workspace root (no path traversal).
 """
+import getpass
+import hashlib
 import json
+import os
 import shutil
+import time
 import zipfile
 from pathlib import Path
 
@@ -17,9 +21,11 @@ WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
 
 
 def _ws(project_name: str) -> Path:
-    """Return workspace path for a project, creating it if needed."""
+    """Return workspace path for a project, creating it and evidence subdirs if needed."""
     p = WORKSPACE_ROOT / project_name / "workspace"
     p.mkdir(parents=True, exist_ok=True)
+    for sub in ("evidence/http", "evidence/screenshots", "evidence/tokens", "report"):
+        (p / sub).mkdir(parents=True, exist_ok=True)
     return p
 
 
@@ -104,11 +110,28 @@ register(Tool(
 # workspace_write
 # ---------------------------------------------------------------------------
 
+def _infer_kind(path: str) -> str:
+    name = Path(path).name.lower()
+    stem = Path(path).stem.lower()
+    if "nda" in stem:
+        return "nda"
+    if stem.startswith("scope") or name == "scope.json":
+        return "scope"
+    if "machine_info" in stem or "machine-info" in stem:
+        return "machine_info"
+    if name.endswith(".pdf") or "report" in stem or "writeup" in stem:
+        return "writeup"
+    if stem.startswith("notes") or name == "notes.md":
+        return "notes"
+    return "reference"
+
+
 async def _workspace_write(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     path = args.get("path", "")
     content = args.get("content", "")
     append = args.get("append", False)
+    kind = args.get("kind") or _infer_kind(path)
     ws = _ws(project_name)
     target = _safe_path(ws, path)
     if not target:
@@ -117,18 +140,46 @@ async def _workspace_write(args: dict) -> list[TextContent]:
     if append and target.exists():
         existing = target.read_text(errors="replace")
         target.write_text(existing + content)
-        return _ok(f"Appended {len(content)} chars to {project_name}/{path} (total: {target.stat().st_size} bytes)")
-    target.write_text(content)
-    return _ok(f"Written {len(content)} chars to {project_name}/{path}")
+    else:
+        target.write_text(content)
+
+    sha256 = hashlib.sha256(target.read_bytes()).hexdigest()
+
+    # Track in workspace_files DB (best-effort — file write already succeeded)
+    try:
+        from ..db import get_db
+        async with get_db() as db:
+            row = await (await db.execute(
+                "SELECT id FROM projects WHERE name=? ORDER BY created_at DESC LIMIT 1",
+                (project_name,)
+            )).fetchone()
+            if row:
+                project_id = row[0]
+                await db.execute(
+                    "DELETE FROM workspace_files WHERE project_id=? AND path=?",
+                    (project_id, str(target)),
+                )
+                await db.execute(
+                    "INSERT INTO workspace_files(project_id, filename, kind, path, sha256) VALUES(?,?,?,?,?)",
+                    (project_id, Path(path).name, kind, str(target), sha256),
+                )
+                await db.commit()
+    except Exception:
+        pass
+
+    if append:
+        return _ok(f"Appended {len(content)} chars to {project_name}/{path} (total: {target.stat().st_size} bytes, sha256: {sha256[:16]}…)")
+    return _ok(f"Written {len(content)} chars to {project_name}/{path} (sha256: {sha256[:16]}…)")
 
 register(Tool(
     name="workspace_write",
-    description="Write or append text content to a file in a project's workspace.",
+    description="Write or append text content to a file in a project's workspace. Tracks the file in the workspace_files DB with sha256.",
     inputSchema=_s(["project_name", "path", "content"],
         project_name=("string", "Project name"),
         path=("string", "Relative file path within workspace"),
         content=("string", "Text content to write"),
-        append=("boolean", "Append to existing file instead of overwriting (default: false)")),
+        append=("boolean", "Append to existing file instead of overwriting (default: false)"),
+        kind=("string", "File kind: nda|scope|machine_info|writeup|reference|notes (auto-inferred if omitted)")),
 ), _workspace_write)
 
 # ---------------------------------------------------------------------------
@@ -346,3 +397,147 @@ register(Tool(
         project_name=("string", "Project name"),
         output_path=("string", "Output zip file path (default: ~/project_timestamp.zip)")),
 ), _workspace_zip)
+
+# ---------------------------------------------------------------------------
+# audit_log — append a JSONL line to workspace/evidence/audit.log
+# ---------------------------------------------------------------------------
+
+async def _audit_log(args: dict) -> list[TextContent]:
+    project_name = args.get("project_name", "")
+    tool_name = (args.get("tool_name") or "").strip()
+    step = args.get("step", 0)
+    tool_args = args.get("tool_args")
+    exit_code = args.get("exit_code", 0)
+    artifact_path = (args.get("artifact_path") or "").strip()
+    sha256 = (args.get("sha256") or "").strip()
+    cwd = (args.get("cwd") or os.getcwd()).strip()
+    reviewer = (args.get("reviewer") or "").strip() or None
+
+    if not project_name or not tool_name:
+        return _ok("Error: project_name and tool_name are required.")
+
+    try:
+        user = getpass.getuser()
+    except Exception:
+        user = os.environ.get("USER", "unknown")
+
+    ws = _ws(project_name)
+    audit_path = ws / "evidence" / "audit.log"
+
+    record = {
+        "ts": int(time.time()),
+        "project": project_name,
+        "step": step,
+        "tool": tool_name,
+        "args": tool_args,
+        "cwd": cwd,
+        "user": user,
+        "exit": exit_code,
+        "artifact": artifact_path or None,
+        "sha256": sha256 or None,
+        "reviewer": reviewer,
+    }
+    with audit_path.open("a") as f:
+        f.write(json.dumps(record) + "\n")
+
+    return _ok(f"Audit log appended: {audit_path}\n{json.dumps(record)}")
+
+register(Tool(
+    name="audit_log",
+    description=(
+        "Append a JSONL audit record to workspace/evidence/audit.log. "
+        "Call after every significant tool run with the artifact path and sha256 hash "
+        "to build a tamper-evident evidence chain."
+    ),
+    inputSchema=_s(
+        ["project_name", "tool_name"],
+        project_name=("string", "Project name"),
+        tool_name=("string", "Name of the tool that was run"),
+        step=("integer", "Step number in the engagement sequence"),
+        tool_args=("string", "JSON string of the arguments passed to the tool"),
+        exit_code=("integer", "Exit code returned by the tool"),
+        artifact_path=("string", "Path to the output artifact file"),
+        sha256=("string", "SHA-256 hex digest of the artifact file"),
+        cwd=("string", "Working directory when the tool ran (default: current dir)"),
+        reviewer=("string", "Identity of the human reviewer who approved this step (optional)"),
+    ),
+), _audit_log)
+
+# ---------------------------------------------------------------------------
+# task_status — report current engagement phase, active tool, constraints
+# ---------------------------------------------------------------------------
+
+async def _task_status(args: dict) -> list[TextContent]:
+    project_name = args.get("project_name", "")
+    if not project_name:
+        return _ok("Error: project_name is required.")
+
+    ws = _ws(project_name)
+    lines: list[str] = [f"Engagement Status: {project_name}", ""]
+
+    # Read audit log to derive current step and last tool
+    audit_path = ws / "evidence" / "audit.log"
+    last_record: dict | None = None
+    step_count = 0
+    if audit_path.exists():
+        entries = []
+        for line in audit_path.read_text().splitlines():
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except Exception:
+                    pass
+        step_count = len(entries)
+        if entries:
+            last_record = entries[-1]
+
+    lines.append(f"Steps logged: {step_count}")
+    if last_record:
+        last_ts = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(last_record.get("ts", 0)))
+        lines.append(f"Last tool:    {last_record.get('tool', '?')}  (step {last_record.get('step', '?')})")
+        lines.append(f"Last run:     {last_ts}")
+        lines.append(f"Last exit:    {last_record.get('exit', '?')}")
+        if last_record.get("artifact"):
+            lines.append(f"Last artifact:{last_record['artifact']}")
+    lines.append("")
+
+    # Scope summary
+    scope_file = ws / "scope.json"
+    if scope_file.exists():
+        try:
+            scope = json.loads(scope_file.read_text())
+            in_s = scope.get("in_scope", [])
+            out_s = scope.get("out_of_scope", [])
+            lines.append(f"Scope: {len(in_s)} in-scope, {len(out_s)} out-of-scope targets")
+        except Exception:
+            lines.append("Scope: (parse error)")
+    else:
+        lines.append("Scope: not set")
+    lines.append("")
+
+    # Report / findings summary
+    report_dir = ws / "report"
+    if (report_dir / "exec-summary.md").exists():
+        lines.append("Report: exec-summary.md exists")
+    if (report_dir / "fix-list.md").exists():
+        lines.append("Report: fix-list.md exists")
+    lines.append("")
+
+    # Notes
+    notes_file = ws / "notes.md"
+    if notes_file.exists():
+        note_lines = notes_file.read_text().splitlines()
+        lines.append(f"Notes: {len(note_lines)} lines in notes.md")
+
+    return _ok("\n".join(lines))
+
+register(Tool(
+    name="task_status",
+    description=(
+        "Report current engagement status: steps logged, last tool run, scope summary, "
+        "and report file existence. Use to check progress before resuming a session."
+    ),
+    inputSchema=_s(["project_name"],
+        project_name=("string", "Project name")),
+), _task_status)

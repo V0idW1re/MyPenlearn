@@ -26,6 +26,7 @@ pub fn run() {
             vpn::vpn_connect,
             vpn::vpn_disconnect,
             vpn::vpn_status,
+            vpn::vpn_reconnect,
             db_commands::list_projects,
             db_commands::create_project,
             db_commands::rename_project,
@@ -36,6 +37,8 @@ pub fn run() {
             db_commands::clear_messages,
             db_commands::save_config_value,
             db_commands::load_config_value,
+            db_commands::list_pending_approvals,
+            db_commands::decide_approval,
         ])
         .run(tauri::generate_context!())
         .expect("error while running penligent-local");

@@ -35,3 +35,7 @@ from . import passwords      # noqa: E402, F401
 from . import crypto         # noqa: E402, F401
 from . import osint          # noqa: E402, F401
 from . import workspace      # noqa: E402, F401
+from . import report         # noqa: E402, F401
+from . import guardrails     # noqa: E402, F401
+from . import plan           # noqa: E402, F401
+from . import utils          # noqa: E402, F401

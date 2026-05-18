@@ -41,6 +41,7 @@ impl Default for VpnState {
 pub struct VpnManager {
     pub state: VpnState,
     child: Option<Child>,
+    ovpn_path: Option<String>,
 }
 
 pub type SharedVpnManager = Arc<Mutex<VpnManager>>;
@@ -66,6 +67,7 @@ pub async fn connect(
             profile_name: Some(profile_name.clone()),
             ..Default::default()
         };
+        m.ovpn_path = Some(ovpn_path.clone());
         emit_state(&app, &m.state);
     }
 
@@ -158,9 +160,14 @@ pub async fn connect(
 
         let mut m = manager_clone.lock().unwrap();
         if m.state.status != VpnStatus::Disconnected {
+            let dropped_profile = m.state.profile_name.clone();
             m.state.status = VpnStatus::Disconnected;
             m.state.tun_ip = None;
             emit_state(&app_clone, &m.state);
+            // Emit drop event so the frontend can offer reconnect
+            if let Some(name) = dropped_profile {
+                let _ = app_clone.emit("vpn://dropped", name);
+            }
         }
     });
 
@@ -200,6 +207,7 @@ fn emit_state(app: &AppHandle, state: &VpnState) {
 pub async fn disconnect(manager: SharedVpnManager, app: AppHandle) -> Result<(), String> {
     let child = {
         let mut m = manager.lock().unwrap();
+        m.ovpn_path = None;
         m.child.take()
     };
 
@@ -241,4 +249,18 @@ pub fn vpn_status(
     state: tauri::State<'_, SharedVpnManager>,
 ) -> VpnState {
     state.lock().unwrap().state.clone()
+}
+
+#[tauri::command]
+pub async fn vpn_reconnect(
+    app: AppHandle,
+    state: tauri::State<'_, SharedVpnManager>,
+) -> Result<(), String> {
+    let (ovpn_path, profile_name) = {
+        let m = state.lock().unwrap();
+        (m.ovpn_path.clone(), m.state.profile_name.clone())
+    };
+    let ovpn = ovpn_path.ok_or_else(|| "No profile cached for reconnect. Connect manually first.".to_string())?;
+    let name = profile_name.unwrap_or_else(|| "VPN".to_string());
+    connect(app, Arc::clone(&state), ovpn, name).await
 }

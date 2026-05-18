@@ -8,29 +8,58 @@
   import Findings from "./lib/Findings.svelte";
   import StatusBar from "./lib/StatusBar.svelte";
   import Settings from "./lib/Settings.svelte";
+  import ApprovalModal from "./lib/ApprovalModal.svelte";
 
   let activeProject = $state(null);
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
+  let vpnDropped = $state(null);   // profile_name when VPN drops unexpectedly
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
   let tokenCount = $state(0);   // rough estimate: cost_usd * 200k
+  let pendingApproval = $state(null);
+  let approvalPollTimer = null;
+
+  async function pollApprovals() {
+    if (!activeProject) return;
+    try {
+      const pending = await invoke("list_pending_approvals", { projectId: activeProject.id });
+      pendingApproval = pending.length > 0 ? pending[0] : null;
+    } catch (_) {
+      pendingApproval = null;
+    }
+  }
+
+  function handleApprovalDecide() {
+    pendingApproval = null;
+    // Poll again shortly in case more are queued
+    setTimeout(pollApprovals, 500);
+  }
 
   onMount(async () => {
     await listen("vpn://state", (e) => { vpnState = e.payload; });
+    await listen("vpn://dropped", (e) => { vpnDropped = e.payload; });
 
     await listen("claude://done", (e) => {
       if (e.payload?.session_id) sessionId = e.payload.session_id;
       currentTool = null;
+      pollApprovals();
     });
 
     await listen("claude://chunk", (e) => {
       const c = e.payload;
       if (c.kind === "tool_use") currentTool = c.tool_name;
       if (c.cost_usd != null) tokenCount += Math.round(c.cost_usd * 200000);
+      // Surface approvals quickly when the agent calls approve_intent
+      if (c.tool_name === "approve_intent") setTimeout(pollApprovals, 800);
     });
 
     try { vpnState = await invoke("vpn_status"); } catch (_) {}
+
+    // Poll for approvals every 5 seconds when a project is active
+    approvalPollTimer = setInterval(() => { if (activeProject) pollApprovals(); }, 5000);
+
+    return () => { if (approvalPollTimer) clearInterval(approvalPollTimer); };
   });
 
   function handleProjectSelect(project) {
@@ -38,6 +67,8 @@
     sessionId = null;
     currentTool = null;
     tokenCount = 0;
+    pendingApproval = null;
+    if (project) setTimeout(pollApprovals, 300);
     if (project) {
       homeDir().then(home => {
         invoke("claude_set_context", {
@@ -86,6 +117,22 @@
   </div>
 
   <StatusBar {vpnState} {currentTool} {tokenCount} />
+
+  {#if pendingApproval}
+    <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />
+  {/if}
+
+  {#if vpnDropped}
+    <div class="pl-vpn-drop">
+      <span class="pl-vpn-drop-icon">&#9888;</span>
+      VPN dropped: <strong>{vpnDropped}</strong>
+      <button class="pl-vpn-reconnect" onclick={() => {
+        invoke("vpn_reconnect").catch(console.error);
+        vpnDropped = null;
+      }}>Reconnect</button>
+      <button class="pl-vpn-dismiss" onclick={() => vpnDropped = null}>&#x2715;</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -161,6 +208,48 @@
     min-height: 0;
     overflow: hidden;
   }
+
+  .pl-vpn-drop {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #2d1a00;
+    border: 1px solid #d29922;
+    border-radius: 6px;
+    color: #e6edf3;
+    font-size: 12px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .pl-vpn-drop-icon { color: #d29922; font-size: 14px; }
+  .pl-vpn-reconnect {
+    background: #d29922;
+    border: none;
+    border-radius: 4px;
+    color: #0d1117;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-vpn-reconnect:hover { background: #e3a42e; }
+  .pl-vpn-dismiss {
+    background: none;
+    border: none;
+    color: #8b949e;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 2px;
+    line-height: 1;
+    font-family: inherit;
+  }
+  .pl-vpn-dismiss:hover { color: #c9d1d9; }
 
   .pl-sidebar {
     width: 220px;

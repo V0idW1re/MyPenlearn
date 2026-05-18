@@ -62,6 +62,7 @@ CREATE_STATEMENTS = [
         project_id INTEGER NOT NULL REFERENCES projects(id),
         plan_step_id INTEGER REFERENCES plan_steps(id),
         tool_name TEXT NOT NULL,
+        tool_version TEXT,
         args_json TEXT,
         stdout_path TEXT,
         stderr_path TEXT,
@@ -70,7 +71,10 @@ CREATE_STATEMENTS = [
         started_at INTEGER,
         ended_at INTEGER,
         claude_tool_use_id TEXT,
-        artifact_hash TEXT
+        artifact_hash TEXT,
+        wordlist_sha256 TEXT,
+        mitre_attack_id TEXT,
+        owasp_asvs_id TEXT
     )
     """,
     """
@@ -88,9 +92,19 @@ CREATE_STATEMENTS = [
         ttp_category TEXT,
         mitre_attack_id TEXT,
         owasp_asvs_id TEXT,
+        impact TEXT,
+        repro_steps_json TEXT,
+        compliance_controls_json TEXT,
+        remediation_json TEXT,
         verify_status TEXT DEFAULT 'open' CHECK(verify_status IN ('open','verified','false_positive')),
         verify_context TEXT,
         false_positive_score REAL,
+        false_positive_rationale TEXT,
+        blast_radius TEXT,
+        confirmed_exploitable INTEGER DEFAULT 0,
+        regression_required INTEGER DEFAULT 0,
+        regression_verified_at INTEGER,
+        regression_note TEXT,
         created_at INTEGER DEFAULT (strftime('%s','now'))
     )
     """,
@@ -101,7 +115,34 @@ CREATE_STATEMENTS = [
         kind TEXT NOT NULL,
         path TEXT NOT NULL,
         sha256 TEXT NOT NULL,
+        har_path TEXT,
+        pcap_path TEXT,
+        dom_diff_path TEXT,
+        console_log_path TEXT,
+        reviewer TEXT,
         captured_at INTEGER DEFAULT (strftime('%s','now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS fix_records (
+        id INTEGER PRIMARY KEY,
+        finding_id INTEGER NOT NULL REFERENCES risk_items(id),
+        patch_summary TEXT,
+        tests_added TEXT,
+        deployment_notes TEXT,
+        fix_owner TEXT,
+        created_at INTEGER DEFAULT (strftime('%s','now'))
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS verification_records (
+        id INTEGER PRIMARY KEY,
+        finding_id INTEGER NOT NULL REFERENCES risk_items(id),
+        fix_record_id INTEGER REFERENCES fix_records(id),
+        retest_summary TEXT NOT NULL,
+        evidence_of_closure TEXT,
+        verified_by TEXT,
+        verified_at INTEGER DEFAULT (strftime('%s','now'))
     )
     """,
     """
@@ -216,6 +257,49 @@ async def init_db() -> None:
             await db.execute(
                 "INSERT INTO schema_version(version) VALUES (?)", (SCHEMA_VERSION,)
             )
+
+        # Migrate existing risk_items tables that predate these columns
+        for col, typedef in [
+            ("impact",                   "TEXT"),
+            ("repro_steps_json",         "TEXT"),
+            ("compliance_controls_json", "TEXT"),
+            ("remediation_json",         "TEXT"),
+            ("false_positive_rationale", "TEXT"),
+            ("blast_radius",             "TEXT"),
+            ("confirmed_exploitable",    "INTEGER DEFAULT 0"),
+            ("regression_required",      "INTEGER DEFAULT 0"),
+            ("regression_verified_at",   "INTEGER"),
+            ("regression_note",          "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE risk_items ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # column already exists
+
+        # Migrate evidence_artifacts
+        for col, typedef in [
+            ("har_path",        "TEXT"),
+            ("pcap_path",       "TEXT"),
+            ("dom_diff_path",   "TEXT"),
+            ("console_log_path","TEXT"),
+            ("reviewer",        "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE evidence_artifacts ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
+
+        # Migrate execution_results
+        for col, typedef in [
+            ("tool_version",    "TEXT"),
+            ("wordlist_sha256", "TEXT"),
+            ("mitre_attack_id", "TEXT"),
+            ("owasp_asvs_id",   "TEXT"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE execution_results ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
 
         await db.commit()
 

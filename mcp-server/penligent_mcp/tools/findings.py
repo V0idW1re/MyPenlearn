@@ -27,7 +27,7 @@ async def _record_finding(args: dict) -> str:
         return f"Error: severity must be one of {SEVERITY_ORDER}. Got: {severity!r}"
 
     description = (args.get("description") or "").strip()
-    evidence = args.get("evidence")          # dict or None — stored as JSON
+    evidence = args.get("evidence")
     cve_id = (args.get("cve_id") or "").strip() or None
     cvss = args.get("cvss")
     chain_pos = args.get("attack_chain_position")
@@ -35,9 +35,14 @@ async def _record_finding(args: dict) -> str:
     mitre_id = (args.get("mitre_attack_id") or "").strip() or None
     owasp_id = (args.get("owasp_asvs_id") or "").strip() or None
     execution_id = args.get("execution_id")
+    impact = (args.get("impact") or "").strip() or None
+    blast_radius = (args.get("blast_radius") or "").strip() or None
+    confirmed_exploitable = 1 if args.get("confirmed_exploitable") else 0
+    repro_steps = args.get("repro_steps")
+    compliance = args.get("compliance_controls")
+    remediation = args.get("remediation")
 
     async with get_db() as db:
-        # Verify project exists
         row = await (await db.execute(
             "SELECT id FROM projects WHERE id=?", (int(project_id),)
         )).fetchone()
@@ -49,8 +54,10 @@ async def _record_finding(args: dict) -> str:
                (project_id, execution_id, severity, title, description,
                 evidence_json, cve_id, cvss, attack_chain_position,
                 ttp_category, mitre_attack_id, owasp_asvs_id,
+                impact, blast_radius, confirmed_exploitable,
+                repro_steps_json, compliance_controls_json, remediation_json,
                 verify_status, created_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
             (
                 int(project_id),
                 int(execution_id) if execution_id else None,
@@ -64,14 +71,21 @@ async def _record_finding(args: dict) -> str:
                 ttp_cat,
                 mitre_id,
                 owasp_id,
+                impact,
+                blast_radius,
+                confirmed_exploitable,
+                json.dumps(repro_steps) if repro_steps else None,
+                json.dumps(compliance) if compliance else None,
+                json.dumps(remediation) if remediation else None,
                 int(time.time()),
             ),
         )
         await db.commit()
         finding_id = cur.lastrowid
 
+    chain_str = f" chain={chain_pos}" if chain_pos is not None else ""
     return (
-        f"Finding recorded: id={finding_id} severity={severity} title={title!r}\n"
+        f"Finding recorded: id={finding_id} severity={severity}{chain_str} title={title!r}\n"
         f"  project_id={project_id} verify_status=open"
     )
 
@@ -123,6 +137,40 @@ register(
                 "execution_id": {
                     "type": "integer",
                     "description": "execution_results.id that produced this finding",
+                },
+                "impact": {
+                    "type": "string",
+                    "description": "One sentence: what an attacker gains if exploited",
+                },
+                "blast_radius": {
+                    "type": "string",
+                    "description": "What an attacker would get in production — scope of damage",
+                },
+                "confirmed_exploitable": {
+                    "type": "boolean",
+                    "description": "True only when all 5 evidence conditions are met",
+                },
+                "repro_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Ordered list of exact steps to reproduce the finding",
+                },
+                "compliance_controls": {
+                    "type": "object",
+                    "description": (
+                        "Compliance framework mappings, e.g. "
+                        "{\"NIST_800_115\": [\"Testing Authentication Mechanisms\"], "
+                        "\"ISO_27001\": [\"A.9.4 Access Control\"], "
+                        "\"PCI_DSS\": [\"8.3 Strong Cryptography\"]}"
+                    ),
+                },
+                "remediation": {
+                    "type": "object",
+                    "description": (
+                        "Remediation spec: "
+                        "{\"owner\": \"team\", \"priority\": \"P1\", "
+                        "\"actions\": [\"...\"], \"verification\": \"...\"}"
+                    ),
                 },
             },
         },
@@ -397,16 +445,57 @@ async def _export_findings_markdown(args: dict) -> list[TextContent]:
     lines.append("\n---\n")
     for r in rows:
         sev = r["severity"].upper()
-        lines.append(f"## [{sev}] {r['title']}")
+        chain = f" · Chain #{r['attack_chain_position']}" if r["attack_chain_position"] else ""
+        lines.append(f"## [{sev}]{chain} {r['title']}")
+        meta = []
         if r["cve_id"]:
-            lines.append(f"**CVE:** {r['cve_id']}")
+            meta.append(f"**CVE:** {r['cve_id']}")
         if r["cvss"]:
-            lines.append(f"**CVSS:** {r['cvss']}")
+            meta.append(f"**CVSS:** {r['cvss']}")
         if r["mitre_attack_id"]:
-            lines.append(f"**MITRE ATT&CK:** {r['mitre_attack_id']}")
-        lines.append(f"**Status:** {r['verify_status']}")
+            meta.append(f"**MITRE:** {r['mitre_attack_id']}")
+        if r["owasp_asvs_id"]:
+            meta.append(f"**ASVS:** {r['owasp_asvs_id']}")
+        meta.append(f"**Status:** {r['verify_status']}")
+        if meta:
+            lines.append("  ".join(meta))
         if r["description"]:
             lines.append(f"\n{r['description']}")
+        if r.get("impact"):
+            lines.append(f"\n**Impact:** {r['impact']}")
+        repro = r.get("repro_steps_json")
+        if repro:
+            try:
+                steps = json.loads(repro)
+                lines.append("\n**Reproduction Steps:**")
+                for i, s in enumerate(steps, 1):
+                    lines.append(f"{i}. {s}")
+            except Exception:
+                pass
+        controls = r.get("compliance_controls_json")
+        if controls:
+            try:
+                ctrl = json.loads(controls)
+                lines.append("\n**Compliance Controls:**")
+                for fw, items in ctrl.items():
+                    lines.append(f"- {fw}: {', '.join(items) if isinstance(items, list) else items}")
+            except Exception:
+                pass
+        remediation = r.get("remediation_json")
+        if remediation:
+            try:
+                rem = json.loads(remediation)
+                lines.append("\n**Remediation:**")
+                if rem.get("owner"):
+                    lines.append(f"- Owner: {rem['owner']}")
+                if rem.get("priority"):
+                    lines.append(f"- Priority: {rem['priority']}")
+                for action in rem.get("actions", []):
+                    lines.append(f"- {action}")
+                if rem.get("verification"):
+                    lines.append(f"- Verification: {rem['verification']}")
+            except Exception:
+                pass
         lines.append("\n---\n")
     return _ok("\n".join(lines))
 
@@ -511,6 +600,19 @@ _MITRE_MAP = {
     "xxe": ("T1190", "Exploit Public-Facing Application"),
     "ssti": ("T1059", "Command and Scripting Interpreter"),
     "idor": ("T1078", "Valid Accounts"),
+    "broken_access_control": ("T1078", "Valid Accounts"),
+    "auth_bypass": ("T1078", "Valid Accounts"),
+    "session_fixation": ("T1185", "Browser Session Hijacking"),
+    "csrf": ("T1185", "Browser Session Hijacking"),
+    "waf_bypass": ("T1027", "Obfuscated Files or Information"),
+    "open_redirect": ("T1090", "Proxy"),
+    "path_traversal": ("T1083", "File and Directory Discovery"),
+    "file_upload": ("T1505.003", "Server Software Component: Web Shell"),
+    "xml_injection": ("T1190", "Exploit Public-Facing Application"),
+    "xpath_injection": ("T1190", "Exploit Public-Facing Application"),
+    "info_disclosure": ("T1040", "Network Sniffing"),
+    "misconfig": ("T1190", "Exploit Public-Facing Application"),
+    "deserialization": ("T1059", "Command and Scripting Interpreter"),
     "privesc": ("T1068", "Exploitation for Privilege Escalation"),
     "cred_dump": ("T1003", "OS Credential Dumping"),
     "brute": ("T1110", "Brute Force"),
@@ -535,10 +637,187 @@ async def _map_mitre_attack(args: dict) -> list[TextContent]:
 
 register(Tool(
     name="map_mitre_attack",
-    description="Map a TTP category (e.g. sqli, xss, privesc) to its MITRE ATT&CK technique ID.",
+    description="Map a TTP category to its MITRE ATT&CK technique ID.",
     inputSchema=_s(["ttp_category"],
-        ttp_category=("string", "TTP slug: sqli, xss, rce, ssrf, lfi, xxe, ssti, idor, privesc, cred_dump, brute, spray, phishing, lateral, persistence, exfil, recon, osint")),
+        ttp_category=("string", "TTP slug: sqli, xss, rce, ssrf, lfi, xxe, ssti, idor, broken_access_control, auth_bypass, session_fixation, csrf, waf_bypass, open_redirect, path_traversal, file_upload, xml_injection, xpath_injection, info_disclosure, misconfig, deserialization, privesc, cred_dump, brute, spray, phishing, lateral, persistence, exfil, recon, osint")),
 ), _map_mitre_attack)
+
+
+# ---------------------------------------------------------------------------
+# map_owasp_asvs
+# ---------------------------------------------------------------------------
+
+_ASVS_MAP = {
+    "auth_bypass":           ("V2.1",  "V2 Authentication — Passwords"),
+    "brute":                 ("V2.2",  "V2 Authentication — General Authenticator Requirements"),
+    "session_fixation":      ("V3.3",  "V3 Session Management — Session Termination"),
+    "csrf":                  ("V4.2.3","V4 Access Control — Anti-CSRF Controls"),
+    "broken_access_control": ("V4.1",  "V4 Access Control — General"),
+    "idor":                  ("V4.2",  "V4 Access Control — Object Level Access Control"),
+    "sqli":                  ("V5.3.4","V5 Validation — SQL and Database Queries"),
+    "xss":                   ("V5.3.3","V5 Validation — Contextual Output Encoding"),
+    "rce":                   ("V5.2",  "V5 Validation — Sanitization and Sandboxing"),
+    "lfi":                   ("V12.1", "V12 Files and Resources — File Upload"),
+    "path_traversal":        ("V12.3", "V12 Files and Resources — File Execution"),
+    "file_upload":           ("V12.2", "V12 Files and Resources — File Integrity"),
+    "ssrf":                  ("V10.3", "V10 Malicious Code — Application Integrity"),
+    "xxe":                   ("V14.3", "V14 Configuration — Dependency Security"),
+    "ssti":                  ("V5.2",  "V5 Validation — Sanitization and Sandboxing"),
+    "open_redirect":         ("V5.1.5","V5 Validation — Input Validation Requirements"),
+    "info_disclosure":       ("V8.3",  "V8 Data Protection — Private Data"),
+    "misconfig":             ("V14.1", "V14 Configuration — Build and Deploy"),
+    "deserialization":       ("V1.5",  "V1 Architecture — Input and Output Architecture"),
+    "privesc":               ("V4.1",  "V4 Access Control — General"),
+    "xml_injection":         ("V5.5.1","V5 Validation — XML and XPath Injection Prevention"),
+    "xpath_injection":       ("V5.5.2","V5 Validation — XML and XPath Injection Prevention"),
+    "waf_bypass":            ("V5.3",  "V5 Validation — Output Encoding and Injection Prevention"),
+    "cred_dump":             ("V2.6",  "V2 Authentication — Credential Storage"),
+    "recon":                 ("V14.2", "V14 Configuration — Dependency Security"),
+}
+
+async def _map_owasp_asvs(args: dict) -> list[TextContent]:
+    ttp = (args.get("ttp_category") or "").strip().lower()
+    if ttp in _ASVS_MAP:
+        ctrl_id, name = _ASVS_MAP[ttp]
+        return _ok(
+            f"OWASP ASVS mapping for '{ttp}':\n"
+            f"  Control ID: {ctrl_id}\n"
+            f"  Section: {name}\n"
+            f"  URL: https://owasp.org/www-project-application-security-verification-standard/"
+        )
+    lines = [f"No exact ASVS mapping for '{ttp}'. Known categories:"]
+    for k, (ctrl_id, name) in _ASVS_MAP.items():
+        lines.append(f"  {k:25s} → {ctrl_id} ({name})")
+    return _ok("\n".join(lines))
+
+register(Tool(
+    name="map_owasp_asvs",
+    description="Map a TTP category to its OWASP Application Security Verification Standard (ASVS) control ID.",
+    inputSchema=_s(["ttp_category"],
+        ttp_category=("string", "TTP slug: auth_bypass, brute, session_fixation, csrf, broken_access_control, idor, sqli, xss, rce, lfi, path_traversal, file_upload, ssrf, xxe, xml_injection, xpath_injection, ssti, open_redirect, info_disclosure, misconfig, deserialization, privesc, waf_bypass, cred_dump, recon")),
+), _map_owasp_asvs)
+
+
+# ---------------------------------------------------------------------------
+# mark_regression — record post-fix regression test result
+# ---------------------------------------------------------------------------
+
+async def _mark_regression(args: dict) -> list[TextContent]:
+    finding_id = args.get("finding_id")
+    passed = args.get("passed")  # True = fix worked, False = still vulnerable
+    note = (args.get("note") or "").strip()
+
+    if not finding_id:
+        return _ok("Error: finding_id is required.")
+    if passed is None:
+        return _ok("Error: passed (boolean) is required.")
+
+    async with get_db() as db:
+        row = await (await db.execute(
+            "SELECT id FROM risk_items WHERE id=?", (int(finding_id),)
+        )).fetchone()
+        if not row:
+            return _ok(f"Error: finding_id {finding_id} not found.")
+
+        if passed:
+            await db.execute(
+                """UPDATE risk_items
+                   SET regression_required=0, regression_verified_at=?, regression_note=?,
+                       verify_status='verified'
+                   WHERE id=?""",
+                (int(time.time()), note or "Regression test passed — fix confirmed.", int(finding_id)),
+            )
+            msg = f"Finding {finding_id}: regression PASSED — marked verified."
+        else:
+            await db.execute(
+                """UPDATE risk_items
+                   SET regression_required=1, regression_note=?, verify_status='open'
+                   WHERE id=?""",
+                (note or "Regression test FAILED — vulnerability persists after fix.", int(finding_id)),
+            )
+            msg = f"Finding {finding_id}: regression FAILED — still vulnerable."
+
+        await db.commit()
+    return _ok(msg)
+
+register(Tool(
+    name="mark_regression",
+    description=(
+        "Record the result of a post-fix regression test. "
+        "If passed=true, sets verify_status='verified' and records regression_verified_at. "
+        "If passed=false, sets regression_required=1 and records the note. "
+        "Call after re-running the exact reproduction steps from the original finding."
+    ),
+    inputSchema=_s(
+        ["finding_id", "passed"],
+        finding_id=("integer", "risk_items.id to update"),
+        passed=("boolean", "True if the fix resolved the vulnerability, False if it persists"),
+        note=("string", "Notes from the regression run"),
+    ),
+), _mark_regression)
+
+
+# ---------------------------------------------------------------------------
+# map_owasp_top10
+# ---------------------------------------------------------------------------
+
+_TOP10_MAP = {
+    "broken_access_control": ("A01:2021", "Broken Access Control"),
+    "idor":                  ("A01:2021", "Broken Access Control"),
+    "privesc":               ("A01:2021", "Broken Access Control"),
+    "auth_bypass":           ("A07:2021", "Identification and Authentication Failures"),
+    "brute":                 ("A07:2021", "Identification and Authentication Failures"),
+    "session_fixation":      ("A07:2021", "Identification and Authentication Failures"),
+    "cred_dump":             ("A02:2021", "Cryptographic Failures"),
+    "sqli":                  ("A03:2021", "Injection"),
+    "xss":                   ("A03:2021", "Injection"),
+    "cmdi":                  ("A03:2021", "Injection"),
+    "ssti":                  ("A03:2021", "Injection"),
+    "xml_injection":         ("A03:2021", "Injection"),
+    "xpath_injection":       ("A03:2021", "Injection"),
+    "xxe":                   ("A03:2021", "Injection"),
+    "misconfig":             ("A05:2021", "Security Misconfiguration"),
+    "info_disclosure":       ("A05:2021", "Security Misconfiguration"),
+    "csrf":                  ("A01:2021", "Broken Access Control"),
+    "deserialization":       ("A08:2021", "Software and Data Integrity Failures"),
+    "file_upload":           ("A04:2021", "Insecure Design"),
+    "path_traversal":        ("A01:2021", "Broken Access Control"),
+    "lfi":                   ("A01:2021", "Broken Access Control"),
+    "ssrf":                  ("A10:2021", "Server-Side Request Forgery"),
+    "open_redirect":         ("A01:2021", "Broken Access Control"),
+    "recon":                 ("A05:2021", "Security Misconfiguration"),
+    "osint":                 ("A05:2021", "Security Misconfiguration"),
+    "waf_bypass":            ("A05:2021", "Security Misconfiguration"),
+    "ai_prompt_injection":   ("A03:2021", "Injection"),
+    "lateral":               ("A01:2021", "Broken Access Control"),
+    "persistence":           ("A08:2021", "Software and Data Integrity Failures"),
+    "exfil":                 ("A09:2021", "Security Logging and Monitoring Failures"),
+}
+
+async def _map_owasp_top10(args: dict) -> list[TextContent]:
+    ttp = (args.get("ttp_category") or "").strip().lower()
+    if ttp in _TOP10_MAP:
+        code, name = _TOP10_MAP[ttp]
+        return _ok(
+            f"OWASP Top 10 mapping for '{ttp}':\n"
+            f"  Code: {code}\n"
+            f"  Category: {name}\n"
+            f"  URL: https://owasp.org/Top10/"
+        )
+    lines = [f"No exact Top 10 mapping for '{ttp}'. Full mapping:"]
+    seen: set = set()
+    for k, (code, name) in _TOP10_MAP.items():
+        if code not in seen:
+            lines.append(f"  {code} — {name}")
+            seen.add(code)
+    return _ok("\n".join(lines))
+
+register(Tool(
+    name="map_owasp_top10",
+    description="Map a TTP category to its OWASP Top 10 (2021) category code and name.",
+    inputSchema=_s(["ttp_category"],
+        ttp_category=("string", "TTP slug: sqli, xss, ssrf, idor, auth_bypass, misconfig, deserialization, ai_prompt_injection, etc.")),
+), _map_owasp_top10)
 
 
 # ---------------------------------------------------------------------------
@@ -582,3 +861,125 @@ register(Tool(
     inputSchema=_s(["project_id"],
         project_id=("integer", "Project ID")),
 ), _risk_summary)
+
+
+# ---------------------------------------------------------------------------
+# record_fix — document the fix applied to a finding
+# ---------------------------------------------------------------------------
+
+async def _record_fix(args: dict) -> list[TextContent]:
+    finding_id = args.get("finding_id")
+    patch_summary = (args.get("patch_summary") or "").strip()
+    if not finding_id:
+        return _ok("Error: finding_id is required.")
+    if not patch_summary:
+        return _ok("Error: patch_summary is required.")
+
+    async with get_db() as db:
+        row = await (await db.execute(
+            "SELECT id FROM risk_items WHERE id=?", (int(finding_id),)
+        )).fetchone()
+        if not row:
+            return _ok(f"Error: finding_id {finding_id} not found.")
+        cur = await db.execute(
+            """INSERT INTO fix_records
+               (finding_id, patch_summary, tests_added, deployment_notes, fix_owner, created_at)
+               VALUES (?,?,?,?,?,?)""",
+            (
+                int(finding_id),
+                patch_summary,
+                (args.get("tests_added") or "").strip() or None,
+                (args.get("deployment_notes") or "").strip() or None,
+                (args.get("fix_owner") or "").strip() or None,
+                int(time.time()),
+            ),
+        )
+        await db.commit()
+        fix_id = cur.lastrowid
+    return _ok(f"Fix record created: id={fix_id} for finding_id={finding_id}")
+
+
+register(Tool(
+    name="record_fix",
+    description=(
+        "Document the fix applied to a finding. "
+        "Call after a patch ships, before running record_verification. "
+        "Creates a fix_records entry linked to the finding."
+    ),
+    inputSchema=_s(
+        ["finding_id", "patch_summary"],
+        finding_id=("integer", "risk_items.id this fix addresses"),
+        patch_summary=("string", "Description of the patch — what was changed and where"),
+        tests_added=("string", "Regression tests added to prevent recurrence"),
+        deployment_notes=("string", "Deployment context — env, version, PR reference"),
+        fix_owner=("string", "Team or person responsible for the fix"),
+    ),
+), _record_fix)
+
+
+# ---------------------------------------------------------------------------
+# record_verification — document black-box re-test confirming fix closure
+# ---------------------------------------------------------------------------
+
+async def _record_verification(args: dict) -> list[TextContent]:
+    finding_id = args.get("finding_id")
+    retest_summary = (args.get("retest_summary") or "").strip()
+    if not finding_id:
+        return _ok("Error: finding_id is required.")
+    if not retest_summary:
+        return _ok("Error: retest_summary is required.")
+
+    fix_record_id = args.get("fix_record_id")
+    evidence_of_closure = (args.get("evidence_of_closure") or "").strip() or None
+    verified_by = (args.get("verified_by") or "").strip() or None
+
+    async with get_db() as db:
+        row = await (await db.execute(
+            "SELECT id FROM risk_items WHERE id=?", (int(finding_id),)
+        )).fetchone()
+        if not row:
+            return _ok(f"Error: finding_id {finding_id} not found.")
+        cur = await db.execute(
+            """INSERT INTO verification_records
+               (finding_id, fix_record_id, retest_summary, evidence_of_closure,
+                verified_by, verified_at)
+               VALUES (?,?,?,?,?,?)""",
+            (
+                int(finding_id),
+                int(fix_record_id) if fix_record_id else None,
+                retest_summary,
+                evidence_of_closure,
+                verified_by,
+                int(time.time()),
+            ),
+        )
+        # Auto-update the finding status
+        await db.execute(
+            "UPDATE risk_items SET verify_status='verified', regression_required=0, "
+            "regression_verified_at=? WHERE id=?",
+            (int(time.time()), int(finding_id)),
+        )
+        await db.commit()
+        ver_id = cur.lastrowid
+    return _ok(
+        f"Verification record created: id={ver_id} for finding_id={finding_id}\n"
+        f"Finding marked verified."
+    )
+
+
+register(Tool(
+    name="record_verification",
+    description=(
+        "Document the black-box re-test confirming a finding is closed. "
+        "Call after record_fix, re-running the exact reproduction steps. "
+        "Marks the finding as verified and creates a verification_records entry."
+    ),
+    inputSchema=_s(
+        ["finding_id", "retest_summary"],
+        finding_id=("integer", "risk_items.id being verified"),
+        fix_record_id=("integer", "fix_records.id (optional, links fix to verification)"),
+        retest_summary=("string", "Summary of the re-test: what was tested, what was observed"),
+        evidence_of_closure=("string", "Path to evidence artifact or description of proof"),
+        verified_by=("string", "Researcher identity performing the re-test"),
+    ),
+), _record_verification)

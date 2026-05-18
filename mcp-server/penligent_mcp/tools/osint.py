@@ -461,3 +461,97 @@ register(Tool(
     description="Run WHOIS lookup for a domain (uses system whois or RDAP fallback).",
     inputSchema=_s(["domain"], domain=("string", "Domain name to query")),
 ), _whois_history)
+
+# ---------------------------------------------------------------------------
+# ghunt_osint  — Google account OSINT from email/GaiaID
+# ---------------------------------------------------------------------------
+
+async def _ghunt_osint(args: dict) -> list[TextContent]:
+    email = (args.get("email") or "").strip()
+    gaia_id = (args.get("gaia_id") or "").strip()
+
+    if not email and not gaia_id:
+        return _ok("Error: email or gaia_id is required.")
+
+    if _chk("ghunt"):
+        # GHunt CLI available — use it directly
+        target = email or gaia_id
+        cmd = ["ghunt", "email", target] if email else ["ghunt", "gaia", target]
+        out, err, rc = await _run(cmd, timeout=120)
+        return _ok(out or err or "GHunt returned no output.")
+
+    # Fallback: manual Google People API probe via public endpoint
+    results: list[str] = []
+    results.append(f"GHunt not installed — running fallback Google OSINT probes for: {email or gaia_id}")
+    results.append("")
+
+    if email:
+        # Google+ / People API public profile lookup (no auth required for basic info)
+        encoded = urllib.parse.quote(email)
+        probes = [
+            ("Google Account existence check",
+             f"https://mail.google.com/mail/gxlu?email={encoded}"),
+        ]
+        for label, url in probes:
+            try:
+                req = urllib.request.Request(
+                    url,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
+                        "Cookie": "",
+                    },
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    status = r.status
+                    hdrs = dict(r.headers)
+                results.append(f"[{label}]")
+                results.append(f"  Status: {status}")
+                set_cookie = hdrs.get("Set-Cookie", "")
+                if "COMPASS" in set_cookie:
+                    results.append("  → Account EXISTS (COMPASS cookie set)")
+                elif status in (200, 302):
+                    results.append(f"  → Possibly exists (status={status})")
+                else:
+                    results.append(f"  → No signal (status={status})")
+            except Exception as exc:
+                results.append(f"  → Error: {exc!s:.80}")
+            results.append("")
+
+        # crt.sh for email in certificate subjects
+        try:
+            crt_url = f"https://crt.sh/?q={urllib.parse.quote(email)}&output=json"
+            req = urllib.request.Request(crt_url, headers={"User-Agent": "penligent-local/0.1"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                certs = json.loads(r.read())
+            if certs:
+                domains = sorted(set(c.get("name_value", "") for c in certs[:50]))
+                results.append(f"[Certificate Transparency] {len(certs)} certs found containing {email}:")
+                for d in domains[:20]:
+                    results.append(f"  {d}")
+            else:
+                results.append(f"[Certificate Transparency] No certs found for {email}")
+        except Exception as exc:
+            results.append(f"[Certificate Transparency] Error: {exc!s:.80}")
+        results.append("")
+
+    results.append("Tip: install GHunt for full profiling:")
+    results.append("  pip install ghunt && ghunt login")
+    results.append("GHunt can reveal: linked Google services, Maps reviews, Photos/Albums,")
+    results.append("  Drive/Docs public shares, YouTube channel, Calendar events.")
+
+    return _ok("\n".join(results))
+
+register(Tool(
+    name="ghunt_osint",
+    description=(
+        "Google account OSINT from an email address or Google GaiaID. "
+        "Uses GHunt if installed; falls back to public API probes. "
+        "Reveals linked Google services, account existence, public Maps reviews, "
+        "shared Drive/Docs, Photos/Albums, YouTube channels."
+    ),
+    inputSchema=_s(
+        [],
+        email=("string", "Target Gmail / Google account email address"),
+        gaia_id=("string", "Target Google GaiaID (numeric) — alternative to email"),
+    ),
+), _ghunt_osint)

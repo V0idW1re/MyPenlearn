@@ -12,8 +12,16 @@ pub struct Finding {
     pub title: String,
     pub severity: String,
     pub description: Option<String>,
-    pub status: String,    // mapped from verify_status
-    pub found_at: i64,     // mapped from created_at (unix epoch integer)
+    pub status: String,             // mapped from verify_status
+    pub found_at: i64,              // mapped from created_at (unix epoch)
+    pub chain_position: Option<i64>,
+    pub cve_id: Option<String>,
+    pub mitre_id: Option<String>,
+    pub owasp_asvs_id: Option<String>,
+    pub ttp_category: Option<String>,
+    pub impact: Option<String>,
+    pub compliance_controls: Option<String>, // raw JSON string
+    pub remediation: Option<String>,         // raw JSON string
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -302,7 +310,10 @@ pub fn list_findings(project_id: i64) -> Result<Vec<Finding>, String> {
     let mut stmt = conn
         .prepare(
             "SELECT id, project_id, title, severity, description,
-                    verify_status, created_at
+                    verify_status, created_at,
+                    attack_chain_position, cve_id, mitre_attack_id,
+                    owasp_asvs_id, ttp_category,
+                    impact, compliance_controls_json, remediation_json
              FROM risk_items WHERE project_id = ?1
              ORDER BY CASE severity
                WHEN 'critical' THEN 0 WHEN 'high' THEN 1
@@ -314,13 +325,21 @@ pub fn list_findings(project_id: i64) -> Result<Vec<Finding>, String> {
     let rows = stmt
         .query_map(params![project_id], |row| {
             Ok(Finding {
-                id:          row.get(0)?,
-                project_id:  row.get(1)?,
-                title:       row.get(2)?,
-                severity:    row.get(3)?,
-                description: row.get(4)?,
-                status:      row.get(5)?,
-                found_at:    row.get(6)?,
+                id:                  row.get(0)?,
+                project_id:          row.get(1)?,
+                title:               row.get(2)?,
+                severity:            row.get(3)?,
+                description:         row.get(4)?,
+                status:              row.get(5)?,
+                found_at:            row.get(6)?,
+                chain_position:      row.get(7)?,
+                cve_id:              row.get(8)?,
+                mitre_id:            row.get(9)?,
+                owasp_asvs_id:       row.get(10)?,
+                ttp_category:        row.get(11)?,
+                impact:              row.get(12)?,
+                compliance_controls: row.get(13)?,
+                remediation:         row.get(14)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -336,6 +355,84 @@ pub fn clear_messages(project_id: i64) -> Result<(), String> {
     conn.execute(
         "DELETE FROM chat_messages WHERE project_id = ?1",
         params![project_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Approvals ─────────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Approval {
+    pub id: i64,
+    pub project_id: i64,
+    pub intent: String,
+    pub scope_json: Option<String>,
+    pub rate_limit: Option<i64>,
+    pub time_window: Option<i64>,
+    pub decision_note: Option<String>,
+    pub requested_at: i64,
+}
+
+#[tauri::command]
+pub fn list_pending_approvals(project_id: i64) -> Result<Vec<Approval>, String> {
+    let conn = open()?;
+
+    // Table may not exist yet if Python MCP server has never run.
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='approvals'",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .unwrap_or(0) > 0;
+    if !table_exists {
+        return Ok(vec![]);
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, project_id, intent, scope_json, rate_limit, \
+             time_window, decision_note, requested_at \
+             FROM approvals \
+             WHERE project_id = ?1 AND decision = 'pending' \
+             ORDER BY requested_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![project_id], |row| {
+            Ok(Approval {
+                id:           row.get(0)?,
+                project_id:   row.get(1)?,
+                intent:       row.get(2)?,
+                scope_json:   row.get(3)?,
+                rate_limit:   row.get(4)?,
+                time_window:  row.get(5)?,
+                decision_note: row.get(6)?,
+                requested_at: row.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn decide_approval(approval_id: i64, decision: String, note: String) -> Result<(), String> {
+    if decision != "approved" && decision != "denied" {
+        return Err(format!("Invalid decision: {decision}. Must be 'approved' or 'denied'."));
+    }
+    let conn = open()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    conn.execute(
+        "UPDATE approvals SET decision = ?1, decided_at = ?2, decision_note = ?3 WHERE id = ?4",
+        params![decision, now, note, approval_id],
     )
     .map_err(|e| e.to_string())?;
     Ok(())

