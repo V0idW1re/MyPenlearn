@@ -147,6 +147,45 @@ echo "kali ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
 
 ---
 
+## Uninstall
+
+### 1 — Remove the application
+
+```bash
+sudo dpkg -r penligent-local
+```
+
+This removes the binary, the bundled MCP server, and the desktop entry. Configuration and data are intentionally kept (see step 3 if you want to remove those too).
+
+### 2 — Remove the sudoers rule (if added)
+
+```bash
+sudo rm -f /etc/sudoers.d/penligent-openvpn
+```
+
+### 3 — Remove user data (optional)
+
+```bash
+# App database, HTB token, settings
+rm -rf ~/.local/share/penligent-local/
+
+# Per-engagement workspace files, notes, scan output
+rm -rf ~/penligent/
+```
+
+> These directories contain your findings and chat history. Only delete them if you no longer need the data.
+
+### 4 — Remove the Claude CLI (optional)
+
+```bash
+npm uninstall -g @anthropic-ai/claude-code
+
+# Claude auth tokens and local config
+rm -rf ~/.claude/
+```
+
+---
+
 ## Security notes
 
 - No Anthropic API key required — Claude Code handles authentication
