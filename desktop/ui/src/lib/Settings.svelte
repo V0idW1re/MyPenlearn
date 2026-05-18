@@ -6,18 +6,50 @@
 
   let { vpnState } = $props();
 
-  let htbToken  = $state("");
+  let htbToken   = $state("");
   let tokenSaved = $state(false);
-  let ovpnPath  = $state("");
-  let vpnError  = $state("");
+  let ovpnPath   = $state("");
+  let ovpnName   = $state("");
+  let vpnError   = $state("");
   let connecting = $state(false);
+  let vpnProfiles = $state([]);
+  let profileSaved = $state(false);
 
   onMount(async () => {
     try {
       const t = await invoke("load_config_value", { key: "htb_app_token" });
       if (t) htbToken = t;
     } catch (_) {}
+    await loadProfiles();
   });
+
+  async function loadProfiles() {
+    try { vpnProfiles = await invoke("list_vpn_profiles"); }
+    catch (_) { vpnProfiles = []; }
+  }
+
+  async function saveProfile() {
+    if (!ovpnPath) return;
+    const name = ovpnName.trim() || ovpnPath.split("/").pop().replace(".ovpn", "");
+    try {
+      await invoke("save_vpn_profile", { name, ovpnPath, kind: "" });
+      profileSaved = true;
+      setTimeout(() => { profileSaved = false; }, 2000);
+      await loadProfiles();
+    } catch (e) { vpnError = String(e); }
+  }
+
+  async function removeProfile(id) {
+    try { await invoke("delete_vpn_profile", { id }); await loadProfiles(); }
+    catch (_) {}
+  }
+
+  async function setDefaultProfile(id) {
+    try { await invoke("set_default_vpn_profile", { id }); await loadProfiles(); }
+    catch (_) {}
+  }
+
+  function loadProfile(p) { ovpnPath = p.ovpn_path; ovpnName = p.name; }
 
   async function saveToken() {
     try {
@@ -42,7 +74,7 @@
     connecting = true;
     vpnError = "";
     try {
-      const profileName = ovpnPath.split("/").pop().replace(".ovpn", "");
+      const profileName = ovpnName.trim() || ovpnPath.split("/").pop().replace(".ovpn", "");
       await invoke("vpn_connect", { ovpnPath, profileName });
     } catch (e) {
       vpnError = String(e);
@@ -90,12 +122,35 @@
 
     <div class="pl-field">
       <span class="pl-label">Profile</span>
-      <span class="pl-hint">Select your .ovpn file then connect.</span>
+      <span class="pl-hint">Select a saved profile or browse for a .ovpn file.</span>
       <div class="pl-row">
-        <input class="pl-input" value={ovpnPath} placeholder="~/Downloads/lab.ovpn" readonly />
+        <input class="pl-input" bind:value={ovpnName} placeholder="Profile name (optional)" style="flex:0 0 140px" />
+        <input class="pl-input" value={ovpnPath} placeholder="~/Downloads/lab.ovpn" readonly style="flex:1" />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
+        <button class="pl-btn pl-btn-primary" onclick={saveProfile} disabled={!ovpnPath}>
+          {profileSaved ? "Saved ✓" : "Save"}
+        </button>
       </div>
     </div>
+
+    {#if vpnProfiles.length > 0}
+      <div class="pl-field">
+        <span class="pl-label">Saved profiles</span>
+        <div class="pl-profiles">
+          {#each vpnProfiles as p (p.id)}
+            <div class="pl-profile-row" class:is-default={p.is_default}>
+              <button class="pl-profile-load" onclick={() => loadProfile(p)} title="Load this profile">
+                {#if p.is_default}<span class="pl-default-star">★</span>{/if}
+                {p.name}
+                {#if p.kind}<span class="pl-profile-kind">{p.kind}</span>{/if}
+              </button>
+              <button class="pl-profile-star" onclick={() => setDefaultProfile(p.id)} title="Set as default">☆</button>
+              <button class="pl-profile-del" onclick={() => removeProfile(p.id)} title="Delete">✕</button>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/if}
 
     <div class="pl-field">
       <span class="pl-label">Privilege mode</span>
@@ -256,4 +311,52 @@
   .ok    { font-size: 11px; color: #9fef00; font-weight: 500; }
   .dim-label { font-size: 12px; color: #6e7681; min-width: 90px; }
   .ml-auto { margin-left: auto; }
+
+  .pl-profiles {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin-top: 4px;
+  }
+  .pl-profile-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+    padding: 3px 6px;
+  }
+  .pl-profile-row.is-default { border-color: #58a6ff; }
+  .pl-profile-load {
+    flex: 1;
+    background: none;
+    border: none;
+    color: #c9d1d9;
+    font-size: 12px;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pl-profile-load:hover { background: #21262d; }
+  .pl-default-star { color: #58a6ff; }
+  .pl-profile-kind { font-size: 10px; color: #8b949e; border: 1px solid #30363d; border-radius: 3px; padding: 0 4px; }
+  .pl-profile-star, .pl-profile-del {
+    background: none;
+    border: none;
+    color: #8b949e;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-family: inherit;
+    line-height: 1;
+  }
+  .pl-profile-star:hover { color: #58a6ff; }
+  .pl-profile-del:hover { color: #f85149; }
 </style>

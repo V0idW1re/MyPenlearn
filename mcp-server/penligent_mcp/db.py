@@ -301,7 +301,42 @@ async def init_db() -> None:
             except Exception:
                 pass
 
+        await _seed_ttp_library(db)
         await db.commit()
+
+
+_TTP_SEED = [
+    ("sqli",                 "SQL Injection",                "T1190", "V5.3.4"),
+    ("xss",                  "Cross-Site Scripting",         "T1059.007", "V5.3.3"),
+    ("rce",                  "Remote Code Execution",        "T1190", "V5.3.8"),
+    ("lfi",                  "Local File Inclusion",         "T1083", "V12.3.1"),
+    ("ssrf",                 "Server-Side Request Forgery",  "T1090", "V10.3.2"),
+    ("idor",                 "Insecure Direct Object Ref",   "T1078", "V4.1.1"),
+    ("xxe",                  "XML External Entity",          "T1190", "V5.5.1"),
+    ("ssti",                 "Server-Side Template Injection","T1059", "V5.3.9"),
+    ("csrf",                 "Cross-Site Request Forgery",   "T1566", "V4.2.2"),
+    ("auth_bypass",          "Authentication Bypass",        "T1110", "V2.1.1"),
+    ("path_traversal",       "Path Traversal",               "T1083", "V12.3.1"),
+    ("cmd_injection",        "Command Injection",            "T1059", "V5.3.8"),
+    ("deserialization",      "Insecure Deserialization",     "T1190", "V1.14.6"),
+    ("open_redirect",        "Open Redirect",                "T1598", "V5.1.5"),
+    ("file_upload",          "Unrestricted File Upload",     "T1105", "V12.1.1"),
+    ("information_disclosure","Information Disclosure",      "T1213", "V7.4.1"),
+    ("misconfig",            "Security Misconfiguration",    "T1190", "V14.1.1"),
+]
+
+async def _seed_ttp_library(db) -> None:
+    row = await (await db.execute("SELECT COUNT(*) FROM ttp_library")).fetchone()
+    if row and row[0] > 0:
+        return
+    for category, name, mitre_id, asvs_id in _TTP_SEED:
+        try:
+            await db.execute(
+                "INSERT OR IGNORE INTO ttp_library(category, name, mitre_id, asvs_id) VALUES(?,?,?,?)",
+                (category, name, mitre_id, asvs_id),
+            )
+        except Exception:
+            pass
 
 
 @asynccontextmanager

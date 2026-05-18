@@ -92,6 +92,32 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             role        TEXT    NOT NULL,
             content     TEXT    NOT NULL,
             created_at  INTEGER DEFAULT (strftime('%s','now'))
+        );
+        CREATE TABLE IF NOT EXISTS workspace_files (
+            id         INTEGER PRIMARY KEY,
+            project_id INTEGER NOT NULL,
+            filename   TEXT    NOT NULL,
+            kind       TEXT,
+            path       TEXT    NOT NULL,
+            sha256     TEXT    NOT NULL,
+            added_at   INTEGER DEFAULT (strftime('%s','now'))
+        );
+        CREATE TABLE IF NOT EXISTS agent_sessions (
+            id                INTEGER PRIMARY KEY,
+            project_id        INTEGER NOT NULL,
+            claude_session_id TEXT,
+            started_at        INTEGER DEFAULT (strftime('%s','now')),
+            ended_at          INTEGER,
+            vpn_state         TEXT
+        );
+        CREATE TABLE IF NOT EXISTS vpn_profiles (
+            id                INTEGER PRIMARY KEY,
+            name              TEXT    NOT NULL,
+            ovpn_path         TEXT    NOT NULL,
+            kind              TEXT,
+            region            TEXT,
+            last_connected_at INTEGER,
+            is_default        INTEGER DEFAULT 0
         );",
     )
     .map_err(|e| e.to_string())
@@ -435,5 +461,212 @@ pub fn decide_approval(approval_id: i64, decision: String, note: String) -> Resu
         params![decision, now, note, approval_id],
     )
     .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Workspace files ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkspaceFile {
+    pub id: i64,
+    pub project_id: i64,
+    pub filename: String,
+    pub kind: Option<String>,
+    pub path: String,
+    pub sha256: String,
+    pub added_at: i64,
+}
+
+#[tauri::command]
+pub fn list_workspace_files(project_id: i64) -> Result<Vec<WorkspaceFile>, String> {
+    let conn = open()?;
+    let table_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='workspace_files'",
+        [], |r| r.get::<_, i32>(0),
+    ).unwrap_or(0) > 0;
+    if !table_exists { return Ok(vec![]); }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, filename, kind, path, sha256, added_at \
+         FROM workspace_files WHERE project_id=?1 ORDER BY added_at DESC",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(WorkspaceFile {
+            id:         row.get(0)?,
+            project_id: row.get(1)?,
+            filename:   row.get(2)?,
+            kind:       row.get(3)?,
+            path:       row.get(4)?,
+            sha256:     row.get(5)?,
+            added_at:   row.get(6)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+// ── Agent sessions ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AgentSession {
+    pub id: i64,
+    pub project_id: i64,
+    pub claude_session_id: Option<String>,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+}
+
+#[tauri::command]
+pub fn create_agent_session(project_id: i64) -> Result<i64, String> {
+    let conn = open()?;
+    conn.execute(
+        "INSERT INTO agent_sessions(project_id) VALUES(?1)",
+        params![project_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(conn.last_insert_rowid())
+}
+
+#[tauri::command]
+pub fn list_resumable_sessions(project_id: i64) -> Result<Vec<AgentSession>, String> {
+    let conn = open()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, project_id, claude_session_id, started_at, ended_at \
+         FROM agent_sessions \
+         WHERE project_id=?1 AND ended_at IS NULL AND claude_session_id IS NOT NULL \
+           AND started_at > strftime('%s','now') - 604800 \
+         ORDER BY started_at DESC LIMIT 3",
+    ).map_err(|e| e.to_string())?;
+
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(AgentSession {
+            id:                row.get(0)?,
+            project_id:        row.get(1)?,
+            claude_session_id: row.get(2)?,
+            started_at:        row.get(3)?,
+            ended_at:          row.get(4)?,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+// Internal helpers called from claude_proc.rs (not Tauri commands).
+pub fn write_session_claude_id(db_session_id: i64, claude_session_id: &str) {
+    if let Ok(conn) = open() {
+        let _ = conn.execute(
+            "UPDATE agent_sessions SET claude_session_id=?1 WHERE id=?2",
+            params![claude_session_id, db_session_id],
+        );
+    }
+}
+
+pub fn end_agent_session_db(db_session_id: i64) {
+    if let Ok(conn) = open() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let _ = conn.execute(
+            "UPDATE agent_sessions SET ended_at=?1 WHERE id=?2",
+            params![now, db_session_id],
+        );
+    }
+}
+
+// ── VPN profiles ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VpnProfile {
+    pub id: i64,
+    pub name: String,
+    pub ovpn_path: String,
+    pub kind: Option<String>,
+    pub last_connected_at: Option<i64>,
+    pub is_default: bool,
+}
+
+#[tauri::command]
+pub fn save_vpn_profile(name: String, ovpn_path: String, kind: String) -> Result<VpnProfile, String> {
+    let name = name.trim().to_string();
+    let ovpn_path = ovpn_path.trim().to_string();
+    if name.is_empty() || ovpn_path.is_empty() {
+        return Err("name and ovpn_path are required".into());
+    }
+    let kind_opt = if kind.is_empty() { None } else { Some(kind) };
+    let conn = open()?;
+    conn.execute(
+        "INSERT INTO vpn_profiles(name, ovpn_path, kind) VALUES(?1,?2,?3) \
+         ON CONFLICT DO NOTHING",
+        params![name, ovpn_path, kind_opt],
+    ).map_err(|e| e.to_string())?;
+    let id = conn.last_insert_rowid();
+    Ok(VpnProfile { id, name, ovpn_path, kind: kind_opt, last_connected_at: None, is_default: false })
+}
+
+#[tauri::command]
+pub fn list_vpn_profiles() -> Result<Vec<VpnProfile>, String> {
+    let conn = open()?;
+    let mut stmt = conn.prepare(
+        "SELECT id, name, ovpn_path, kind, last_connected_at, is_default \
+         FROM vpn_profiles ORDER BY is_default DESC, last_connected_at DESC NULLS LAST",
+    ).map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], |row| {
+        Ok(VpnProfile {
+            id:                row.get(0)?,
+            name:              row.get(1)?,
+            ovpn_path:         row.get(2)?,
+            kind:              row.get(3)?,
+            last_connected_at: row.get(4)?,
+            is_default:        row.get::<_, i32>(5)? != 0,
+        })
+    }).map_err(|e| e.to_string())?
+    .filter_map(|r| r.ok())
+    .collect();
+    Ok(rows)
+}
+
+#[tauri::command]
+pub fn delete_vpn_profile(id: i64) -> Result<(), String> {
+    let conn = open()?;
+    conn.execute("DELETE FROM vpn_profiles WHERE id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn set_default_vpn_profile(id: i64) -> Result<(), String> {
+    let conn = open()?;
+    conn.execute("UPDATE vpn_profiles SET is_default=0", [])
+        .map_err(|e| e.to_string())?;
+    conn.execute("UPDATE vpn_profiles SET is_default=1 WHERE id=?1", params![id])
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+pub fn vpn_profile_touch(ovpn_path: &str) {
+    if let Ok(conn) = open() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let _ = conn.execute(
+            "UPDATE vpn_profiles SET last_connected_at=?1 WHERE ovpn_path=?2",
+            params![now, ovpn_path],
+        );
+    }
+}
+
+// ── update_project_target ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn update_project_target(id: i64, target: String) -> Result<(), String> {
+    let conn = open()?;
+    conn.execute(
+        "UPDATE projects SET target=?1, updated_at=strftime('%s','now') WHERE id=?2",
+        params![target, id],
+    ).map_err(|e| e.to_string())?;
     Ok(())
 }

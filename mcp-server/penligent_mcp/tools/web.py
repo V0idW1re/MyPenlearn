@@ -2056,3 +2056,122 @@ register(
     ),
     _pdf_generator_ssrf,
 )
+
+# ---------------------------------------------------------------------------
+# crawler_login — authenticated session crawler
+# ---------------------------------------------------------------------------
+
+async def _crawler_login(args: dict) -> str:
+    target = args.get("target", "").rstrip("/")
+    login_url = args.get("login_url", "")
+    username = args.get("username", "")
+    password = args.get("password", "")
+    project_id = args.get("project_id")
+    timeout = int(args.get("timeout", 30))
+
+    if not target:
+        return "Error: target is required."
+
+    results = [f"crawler_login: {target}", ""]
+
+    # Step 1 – login and get session cookie
+    session_cookie = ""
+    login_status = "skipped (no login_url provided)"
+    if login_url:
+        import urllib.request, urllib.parse, urllib.error
+        try:
+            cj = {}
+            post_data = urllib.parse.urlencode({"username": username, "password": password, "email": username}).encode()
+            req = urllib.request.Request(login_url, data=post_data, method="POST")
+            req.add_header("User-Agent", "penligent-crawler/0.1")
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+            with opener.open(req, timeout=timeout) as resp:
+                for h in resp.headers.get_all("Set-Cookie") or []:
+                    cookie_part = h.split(";")[0].strip()
+                    if "=" in cookie_part:
+                        k, v = cookie_part.split("=", 1)
+                        cj[k.strip()] = v.strip()
+                login_status = f"POST {login_url} → {resp.status}"
+        except Exception as e:
+            login_status = f"Login failed: {e}"
+
+        session_cookie = "; ".join(f"{k}={v}" for k, v in cj.items())
+        results.append(f"Login: {login_status}")
+        if session_cookie:
+            results.append(f"Session cookie: {session_cookie[:80]}{'…' if len(session_cookie) > 80 else ''}")
+
+    # Step 2 – crawl 40 paths with authenticated session
+    _PATHS = [
+        "/", "/admin", "/admin/", "/api", "/api/v1", "/api/v2",
+        "/login", "/logout", "/register", "/dashboard", "/settings",
+        "/profile", "/account", "/users", "/user", "/config",
+        "/debug", "/test", "/status", "/health", "/metrics",
+        "/backup", "/backups", "/upload", "/uploads", "/files",
+        "/graphql", "/swagger", "/swagger-ui", "/api-docs",
+        "/robots.txt", "/sitemap.xml", "/.env", "/.git/HEAD",
+        "/actuator", "/actuator/health", "/actuator/env",
+        "/wp-admin", "/wp-login.php", "/phpmyadmin", "/console",
+    ]
+
+    results.append("")
+    results.append("Authenticated crawl results:")
+    interesting = []
+    import urllib.request, urllib.error
+    for path in _PATHS:
+        url = target + path
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "penligent-crawler/0.1")
+        if session_cookie:
+            req.add_header("Cookie", session_cookie)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                code = resp.status
+                ct = resp.headers.get("Content-Type", "")[:40]
+                size = len(resp.read(512))
+                line = f"  {code}  {path:35} {ct}"
+                if code in (200, 201) or size > 100:
+                    interesting.append(line)
+                results.append(line)
+        except urllib.error.HTTPError as e:
+            code = e.code
+            line = f"  {code}  {path}"
+            if code in (401, 403):
+                interesting.append(line)
+            results.append(line)
+        except Exception:
+            results.append(f"  ERR  {path}")
+
+    if interesting:
+        results.append("")
+        results.append(f"Interesting ({len(interesting)} paths — 200/201/401/403):")
+        results.extend(interesting)
+
+    result = "\n".join(results)
+    await _persist(project_id, "crawler_login", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="crawler_login",
+        description=(
+            "Log in with credentials then crawl 40 high-value paths with the authenticated session. "
+            "Returns status codes for each path. Call approve_intent(SCAN_ACTIVE) first. "
+            "Requires login_url + username + password for the authenticated phase."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Base URL of the target (e.g. http://10.10.11.22)"},
+                "login_url": {"type": "string", "description": "POST endpoint to authenticate against"},
+                "username": {"type": "string", "description": "Username or email for login"},
+                "password": {"type": "string", "description": "Password for login"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Per-request timeout in seconds (default 30)"},
+            },
+        },
+    ),
+    _crawler_login,
+)

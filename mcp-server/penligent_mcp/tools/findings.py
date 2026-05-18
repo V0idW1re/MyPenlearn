@@ -983,3 +983,61 @@ register(Tool(
         verified_by=("string", "Researcher identity performing the re-test"),
     ),
 ), _record_verification)
+
+# ---------------------------------------------------------------------------
+# ttp_lookup — look up a TTP category in the library
+# ---------------------------------------------------------------------------
+
+async def _ttp_lookup(args: dict) -> list[TextContent]:
+    category = (args.get("category") or "").strip().lower()
+    if not category:
+        return _ok("Error: category is required.")
+    try:
+        from ..db import get_db
+        async with get_db() as db:
+            row = await (await db.execute(
+                "SELECT category, name, detection_method, verification_payload, "
+                "false_positive_patterns, waf_bypass, mitre_id, asvs_id "
+                "FROM ttp_library WHERE category=?",
+                (category,)
+            )).fetchone()
+            if not row:
+                # Fall back to substring match
+                row = await (await db.execute(
+                    "SELECT category, name, detection_method, verification_payload, "
+                    "false_positive_patterns, waf_bypass, mitre_id, asvs_id "
+                    "FROM ttp_library WHERE category LIKE ?",
+                    (f"%{category}%",)
+                )).fetchone()
+    except Exception as e:
+        return _ok(f"DB error: {e}")
+
+    if not row:
+        return _ok(f"No TTP entry found for '{category}'.")
+
+    keys = ["category", "name", "detection_method", "verification_payload",
+            "false_positive_patterns", "waf_bypass", "mitre_id", "asvs_id"]
+    record = dict(zip(keys, row))
+    lines = [f"TTP: {record['name']} ({record['category']})"]
+    if record.get("mitre_id"):
+        lines.append(f"MITRE ATT&CK: {record['mitre_id']}")
+    if record.get("asvs_id"):
+        lines.append(f"OWASP ASVS:   {record['asvs_id']}")
+    for k in ("detection_method", "verification_payload", "false_positive_patterns", "waf_bypass"):
+        if record.get(k):
+            lines.append(f"\n{k.replace('_', ' ').title()}:\n{record[k]}")
+    return _ok("\n".join(lines))
+
+register(Tool(
+    name="ttp_lookup",
+    description=(
+        "Look up a TTP (technique/tactic/procedure) category in the library. "
+        "Returns MITRE ATT&CK ID, OWASP ASVS ID, detection method, verification payload, "
+        "false-positive patterns, and WAF bypass hints. "
+        "Categories: sqli, xss, rce, lfi, ssrf, idor, xxe, ssti, csrf, auth_bypass, "
+        "path_traversal, cmd_injection, deserialization, open_redirect, file_upload, "
+        "information_disclosure, misconfig."
+    ),
+    inputSchema=_s(["category"],
+        category=("string", "TTP category slug (e.g. 'sqli', 'xss', 'ssrf')")),
+), _ttp_lookup)

@@ -140,6 +140,9 @@ pub async fn connect(
                 let mut m = manager_clone.lock().unwrap();
                 m.state.status = VpnStatus::Connected;
                 if let Some(ip) = tun_ip { m.state.tun_ip = Some(ip); }
+                if let Some(ref path) = m.ovpn_path {
+                    crate::db_commands::vpn_profile_touch(path);
+                }
                 emit_state(&app_clone, &m.state);
             } else if let Some(ip) = tun_ip {
                 let mut m = manager_clone.lock().unwrap();

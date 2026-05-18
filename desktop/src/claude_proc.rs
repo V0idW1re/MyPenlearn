@@ -218,7 +218,7 @@ Write workspace/report/fix-list.md at the end of every session summarising all c
 ## HITL Guardrails — approve_intent\n\
 Before executing any of the following operation classes, call approve_intent with the appropriate intent string:\n\
   RUN_EXPLOIT — any exploitation payload (shell, SQLi write, deserialization)\n\
-  SCAN_ACTIVE — any active scan that sends non-passive traffic (nmap -A, nuclei, nikto)\n\
+  SCAN_ACTIVE — any active scan that sends non-passive traffic (nmap -A, nuclei, nikto_scan, http_smuggle, crawler_login, brute_force_test)\n\
   SPAWN_SHELL — spawning a reverse or bind shell\n\
   WRITE_FILE — writing files to the target system\n\
   EGRESS_CALL — outbound HTTP/DNS to attacker-controlled endpoints (OOB callbacks, interactsh, Burp Collaborator)\n\
@@ -237,9 +237,9 @@ If approve_intent returns DENIED: stop — do not attempt the operation under an
 HTB projects with HTB_APP_TOKEN present: RUN_EXPLOIT, SCAN_ACTIVE, SPAWN_SHELL, SUBMIT_FLAG, and RESET_MACHINE are auto-approved — no user prompt needed.\n\
 The following specific tools are always auto-approved (passive / read-only): \
 port_enum, dns_resolve, check_domain, check_ip, detect_input_type, http_probe, tech_detect, \
-check_sensitive_paths, list_findings, workspace_read, workspace_ls, workspace_note, workspace_search, \
-task_status, plan_get, plan_next_step, map_mitre_attack, map_owasp_asvs, map_owasp_top10, \
-risk_summary, audit_log.\n\
+security_headers, check_sensitive_paths, list_findings, workspace_read, workspace_ls, workspace_note, \
+workspace_search, task_status, plan_get, plan_next_step, map_mitre_attack, map_owasp_asvs, \
+map_owasp_top10, risk_summary, audit_log, ttp_lookup, list_workspace_files.\n\
 Passive operations (PASSIVE_RECON, DNS_RESOLVE, WHOIS, CERT_TRANSPARENCY, WAYBACK, SHODAN_QUERY, RECORD_FINDING, WORKSPACE_WRITE) never require approve_intent.\n\
 \n\
 ## Cloud & Container Attack Surface\n\
@@ -387,6 +387,7 @@ pub struct ClaudeState {
     pub session_id: Option<String>,
     pub project_id: Option<i64>,
     pub work_dir: Option<PathBuf>,
+    pub db_session_id: Option<i64>,
 }
 
 pub type SharedClaudeState = Arc<Mutex<ClaudeState>>;
@@ -540,6 +541,12 @@ pub async fn run_turn(
         s.session_id = Some(sid.clone());
     }
 
+    // Write the Claude session ID into the agent_sessions row (best-effort)
+    let db_id = state.lock().unwrap().db_session_id;
+    if let (Some(db_id), Some(ref sid)) = (db_id, &new_session_id) {
+        crate::db_commands::write_session_claude_id(db_id, sid);
+    }
+
     // Signal frontend that the turn is complete
     let _ = app.emit("claude://done", serde_json::json!({
         "session_id": new_session_id
@@ -566,12 +573,15 @@ pub async fn claude_send(
 pub fn claude_set_context(
     project_id: i64,
     work_dir: String,
+    resume_claude_session_id: Option<String>,
+    db_session_id: Option<i64>,
     state: tauri::State<'_, SharedClaudeState>,
 ) {
     let mut s = state.lock().unwrap();
     s.project_id = Some(project_id);
     s.work_dir = Some(PathBuf::from(work_dir));
-    s.session_id = None; // fresh session for new project
+    s.session_id = resume_claude_session_id;
+    s.db_session_id = db_session_id;
 }
 
 #[tauri::command]
@@ -585,5 +595,12 @@ pub fn claude_get_session(
 pub fn claude_clear_session(
     state: tauri::State<'_, SharedClaudeState>,
 ) {
-    state.lock().unwrap().session_id = None;
+    let db_id = {
+        let mut s = state.lock().unwrap();
+        s.session_id = None;
+        s.db_session_id.take()
+    };
+    if let Some(id) = db_id {
+        crate::db_commands::end_agent_session_db(id);
+    }
 }

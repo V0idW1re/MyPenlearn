@@ -9,14 +9,16 @@
   import StatusBar from "./lib/StatusBar.svelte";
   import Settings from "./lib/Settings.svelte";
   import ApprovalModal from "./lib/ApprovalModal.svelte";
+  import Workspace from "./lib/Workspace.svelte";
 
   let activeProject = $state(null);
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
-  let vpnDropped = $state(null);   // profile_name when VPN drops unexpectedly
+  let vpnDropped = $state(null);
+  let resumableSession = $state(null);   // { id, claude_session_id, started_at, workDir }
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
-  let tokenCount = $state(0);   // rough estimate: cost_usd * 200k
+  let tokenCount = $state(0);
   let pendingApproval = $state(null);
   let approvalPollTimer = null;
 
@@ -62,20 +64,48 @@
     return () => { if (approvalPollTimer) clearInterval(approvalPollTimer); };
   });
 
-  function handleProjectSelect(project) {
+  async function applyContext(project, workDir, resumeId, dbSessionId) {
+    invoke("claude_set_context", {
+      projectId: project.id,
+      workDir,
+      resumeClaudeSessionId: resumeId ?? null,
+      dbSessionId: dbSessionId ?? null,
+    }).catch(console.error);
+  }
+
+  async function handleProjectSelect(project) {
     activeProject = project;
     sessionId = null;
     currentTool = null;
     tokenCount = 0;
     pendingApproval = null;
-    if (project) setTimeout(pollApprovals, 300);
-    if (project) {
-      homeDir().then(home => {
-        invoke("claude_set_context", {
-          projectId: project.id,
-          workDir: `${home}/penligent/projects/${project.name}/workspace`,
-        }).catch(console.error);
-      }).catch(console.error);
+    resumableSession = null;
+    if (!project) return;
+    setTimeout(pollApprovals, 300);
+    const home = await homeDir();
+    const workDir = `${home}/penligent/projects/${project.name}/workspace`;
+    try {
+      const sessions = await invoke("list_resumable_sessions", { projectId: project.id });
+      if (sessions.length > 0) {
+        resumableSession = { ...sessions[0], workDir };
+      } else {
+        const dbSid = await invoke("create_agent_session", { projectId: project.id }).catch(() => null);
+        applyContext(project, workDir, null, dbSid);
+      }
+    } catch (_) {
+      applyContext(project, workDir, null, null);
+    }
+  }
+
+  async function handleResumeDecision(doResume) {
+    if (!activeProject || !resumableSession) return;
+    const s = resumableSession;
+    resumableSession = null;
+    if (doResume) {
+      applyContext(activeProject, s.workDir, s.claude_session_id, s.id);
+    } else {
+      const dbSid = await invoke("create_agent_session", { projectId: activeProject.id }).catch(() => null);
+      applyContext(activeProject, s.workDir, null, dbSid);
     }
   }
 </script>
@@ -90,6 +120,8 @@
     <div class="pl-tabs">
       <button class="pl-tab" class:active={activeTab === "chat"}
         onclick={() => activeTab = "chat"}>Chat</button>
+      <button class="pl-tab" class:active={activeTab === "workspace"}
+        onclick={() => activeTab = "workspace"}>Workspace</button>
       <button class="pl-tab" class:active={activeTab === "settings"}
         onclick={() => activeTab = "settings"}>Settings</button>
     </div>
@@ -112,6 +144,10 @@
     <Findings project={activeProject} />
   </div>
 
+  <div class="pl-main" style="display:{activeTab === 'workspace' ? 'flex' : 'none'}">
+    <Workspace project={activeProject} />
+  </div>
+
   <div class="pl-main" style="display:{activeTab === 'settings' ? 'flex' : 'none'}">
     <Settings {vpnState} />
   </div>
@@ -120,6 +156,14 @@
 
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />
+  {/if}
+
+  {#if resumableSession}
+    <div class="pl-resume-banner">
+      <span>Session from {new Date(resumableSession.started_at * 1000).toLocaleString()} found —</span>
+      <button class="pl-resume-btn" onclick={() => handleResumeDecision(true)}>Resume</button>
+      <button class="pl-resume-btn pl-resume-fresh" onclick={() => handleResumeDecision(false)}>Start Fresh</button>
+    </div>
   {/if}
 
   {#if vpnDropped}
@@ -208,6 +252,38 @@
     min-height: 0;
     overflow: hidden;
   }
+
+  .pl-resume-banner {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #c9d1d9;
+    font-size: 12px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 498;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .pl-resume-btn {
+    background: #238636;
+    border: none;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-resume-btn:hover { background: #2ea043; }
+  .pl-resume-fresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
+  .pl-resume-fresh:hover { background: #30363d; }
 
   .pl-vpn-drop {
     position: fixed;

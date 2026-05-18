@@ -19,6 +19,7 @@
   let modalStep   = $state(0);
   let pickedKind  = $state("");
   let newName     = $state("");
+  let newTarget   = $state("");
   let creating    = $state(false);
   let createError = $state("");
   let ctxMenu     = $state(null);
@@ -52,7 +53,7 @@
     ctxMenu = { x: e.clientX, y: e.clientY, proj };
   }
 
-  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; createError = ""; }
+  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; newTarget = ""; createError = ""; }
   function closeModal() { modalStep = 0; }
 
   async function createProject() {
@@ -60,7 +61,7 @@
     creating = true;
     createError = "";
     try {
-      const project = await invoke("create_project", { name: newName.trim(), target: "", kind: pickedKind });
+      const project = await invoke("create_project", { name: newName.trim(), target: newTarget.trim(), kind: pickedKind });
       projects = [...projects, project];
       closeModal();
       onSelect(project);
@@ -227,6 +228,11 @@
           <span class="pl-field-hint">Used as the workspace directory name. Keep it short and filesystem-safe.</span>
           <input class="pl-text-input" placeholder="e.g. Cap" bind:value={newName}
             onkeydown={(e) => e.key === "Enter" && createProject()} />
+        </div>
+        <div class="pl-field">
+          <span class="pl-field-label">Target <span class="pl-optional">(optional)</span></span>
+          <span class="pl-field-hint">IP address or hostname, e.g. 10.10.11.22 or cap.htb</span>
+          <input class="pl-text-input" placeholder="10.10.11.22" bind:value={newTarget} />
           {#if createError}
             <span class="pl-field-error">{createError}</span>
           {/if}
@@ -507,6 +513,7 @@
   .pl-field-label { font-size: 12px; color: #c9d1d9; font-weight: 500; }
   .pl-field-hint  { font-size: 11px; color: #6e7681; line-height: 1.5; }
   .pl-field-error { font-size: 11px; color: #f85149; line-height: 1.5; }
+  .pl-optional    { font-size: 11px; color: #6e7681; font-weight: 400; }
 
   .pl-text-input {
     background: #0d1117;
