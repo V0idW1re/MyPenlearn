@@ -29,7 +29,12 @@
     "targets": "deb",
     "icon": ["icons/icon.png"],
     "resources": [],
-    "externalBin": []
+    "externalBin": [],
+    "linux": {
+      "deb": {
+        "desktopTemplate": "penligent-local.desktop"
+      }
+    }
   },
   "plugins": {
     "shell": {
