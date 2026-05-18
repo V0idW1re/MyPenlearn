@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { listen } from "@tauri-apps/api/event";
+  import { homeDir } from "@tauri-apps/api/path";
   import Sidebar from "./lib/Sidebar.svelte";
   import Chat from "./routes/Chat.svelte";
   import Findings from "./lib/Findings.svelte";
@@ -38,10 +39,12 @@
     currentTool = null;
     tokenCount = 0;
     if (project) {
-      invoke("claude_set_context", {
-        projectId: project.id,
-        workDir: `/home/kali/penligent/projects/${project.name}/workspace`,
-      }).catch(console.error);
+      homeDir().then(home => {
+        invoke("claude_set_context", {
+          projectId: project.id,
+          workDir: `${home}/penligent/projects/${project.name}/workspace`,
+        }).catch(console.error);
+      });
     }
   }
 </script>

@@ -7,7 +7,11 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use dirs;
 
-const CLAUDE_BIN: &str = "/home/kali/.local/bin/claude";
+fn claude_bin() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("/root"))
+        .join(".local/bin/claude")
+}
 
 const SYSTEM_PROMPT: &str = "\
 You are Penligent, an autonomous penetration testing agent running on Kali Linux inside Penligent Local.\n\
@@ -126,9 +130,11 @@ pub async fn run_turn(
         (s.session_id.clone(), s.work_dir.clone())
     };
 
-    let work_dir = work_dir.unwrap_or_else(|| PathBuf::from("/home/kali"));
+    let work_dir = work_dir.unwrap_or_else(|| {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from("/root"))
+    });
 
-    let mut cmd = Command::new(CLAUDE_BIN);
+    let mut cmd = Command::new(claude_bin());
     cmd.arg("--output-format").arg("stream-json")
         .arg("--verbose")
         .arg("--dangerously-skip-permissions")

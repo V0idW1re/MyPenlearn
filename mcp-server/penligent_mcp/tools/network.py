@@ -399,7 +399,7 @@ async def _rpc_users(args: dict) -> str:
     timeout_s = int(args.get("timeout", 30))
     auth = f"{username}%{password}" if username else ""
     proc = await asyncio.create_subprocess_exec(
-        "rpcclient", "-U", auth, "-N" if not username else "", target,
+        "rpcclient", "-U", auth, *(["-N"] if not username else []), target,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

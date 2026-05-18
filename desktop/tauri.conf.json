@@ -32,7 +32,29 @@
     "externalBin": [],
     "linux": {
       "deb": {
-        "desktopTemplate": "penligent-local.desktop"
+        "desktopTemplate": "penligent-local.desktop",
+        "postInstallScript": "scripts/post-install.sh",
+        "files": {
+          "/usr/lib/penligent-local/mcp-server/pyproject.toml":                          "../mcp-server/pyproject.toml",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/__init__.py":               "../mcp-server/penligent_mcp/__init__.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/__main__.py":               "../mcp-server/penligent_mcp/__main__.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/db.py":                     "../mcp-server/penligent_mcp/db.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/__init__.py":         "../mcp-server/penligent_mcp/tools/__init__.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/_helpers.py":         "../mcp-server/penligent_mcp/tools/_helpers.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/crypto.py":           "../mcp-server/penligent_mcp/tools/crypto.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/exploit.py":          "../mcp-server/penligent_mcp/tools/exploit.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/findings.py":         "../mcp-server/penligent_mcp/tools/findings.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/htb_machines.py":     "../mcp-server/penligent_mcp/tools/htb_machines.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/network.py":          "../mcp-server/penligent_mcp/tools/network.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/osint.py":            "../mcp-server/penligent_mcp/tools/osint.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/passwords.py":        "../mcp-server/penligent_mcp/tools/passwords.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/post_exploit.py":     "../mcp-server/penligent_mcp/tools/post_exploit.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/recon.py":            "../mcp-server/penligent_mcp/tools/recon.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/register_all.py":     "../mcp-server/penligent_mcp/tools/register_all.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/scanner.py":          "../mcp-server/penligent_mcp/tools/scanner.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/web.py":              "../mcp-server/penligent_mcp/tools/web.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/workspace.py":        "../mcp-server/penligent_mcp/tools/workspace.py"
+        }
       }
     }
   },

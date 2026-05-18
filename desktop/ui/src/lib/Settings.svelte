@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import { open } from "@tauri-apps/plugin-dialog";
+  import { homeDir } from "@tauri-apps/api/path";
 
   let { vpnState } = $props();
 
@@ -27,10 +28,11 @@
   }
 
   async function browseOvpn() {
+    const home = await homeDir();
     const path = await open({
       title: "Select .ovpn file",
       filters: [{ name: "OpenVPN Config", extensions: ["ovpn"] }],
-      defaultPath: "/home/kali/Downloads",
+      defaultPath: `${home}/Downloads`,
     });
     if (path) ovpnPath = path;
   }
@@ -90,7 +92,7 @@
       <span class="pl-label">Profile</span>
       <span class="pl-hint">Select your .ovpn file then connect.</span>
       <div class="pl-row">
-        <input class="pl-input" value={ovpnPath} placeholder="/home/kali/Downloads/lab.ovpn" readonly />
+        <input class="pl-input" value={ovpnPath} placeholder="~/Downloads/lab.ovpn" readonly />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
       </div>
     </div>
