@@ -181,7 +181,7 @@
     min-height: 0;
     background: #0d1117;
     padding: 16px 20px;
-    overflow-y: auto;
+    overflow: hidden;
     gap: 0;
   }
 
@@ -283,6 +283,9 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .pl-ws-row {

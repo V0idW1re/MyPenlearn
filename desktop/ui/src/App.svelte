@@ -91,6 +91,7 @@
     tokenCount = 0;
     pendingApproval = null;
     resumableSession = null;
+    activeDbSessionId = null;
     if (!project) return;
     setTimeout(pollApprovals, 300);
     const home = await homeDir();

@@ -243,11 +243,11 @@
             <textarea class="pl-text-input pl-scope-input" placeholder="*.example.com&#10;10.0.0.0/24&#10;!/admin" bind:value={newScope} rows="3"></textarea>
           </div>
         {/if}
-        <div class="pl-field">
-          {#if createError}
+        {#if createError}
+          <div class="pl-field">
             <span class="pl-field-error">{createError}</span>
-          {/if}
-        </div>
+          </div>
+        {/if}
         <div class="pl-modal-actions">
           <button class="pl-btn" onclick={() => { modalStep = 1; }}>Back</button>
           <button class="pl-btn pl-btn-primary" onclick={createProject}

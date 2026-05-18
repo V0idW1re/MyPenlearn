@@ -866,6 +866,6 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     if output.status.success() || stdout.contains("htb-mcp-ctf") || stderr.contains("htb-mcp-ctf") {
         Ok("HTB MCP server registered successfully.".into())
     } else {
-        Ok(format!("claude mcp add output: {stdout}{stderr}"))
+        Err(format!("claude mcp add failed: {stdout}{stderr}"))
     }
 }
