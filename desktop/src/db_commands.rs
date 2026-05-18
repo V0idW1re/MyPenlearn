@@ -598,8 +598,7 @@ pub fn save_vpn_profile(name: String, ovpn_path: String, kind: String) -> Result
     let kind_opt = if kind.is_empty() { None } else { Some(kind) };
     let conn = open()?;
     conn.execute(
-        "INSERT INTO vpn_profiles(name, ovpn_path, kind) VALUES(?1,?2,?3) \
-         ON CONFLICT DO NOTHING",
+        "INSERT INTO vpn_profiles(name, ovpn_path, kind) VALUES(?1,?2,?3)",
         params![name, ovpn_path, kind_opt],
     ).map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
@@ -611,7 +610,7 @@ pub fn list_vpn_profiles() -> Result<Vec<VpnProfile>, String> {
     let conn = open()?;
     let mut stmt = conn.prepare(
         "SELECT id, name, ovpn_path, kind, last_connected_at, is_default \
-         FROM vpn_profiles ORDER BY is_default DESC, last_connected_at DESC NULLS LAST",
+         FROM vpn_profiles ORDER BY is_default DESC, COALESCE(last_connected_at, 0) DESC",
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
         Ok(VpnProfile {
@@ -638,12 +637,13 @@ pub fn delete_vpn_profile(id: i64) -> Result<(), String> {
 
 #[tauri::command]
 pub fn set_default_vpn_profile(id: i64) -> Result<(), String> {
-    let conn = open()?;
-    conn.execute("UPDATE vpn_profiles SET is_default=0", [])
+    let mut conn = open()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    tx.execute("UPDATE vpn_profiles SET is_default=0", [])
         .map_err(|e| e.to_string())?;
-    conn.execute("UPDATE vpn_profiles SET is_default=1 WHERE id=?1", params![id])
+    tx.execute("UPDATE vpn_profiles SET is_default=1 WHERE id=?1", params![id])
         .map_err(|e| e.to_string())?;
-    Ok(())
+    tx.commit().map_err(|e| e.to_string())
 }
 
 pub fn vpn_profile_touch(ovpn_path: &str) {

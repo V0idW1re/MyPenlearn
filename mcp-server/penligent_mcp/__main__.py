@@ -26,6 +26,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
     try:
         result = await handler(arguments)
+        if isinstance(result, list) and result and isinstance(result[0], TextContent):
+            return result
         return [TextContent(type="text", text=str(result))]
     except Exception as exc:
         log.exception("Tool %s raised an error", name)
