@@ -50,11 +50,12 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 - **Severity summary bar** — Instant P0·N P1·N P2·N counts at the top of the findings panel
 - **Session continuity** — Claude resumes the same session with `--resume`; system prompt enforces no-repeat rules so completed steps are never suggested again
 - **GUI walkthrough mode** — When a GUI app is required (Burp, browser, VNC), the agent stops and delivers numbered, sub-stepped manual instructions with expected visual feedback
-- **OpenVPN integration** — Browse and connect to `.ovpn` profiles directly from Settings; narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn` only)
+- **OpenVPN integration** — Browse and connect to `.ovpn` profiles directly from Settings; passwordless sudo rule added automatically by the installer
 - **HackTheBox auto-approval** — When `HTB_APP_TOKEN` is set, machine start/stop/reset and flag submission proceed without confirmation prompts
 - **Workspace persistence** — Every finding, note, and file written to `~/penligent/projects/<name>/workspace/`; SQLite WAL-mode DB survives VM shutdowns
 - **Markdown renderer** — Zero-dependency inline renderer: code fences with copy buttons, headings, lists, blockquotes, bold/italic/strikethrough, inline code
 - **Manual-action callout** — GUI walkthrough completions are detected and rendered as a highlighted amber callout
+- **VirtualBox compatible** — Software rendering enabled automatically inside the binary; no manual configuration needed
 
 ---
 
@@ -62,19 +63,31 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 - Kali Linux (tested on 2024.x — VMware and VirtualBox)
 - [`claude` CLI](https://claude.ai/code) installed and logged in (`~/.local/bin/claude`)
-- Python 3.11+ (for the MCP server)
+- Python 3.11+ (for the MCP server — pre-installed on Kali)
 - OpenVPN (`/usr/sbin/openvpn`) — optional, for HTB lab access
 
 ---
 
 ## Installation
 
-### Option A — Install the pre-built .deb
+### Option A — Install the pre-built .deb (recommended)
+
+Download `penligent-local_0.1.0_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
 sudo dpkg -i penligent-local_0.1.0_amd64.deb
 penligent-local
 ```
+
+The installer automatically:
+
+- Installs the binary to `/usr/bin/penligent-local`
+- Bundles the Python MCP server to `/usr/lib/penligent-local/mcp-server/`
+- Creates a Python virtual environment and installs the MCP server package
+- Registers the MCP server entry in `~/.claude/settings.json`
+- Adds a narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn`) so VPN connects without a password prompt
+
+No manual setup is needed after `dpkg -i`.
 
 ### Option B — Build from source
 
@@ -93,13 +106,27 @@ cd desktop && cargo tauri build
 sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.0_amd64.deb
 ```
 
-### MCP server (required for tools)
+#### MCP server (source builds only)
 
-The MCP server is bundled in the `.deb` at `/usr/lib/penligent-local/mcp-server/`. It is started automatically by `claude` via the MCP config. If building from source:
+The post-install script handles this automatically for `.deb` installs. If running from source without installing the `.deb`:
 
 ```bash
 cd mcp-server
-pip install -e .
+python3 -m venv .venv
+.venv/bin/pip install -e .
+```
+
+Then add to `~/.claude/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "penligent-local": {
+      "command": "/path/to/mcp-server/.venv/bin/python",
+      "args": ["-m", "penligent_mcp"]
+    }
+  }
+}
 ```
 
 ---
@@ -112,15 +139,16 @@ Settings → HTB App Token → paste your token from HTB profile → Settings �
 
 Stored locally at `~/.local/share/penligent-local/config.json`, passed to Claude as `HTB_APP_TOKEN`.
 
-### VPN (optional)
+### VPN
 
 Settings → OpenVPN → Browse for your `.ovpn` file → Connect.
 
-For passwordless VPN, add the sudoers rule once:
+The passwordless sudo rule for OpenVPN is added automatically by the `.deb` installer. If you installed from source, add it manually once:
 
 ```bash
-echo "kali ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
-  sudo tee /etc/sudoers.d/penligent-openvpn
+echo "%sudo ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
+  sudo tee /etc/sudoers.d/penligent-openvpn && \
+  sudo chmod 440 /etc/sudoers.d/penligent-openvpn
 ```
 
 ---
@@ -143,6 +171,7 @@ echo "kali ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
 |---|---|
 | `~/.local/share/penligent-local/penligent.db` | Projects, findings, chat history (SQLite WAL) |
 | `~/.local/share/penligent-local/config.json` | HTB token, local settings |
+| `~/.local/share/penligent-local/artifacts/` | Raw tool output saved per execution |
 | `~/penligent/projects/<name>/workspace/` | Per-engagement files, notes, scan output |
 
 ---
@@ -157,7 +186,7 @@ sudo dpkg -r penligent-local
 
 This removes the binary, the bundled MCP server, and the desktop entry. Configuration and data are intentionally kept (see step 3 if you want to remove those too).
 
-### 2 — Remove the sudoers rule (if added)
+### 2 — Remove the sudoers rule
 
 ```bash
 sudo rm -f /etc/sudoers.d/penligent-openvpn
@@ -166,7 +195,7 @@ sudo rm -f /etc/sudoers.d/penligent-openvpn
 ### 3 — Remove user data (optional)
 
 ```bash
-# App database, HTB token, settings
+# App database, HTB token, settings, tool output artifacts
 rm -rf ~/.local/share/penligent-local/
 
 # Per-engagement workspace files, notes, scan output
@@ -175,7 +204,13 @@ rm -rf ~/penligent/
 
 > These directories contain your findings and chat history. Only delete them if you no longer need the data.
 
-### 4 — Remove the Claude CLI (optional)
+### 4 — Remove the MCP server entry from Claude settings (optional)
+
+```bash
+# Open ~/.claude/settings.json and remove the "penligent-local" key under "mcpServers"
+```
+
+### 5 — Remove the Claude CLI (optional)
 
 ```bash
 npm uninstall -g @anthropic-ai/claude-code
@@ -183,6 +218,27 @@ npm uninstall -g @anthropic-ai/claude-code
 # Claude auth tokens and local config
 rm -rf ~/.claude/
 ```
+
+---
+
+## Changelog
+
+### v0.1.0 (current)
+
+**Bug fixes:**
+
+- **MCP server bundled in .deb** — previously missing from the package; the agent had no tools on a fresh install. Now fully automatic via post-install script (venv creation, pip install, `~/.claude/settings.json` registration, sudoers rule).
+- **VirtualBox / VM support** — app hung on launch in VMs with no GPU. Fixed by setting `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `LIBGL_ALWAYS_SOFTWARE=1` inside the binary before WebKit initialises; also reflected in the `.desktop` entry for launcher compatibility.
+- **OpenVPN Browse button** — silently did nothing. Root cause: Tauri v2 requires explicit capability grants. Fixed by adding `dialog:allow-open` to `capabilities/default.json`.
+- **VPN stuck at "connecting"** — OpenVPN writes its log to stderr, not stdout. Fixed by merging both streams through a single channel so "Initialization Sequence Completed" is always detected.
+- **VPN tun IP never shown** — CIDR notation (`10.10.14.42/23`) failed IP parsing. Fixed by stripping the `/prefix` before validation.
+- **Hardcoded `/home/kali` paths** — broke for any non-`kali` username. Fixed in: `claude_proc.rs` (Claude binary path and work-dir fallback), `App.svelte` (project workspace path), `Settings.svelte` (Browse dialog default path). All now use `dirs::home_dir()` / `homeDir()` at runtime.
+- **`rpc_users` rpcclient crash** — an empty string `""` was passed as a positional argument to `rpcclient` when a username was provided, causing it to fail. Fixed with `*(["-N"] if not username else [])`.
+- **`post-install.sh` non-fatal pip failure** — `set -e` caused dpkg to mark the package as broken if pip/hatchling had no internet access. Made the install step non-fatal with a clear retry instruction; also auto-installs `python3-venv` if missing.
+- **Chat history wipe on bad JSON** — a single message with malformed stored content caused `JSON.parse` to throw inside `.map()`, wiping all displayed history. Fixed with per-message parsing using `flatMap`.
+- **Silent project creation failure** — if the server rejected a project name (e.g., containing `/`), the modal closed with no feedback. Error message now shown in red below the name field.
+- **Unhandled `homeDir()` rejection** — missing `.catch()` on the `homeDir()` promise in `App.svelte`. Added.
+- **Fresh-install database bootstrap** — `projects` and `chat_messages` tables were not created by the Rust app, so the UI failed before the Python MCP server had ever run. Fixed with `ensure_schema()` in `db_commands.rs`.
 
 ---
 
