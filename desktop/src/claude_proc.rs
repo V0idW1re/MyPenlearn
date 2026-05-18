@@ -501,6 +501,13 @@ pub async fn run_turn(
             }
             "result" => {
                 let cost = event.total_cost_usd;
+                // Persist cost to agent_sessions (best-effort)
+                if let Some(c) = cost {
+                    let db_id = state.lock().unwrap().db_session_id;
+                    if let Some(id) = db_id {
+                        crate::db_commands::update_session_cost_internal(id, c);
+                    }
+                }
                 let chunk = ChatChunk {
                     kind: "result".into(),
                     text: event.subtype,

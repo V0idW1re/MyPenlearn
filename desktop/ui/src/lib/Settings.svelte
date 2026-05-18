@@ -6,19 +6,27 @@
 
   let { vpnState } = $props();
 
-  let htbToken   = $state("");
-  let tokenSaved = $state(false);
-  let ovpnPath   = $state("");
-  let ovpnName   = $state("");
-  let vpnError   = $state("");
-  let connecting = $state(false);
-  let vpnProfiles = $state([]);
+  let htbToken     = $state("");
+  let htbMcpToken  = $state("");
+  let tokenSaved   = $state(false);
+  let mcpTokenSaved = $state("");  // "" | "saving" | "ok" | error string
+  let ovpnPath     = $state("");
+  let ovpnName     = $state("");
+  let vpnError     = $state("");
+  let connecting   = $state(false);
+  let vpnProfiles  = $state([]);
   let profileSaved = $state(false);
+  let autoReconnect = $state(false);
 
   onMount(async () => {
     try {
       const t = await invoke("load_config_value", { key: "htb_app_token" });
       if (t) htbToken = t;
+    } catch (_) {}
+    try {
+      const ar = await invoke("load_config_value", { key: "vpn_auto_reconnect" });
+      autoReconnect = ar === "true";
+      if (autoReconnect) await invoke("vpn_set_auto_reconnect", { enabled: true });
     } catch (_) {}
     await loadProfiles();
   });
@@ -57,6 +65,26 @@
       tokenSaved = true;
       setTimeout(() => { tokenSaved = false; }, 2000);
     } catch (e) { console.error(e); }
+  }
+
+  async function saveMcpToken() {
+    if (!htbMcpToken.trim()) return;
+    mcpTokenSaved = "saving";
+    try {
+      await invoke("save_config_value", { key: "htb_mcp_token", value: htbMcpToken.trim() });
+      const msg = await invoke("register_htb_mcp_server", { token: htbMcpToken.trim() });
+      mcpTokenSaved = "ok";
+      setTimeout(() => { mcpTokenSaved = ""; }, 3000);
+    } catch (e) {
+      mcpTokenSaved = String(e);
+      setTimeout(() => { mcpTokenSaved = ""; }, 5000);
+    }
+  }
+
+  async function toggleAutoReconnect() {
+    autoReconnect = !autoReconnect;
+    await invoke("save_config_value", { key: "vpn_auto_reconnect", value: String(autoReconnect) });
+    await invoke("vpn_set_auto_reconnect", { enabled: autoReconnect });
   }
 
   async function browseOvpn() {
@@ -98,7 +126,7 @@
     <p>Stored locally in <code>~/.local/share/penligent-local/config.json</code> and passed to the MCP server as <code>HTB_APP_TOKEN</code>.</p>
 
     <div class="pl-field">
-      <span class="pl-label">HTB App Token <span class="dim">· Written by Diablo</span></span>
+      <span class="pl-label">HTB App Token <span class="dim">· REST API</span></span>
       <span class="pl-hint">HTB profile → Settings → API → create app token.</span>
       <div class="pl-row">
         <input
@@ -112,6 +140,26 @@
           {tokenSaved ? "Saved ✓" : "Save"}
         </button>
       </div>
+    </div>
+
+    <div class="pl-field">
+      <span class="pl-label">HTB MCP Bearer Token <span class="dim">· CTF MCP server</span></span>
+      <span class="pl-hint">HTB profile → MCP → copy Bearer token. Saved and auto-registered with <code>claude mcp add</code>.</span>
+      <div class="pl-row">
+        <input
+          class="pl-input"
+          type="password"
+          placeholder="Bearer token from HTB MCP page"
+          bind:value={htbMcpToken}
+          onkeydown={(e) => e.key === 'Enter' && saveMcpToken()}
+        />
+        <button class="pl-btn pl-btn-primary" onclick={saveMcpToken} disabled={!htbMcpToken.trim() || mcpTokenSaved === 'saving'}>
+          {mcpTokenSaved === 'saving' ? 'Registering…' : mcpTokenSaved === 'ok' ? 'Registered ✓' : 'Save & Register'}
+        </button>
+      </div>
+      {#if mcpTokenSaved && mcpTokenSaved !== 'saving' && mcpTokenSaved !== 'ok'}
+        <span class="pl-mcp-err">{mcpTokenSaved}</span>
+      {/if}
     </div>
   </section>
 
@@ -151,6 +199,17 @@
         </div>
       </div>
     {/if}
+
+    <div class="pl-field">
+      <span class="pl-label">Auto-reconnect on drop</span>
+      <span class="pl-hint">Automatically reconnect when the VPN tunnel drops (3 s delay).</span>
+      <div class="pl-row">
+        <button class="pl-toggle" class:on={autoReconnect} onclick={toggleAutoReconnect}>
+          <span class="pl-toggle-knob"></span>
+        </button>
+        <span class="pl-toggle-label">{autoReconnect ? 'Enabled' : 'Disabled'}</span>
+      </div>
+    </div>
 
     <div class="pl-field">
       <span class="pl-label">Privilege mode</span>
@@ -359,4 +418,30 @@
   }
   .pl-profile-star:hover { color: #58a6ff; }
   .pl-profile-del:hover { color: #f85149; }
+
+  .pl-mcp-err { font-size: 11px; color: #f85149; margin-top: 2px; }
+
+  .pl-toggle {
+    width: 36px; height: 20px;
+    background: #21262d;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .pl-toggle.on { background: #238636; border-color: #238636; }
+  .pl-toggle-knob {
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    background: #8b949e;
+    border-radius: 50%;
+    transition: left 0.15s, background 0.15s;
+  }
+  .pl-toggle.on .pl-toggle-knob { left: 18px; background: #fff; }
+  .pl-toggle-label { font-size: 12px; color: #8b949e; }
+  .pl-toggle.on + .pl-toggle-label { color: #3fb950; }
 </style>

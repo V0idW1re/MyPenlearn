@@ -42,6 +42,7 @@ pub struct VpnManager {
     pub state: VpnState,
     child: Option<Child>,
     ovpn_path: Option<String>,
+    pub auto_reconnect: bool,
 }
 
 pub type SharedVpnManager = Arc<Mutex<VpnManager>>;
@@ -164,12 +165,28 @@ pub async fn connect(
         let mut m = manager_clone.lock().unwrap();
         if m.state.status != VpnStatus::Disconnected {
             let dropped_profile = m.state.profile_name.clone();
+            let dropped_path = m.ovpn_path.clone();
+            let should_auto_reconnect = m.auto_reconnect;
             m.state.status = VpnStatus::Disconnected;
             m.state.tun_ip = None;
             emit_state(&app_clone, &m.state);
-            // Emit drop event so the frontend can offer reconnect
-            if let Some(name) = dropped_profile {
-                let _ = app_clone.emit("vpn://dropped", name);
+            if let Some(ref name) = dropped_profile {
+                if should_auto_reconnect {
+                    // Auto-reconnect: re-invoke connect() on a fresh thread to avoid Send constraint
+                    if let Some(path) = dropped_path {
+                        let app2 = app_clone.clone();
+                        let mgr2 = Arc::clone(&manager_clone);
+                        let pname = name.clone();
+                        let rt = tokio::runtime::Handle::current();
+                        std::thread::spawn(move || {
+                            std::thread::sleep(std::time::Duration::from_secs(3));
+                            let _ = rt.block_on(connect(app2, mgr2, path, pname));
+                        });
+                    }
+                } else {
+                    // Manual reconnect: emit drop event so frontend can offer button
+                    let _ = app_clone.emit("vpn://dropped", name.clone());
+                }
             }
         }
     });
@@ -266,4 +283,12 @@ pub async fn vpn_reconnect(
     let ovpn = ovpn_path.ok_or_else(|| "No profile cached for reconnect. Connect manually first.".to_string())?;
     let name = profile_name.unwrap_or_else(|| "VPN".to_string());
     connect(app, Arc::clone(&state), ovpn, name).await
+}
+
+#[tauri::command]
+pub fn vpn_set_auto_reconnect(
+    enabled: bool,
+    state: tauri::State<'_, SharedVpnManager>,
+) {
+    state.lock().unwrap().auto_reconnect = enabled;
 }

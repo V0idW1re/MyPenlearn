@@ -108,7 +108,10 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             claude_session_id TEXT,
             started_at        INTEGER DEFAULT (strftime('%s','now')),
             ended_at          INTEGER,
-            vpn_state         TEXT
+            vpn_state         TEXT,
+            tokens_in         INTEGER DEFAULT 0,
+            tokens_out        INTEGER DEFAULT 0,
+            cost_estimate     REAL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS vpn_profiles (
             id                INTEGER PRIMARY KEY,
@@ -120,7 +123,20 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             is_default        INTEGER DEFAULT 0
         );",
     )
-    .map_err(|e| e.to_string())
+    .map_err(|e| e.to_string())?;
+
+    // Migrate agent_sessions for older DBs that predate cost/token columns
+    for (col, typedef) in &[
+        ("vpn_state",     "TEXT"),
+        ("tokens_in",     "INTEGER DEFAULT 0"),
+        ("tokens_out",    "INTEGER DEFAULT 0"),
+        ("cost_estimate", "REAL DEFAULT 0"),
+    ] {
+        let _ = conn.execute_batch(&format!(
+            "ALTER TABLE agent_sessions ADD COLUMN {col} {typedef}"
+        ));
+    }
+    Ok(())
 }
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -190,7 +206,7 @@ pub fn list_projects() -> Result<Vec<Project>, String> {
 }
 
 #[tauri::command]
-pub fn create_project(name: String, target: String, kind: String) -> Result<Project, String> {
+pub fn create_project(name: String, target: String, kind: String, scope_json: Option<String>) -> Result<Project, String> {
     let valid_kinds = ["htb_machine", "htb_ctf", "bug_bounty", "authorized_pentest"];
     if !valid_kinds.contains(&kind.as_str()) {
         return Err(format!("Invalid kind: {kind}"));
@@ -211,10 +227,11 @@ pub fn create_project(name: String, target: String, kind: String) -> Result<Proj
     std::fs::create_dir_all(&workspace)
         .map_err(|e| format!("Failed to create workspace: {e}"))?;
 
+    let scope = scope_json.filter(|s| !s.trim().is_empty());
     let conn = open()?;
     conn.execute(
-        "INSERT INTO projects (target, name, kind) VALUES (?1, ?2, ?3)",
-        params![target, name, kind],
+        "INSERT INTO projects (target, name, kind, scope_json) VALUES (?1, ?2, ?3, ?4)",
+        params![target, name, kind, scope],
     )
     .map_err(|e| e.to_string())?;
 
@@ -452,6 +469,17 @@ pub fn decide_approval(approval_id: i64, decision: String, note: String) -> Resu
         return Err(format!("Invalid decision: {decision}. Must be 'approved' or 'denied'."));
     }
     let conn = open()?;
+    // authorized_pentest approvals require a SOW reference note
+    if decision == "approved" {
+        let kind: Option<String> = conn.query_row(
+            "SELECT p.kind FROM approvals a JOIN projects p ON p.id=a.project_id WHERE a.id=?1",
+            params![approval_id],
+            |r| r.get(0),
+        ).ok();
+        if kind.as_deref() == Some("authorized_pentest") && note.trim().is_empty() {
+            return Err("Authorized pentest approvals require a SOW reference in the note field.".into());
+        }
+    }
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -516,6 +544,7 @@ pub struct AgentSession {
     pub claude_session_id: Option<String>,
     pub started_at: i64,
     pub ended_at: Option<i64>,
+    pub vpn_state: Option<String>,
 }
 
 #[tauri::command]
@@ -532,7 +561,7 @@ pub fn create_agent_session(project_id: i64) -> Result<i64, String> {
 pub fn list_resumable_sessions(project_id: i64) -> Result<Vec<AgentSession>, String> {
     let conn = open()?;
     let mut stmt = conn.prepare(
-        "SELECT id, project_id, claude_session_id, started_at, ended_at \
+        "SELECT id, project_id, claude_session_id, started_at, ended_at, vpn_state \
          FROM agent_sessions \
          WHERE project_id=?1 AND ended_at IS NULL AND claude_session_id IS NOT NULL \
            AND started_at > strftime('%s','now') - 604800 \
@@ -546,6 +575,7 @@ pub fn list_resumable_sessions(project_id: i64) -> Result<Vec<AgentSession>, Str
             claude_session_id: row.get(2)?,
             started_at:        row.get(3)?,
             ended_at:          row.get(4)?,
+            vpn_state:         row.get(5)?,
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())
@@ -669,4 +699,173 @@ pub fn update_project_target(id: i64, target: String) -> Result<(), String> {
         params![target, id],
     ).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ── Session cost / token tracking ────────────────────────────────────────────
+
+#[tauri::command]
+pub fn update_session_cost(db_session_id: i64, cost_usd: f64) -> Result<(), String> {
+    let conn = open()?;
+    conn.execute(
+        "UPDATE agent_sessions SET cost_estimate=?1 WHERE id=?2",
+        params![cost_usd, db_session_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// Internal helper called from claude_proc.rs
+pub fn update_session_cost_internal(db_session_id: i64, cost_usd: f64) {
+    if let Ok(conn) = open() {
+        let _ = conn.execute(
+            "UPDATE agent_sessions SET cost_estimate=?1 WHERE id=?2",
+            params![cost_usd, db_session_id],
+        );
+    }
+}
+
+// ── Session VPN state ─────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn update_session_vpn_state(db_session_id: i64, vpn_profile: String) -> Result<(), String> {
+    let conn = open()?;
+    let val = if vpn_profile.is_empty() { None } else { Some(vpn_profile) };
+    conn.execute(
+        "UPDATE agent_sessions SET vpn_state=?1 WHERE id=?2",
+        params![val, db_session_id],
+    ).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// ── Workspace file upload (copy from disk + sha256 + DB row) ─────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AddFileResult {
+    pub id: i64,
+    pub project_id: i64,
+    pub filename: String,
+    pub kind: Option<String>,
+    pub path: String,
+    pub sha256: String,
+    pub added_at: i64,
+}
+
+#[tauri::command]
+pub fn add_workspace_file(
+    project_id: i64,
+    project_name: String,
+    src_path: String,
+    kind: String,
+) -> Result<AddFileResult, String> {
+    let src = std::path::Path::new(&src_path);
+    if !src.exists() {
+        return Err(format!("Source file not found: {src_path}"));
+    }
+
+    let filename = src
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+
+    let dest_dir = dirs::home_dir()
+        .unwrap_or_default()
+        .join("penligent/projects")
+        .join(&project_name)
+        .join("workspace");
+    std::fs::create_dir_all(&dest_dir)
+        .map_err(|e| format!("mkdir failed: {e}"))?;
+    let dest = dest_dir.join(&filename);
+    std::fs::copy(src, &dest).map_err(|e| format!("copy failed: {e}"))?;
+
+    // Compute sha256 via system sha256sum
+    let sha256 = {
+        let out = std::process::Command::new("sha256sum")
+            .arg(&dest)
+            .output()
+            .map_err(|e| format!("sha256sum failed: {e}"))?;
+        String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .next()
+            .unwrap_or("unknown")
+            .to_string()
+    };
+
+    let kind_opt = if kind.is_empty() { None } else { Some(kind) };
+    let path_str = dest.to_string_lossy().to_string();
+
+    let conn = open()?;
+    let _ = conn.execute(
+        "DELETE FROM workspace_files WHERE project_id=?1 AND path=?2",
+        params![project_id, path_str],
+    );
+    conn.execute(
+        "INSERT INTO workspace_files(project_id, filename, kind, path, sha256) VALUES(?1,?2,?3,?4,?5)",
+        params![project_id, filename, kind_opt, path_str, sha256],
+    ).map_err(|e| e.to_string())?;
+
+    let id = conn.last_insert_rowid();
+    let added_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+
+    Ok(AddFileResult { id, project_id, filename, kind: kind_opt, path: path_str, sha256, added_at })
+}
+
+// ── Project notes (read/write ~/penligent/projects/<name>/workspace/notes.md) ─
+
+#[tauri::command]
+pub fn read_project_notes(project_name: String) -> Result<String, String> {
+    let path = dirs::home_dir()
+        .unwrap_or_default()
+        .join("penligent/projects")
+        .join(&project_name)
+        .join("workspace/notes.md");
+    if !path.exists() {
+        return Ok(String::new());
+    }
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn write_project_notes(project_name: String, content: String) -> Result<(), String> {
+    let dir = dirs::home_dir()
+        .unwrap_or_default()
+        .join("penligent/projects")
+        .join(&project_name)
+        .join("workspace");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join("notes.md"), content).map_err(|e| e.to_string())
+}
+
+// ── Register HTB MCP server via `claude mcp add` ──────────────────────────────
+
+#[tauri::command]
+pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
+    if token.trim().is_empty() {
+        return Err("Token cannot be empty".into());
+    }
+    let claude = dirs::home_dir()
+        .unwrap_or_default()
+        .join(".local/bin/claude");
+    let output = std::process::Command::new(&claude)
+        .args([
+            "mcp", "add",
+            "--transport", "http",
+            "--scope", "user",
+            "htb-mcp-ctf",
+            "https://mcp.hackthebox.ai/v1/ctf/mcp/",
+            "--header", &format!("Authorization: Bearer {}", token.trim()),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run claude mcp add: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if output.status.success() || stdout.contains("htb-mcp-ctf") || stderr.contains("htb-mcp-ctf") {
+        Ok("HTB MCP server registered successfully.".into())
+    } else {
+        Ok(format!("claude mcp add output: {stdout}{stderr}"))
+    }
 }

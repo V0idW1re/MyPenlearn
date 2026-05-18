@@ -14,13 +14,14 @@
   let activeProject = $state(null);
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
   let vpnDropped = $state(null);
-  let resumableSession = $state(null);   // { id, claude_session_id, started_at, workDir }
+  let resumableSession = $state(null);   // { id, claude_session_id, started_at, workDir, vpn_state }
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
   let tokenCount = $state(0);
   let pendingApproval = $state(null);
   let approvalPollTimer = null;
+  let activeDbSessionId = $state(null);
 
   async function pollApprovals() {
     if (!activeProject) return;
@@ -39,7 +40,16 @@
   }
 
   onMount(async () => {
-    await listen("vpn://state", (e) => { vpnState = e.payload; });
+    await listen("vpn://state", (e) => {
+      vpnState = e.payload;
+      // Record connected VPN profile into active agent_sessions row
+      if (e.payload?.status === "connected" && e.payload?.profile_name && activeDbSessionId) {
+        invoke("update_session_vpn_state", {
+          dbSessionId: activeDbSessionId,
+          vpnProfile: e.payload.profile_name,
+        }).catch(() => {});
+      }
+    });
     await listen("vpn://dropped", (e) => { vpnDropped = e.payload; });
 
     await listen("claude://done", (e) => {
@@ -65,6 +75,7 @@
   });
 
   async function applyContext(project, workDir, resumeId, dbSessionId) {
+    activeDbSessionId = dbSessionId ?? null;
     invoke("claude_set_context", {
       projectId: project.id,
       workDir,
@@ -160,7 +171,14 @@
 
   {#if resumableSession}
     <div class="pl-resume-banner">
-      <span>Session from {new Date(resumableSession.started_at * 1000).toLocaleString()} found —</span>
+      <span>Session from {new Date(resumableSession.started_at * 1000).toLocaleString()} found</span>
+      {#if resumableSession.vpn_state && vpnState?.status !== 'connected'}
+        <span class="pl-resume-vpn">· VPN was: <strong>{resumableSession.vpn_state}</strong></span>
+        <button class="pl-resume-vpn-btn" onclick={() => {
+          invoke("vpn_reconnect").catch(console.error);
+        }}>Reconnect VPN</button>
+      {/if}
+      <span>—</span>
       <button class="pl-resume-btn" onclick={() => handleResumeDecision(true)}>Resume</button>
       <button class="pl-resume-btn pl-resume-fresh" onclick={() => handleResumeDecision(false)}>Start Fresh</button>
     </div>
@@ -284,6 +302,19 @@
   .pl-resume-btn:hover { background: #2ea043; }
   .pl-resume-fresh { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; }
   .pl-resume-fresh:hover { background: #30363d; }
+  .pl-resume-vpn { font-size: 11px; color: #8b949e; }
+  .pl-resume-vpn-btn {
+    background: #1a2a1a;
+    border: 1px solid #3fb950;
+    border-radius: 4px;
+    color: #3fb950;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-resume-vpn-btn:hover { background: #3fb950; color: #0d1117; }
 
   .pl-vpn-drop {
     position: fixed;

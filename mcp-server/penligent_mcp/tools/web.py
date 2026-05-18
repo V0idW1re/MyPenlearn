@@ -2175,3 +2175,169 @@ register(
     ),
     _crawler_login,
 )
+
+
+# ---------------------------------------------------------------------------
+# check_sensitive_paths — Crawlergo 40-path heuristic (verbatim)
+# ---------------------------------------------------------------------------
+
+_SENSITIVE_PATHS = [
+    "/", "/admin", "/admin/", "/api", "/api/v1", "/api/v2",
+    "/login", "/logout", "/register", "/dashboard", "/settings",
+    "/profile", "/account", "/users", "/user", "/config",
+    "/debug", "/test", "/status", "/health", "/metrics",
+    "/backup", "/backups", "/upload", "/uploads", "/files",
+    "/graphql", "/swagger", "/swagger-ui", "/api-docs",
+    "/robots.txt", "/sitemap.xml", "/.env", "/.git/HEAD",
+    "/actuator", "/actuator/health", "/actuator/env",
+    "/wp-admin", "/wp-login.php", "/phpmyadmin", "/console",
+]
+
+
+async def _check_sensitive_paths(args: dict) -> str:
+    import urllib.request, urllib.error as _ue
+
+    target = (args.get("target") or "").strip().rstrip("/")
+    if not target:
+        return "Error: target is required."
+    project_id = args.get("project_id")
+    use_prefixes = bool(args.get("use_prefixes", False))
+    timeout_s = int(args.get("timeout", 30))
+
+    paths = list(_SENSITIVE_PATHS)
+    if use_prefixes:
+        for extra in ["/api/v3", "/api/v4", "/v1", "/v2", "/v3"]:
+            if extra not in paths:
+                paths.append(extra)
+
+    results = []
+    interesting = []
+    for path in paths:
+        url = target + path
+        req = urllib.request.Request(url)
+        req.add_header("User-Agent", "Mozilla/5.0 penligent-probe/0.1")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+                code = resp.status
+                ct = resp.headers.get("Content-Type", "")[:40]
+                body = resp.read(256)
+                line = f"  {code}  {path:<35} [{len(body)}b] {ct}"
+                results.append(line)
+                if code in (200, 201, 301, 302) or len(body) > 100:
+                    interesting.append(line)
+        except _ue.HTTPError as e:
+            line = f"  {e.code}  {path}"
+            results.append(line)
+            if e.code in (401, 403):
+                interesting.append(line)
+        except Exception as ex:
+            results.append(f"  ERR  {path}  ({type(ex).__name__})")
+
+    output_lines = [f"check_sensitive_paths: {target}", ""] + results
+    if interesting:
+        output_lines += ["", f"Interesting ({len(interesting)}):"] + interesting
+
+    output = "\n".join(output_lines)
+    await _persist(project_id, "check_sensitive_paths", args, output, "", 0)
+    return output
+
+
+register(
+    Tool(
+        name="check_sensitive_paths",
+        description=(
+            "Probe 40 high-value paths (Crawlergo heuristic) on a target URL. "
+            "Returns HTTP status codes; highlights 200/401/403 responses. "
+            "Passive — no approve_intent needed. Set use_prefixes=true for versioned APIs."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Base URL, e.g. http://10.10.11.22"},
+                "use_prefixes": {"type": "boolean", "description": "Add /api/v3, /api/v4, /v1-3 variants"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Per-request timeout in seconds (default 30)"},
+            },
+        },
+    ),
+    _check_sensitive_paths,
+)
+
+
+# ---------------------------------------------------------------------------
+# auth_replay — replay a captured token against an endpoint
+# ---------------------------------------------------------------------------
+
+async def _auth_replay(args: dict) -> str:
+    import urllib.request, urllib.error as _ue, json as _json
+
+    endpoint = (args.get("endpoint") or "").strip()
+    token = (args.get("token") or "").strip()
+    headers_raw = args.get("headers_json", "{}")
+    method = (args.get("method") or "GET").upper()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 30))
+
+    if not endpoint:
+        return "Error: endpoint is required."
+
+    try:
+        extra_headers = _json.loads(headers_raw) if isinstance(headers_raw, str) else (headers_raw or {})
+    except Exception:
+        extra_headers = {}
+
+    req = urllib.request.Request(endpoint, method=method)
+    req.add_header("User-Agent", "penligent-auth-replay/0.1")
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    for k, v in extra_headers.items():
+        req.add_header(str(k), str(v))
+
+    interesting_hdrs = ("content-type", "x-user", "x-role", "set-cookie", "location", "www-authenticate", "x-auth-token")
+
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
+            code = resp.status
+            body = resp.read(4096).decode("utf-8", errors="replace")
+            resp_hdrs = {k: v for k, v in resp.headers.items() if k.lower() in interesting_hdrs}
+            result = (
+                f"auth_replay: {method} {endpoint}\n"
+                f"Status: {code}\n"
+                f"Headers: {_json.dumps(resp_hdrs, indent=2)}\n"
+                f"Body ({len(body)} chars):\n{body[:2048]}"
+            )
+    except _ue.HTTPError as e:
+        body = e.read(2048).decode("utf-8", errors="replace")
+        result = f"auth_replay: {method} {endpoint}\nStatus: {e.code}\nBody:\n{body[:2048]}"
+    except Exception as ex:
+        result = f"auth_replay error: {ex}"
+
+    await _persist(project_id, "auth_replay", args, result, "", 0)
+    return result
+
+
+register(
+    Tool(
+        name="auth_replay",
+        description=(
+            "Replay a captured token/session against an endpoint. "
+            "Sends a request with Authorization: Bearer <token> and any extra headers. "
+            "Use to verify token invalidation after logout, test privilege escalation, "
+            "or confirm session fixation. Returns status code, relevant response headers, and body preview."
+        ),
+        inputSchema={
+            "type": "object",
+            "required": ["endpoint"],
+            "properties": {
+                "endpoint": {"type": "string", "description": "Full URL to replay the token against"},
+                "token": {"type": "string", "description": "Bearer token / JWT to replay"},
+                "method": {"type": "string", "description": "HTTP method (default GET)"},
+                "headers_json": {"type": "string", "description": "JSON object of extra headers to send"},
+                "project_id": {"type": "integer"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
+            },
+        },
+    ),
+    _auth_replay,
+)

@@ -20,6 +20,7 @@
   let pickedKind  = $state("");
   let newName     = $state("");
   let newTarget   = $state("");
+  let newScope    = $state("");
   let creating    = $state(false);
   let createError = $state("");
   let ctxMenu     = $state(null);
@@ -53,7 +54,7 @@
     ctxMenu = { x: e.clientX, y: e.clientY, proj };
   }
 
-  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; newTarget = ""; createError = ""; }
+  function openModal() { modalStep = 1; pickedKind = ""; newName = ""; newTarget = ""; newScope = ""; createError = ""; }
   function closeModal() { modalStep = 0; }
 
   async function createProject() {
@@ -61,7 +62,8 @@
     creating = true;
     createError = "";
     try {
-      const project = await invoke("create_project", { name: newName.trim(), target: newTarget.trim(), kind: pickedKind });
+      const scopeArg = newScope.trim() || null;
+      const project = await invoke("create_project", { name: newName.trim(), target: newTarget.trim(), kind: pickedKind, scopeJson: scopeArg });
       projects = [...projects, project];
       closeModal();
       onSelect(project);
@@ -233,6 +235,15 @@
           <span class="pl-field-label">Target <span class="pl-optional">(optional)</span></span>
           <span class="pl-field-hint">IP address or hostname, e.g. 10.10.11.22 or cap.htb</span>
           <input class="pl-text-input" placeholder="10.10.11.22" bind:value={newTarget} />
+        </div>
+        {#if pickedKind === 'bug_bounty' || pickedKind === 'authorized_pentest'}
+          <div class="pl-field">
+            <span class="pl-field-label">Scope <span class="pl-optional">(optional)</span></span>
+            <span class="pl-field-hint">In-scope domains, paths, IP ranges. One per line.</span>
+            <textarea class="pl-text-input pl-scope-input" placeholder="*.example.com&#10;10.0.0.0/24&#10;!/admin" bind:value={newScope} rows="3"></textarea>
+          </div>
+        {/if}
+        <div class="pl-field">
           {#if createError}
             <span class="pl-field-error">{createError}</span>
           {/if}
@@ -528,4 +539,5 @@
     transition: border-color 0.12s;
   }
   .pl-text-input:focus { border-color: #58a6ff; }
+  .pl-scope-input { resize: vertical; min-height: 56px; }
 </style>

@@ -23,7 +23,7 @@
   }
 </script>
 
-<div class="pl-modal-backdrop" onclick|self={() => {}}>
+<div class="pl-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) {} }}>
   <div class="pl-modal">
     <div class="pl-modal-header">
       <span class="pl-modal-icon">⚠</span>
@@ -65,7 +65,14 @@
       {/if}
 
       <div class="pl-reason-row">
-        <label class="pl-reason-label" for="approval-reason">Decision note (optional)</label>
+        <label class="pl-reason-label" for="approval-reason">
+          Decision note
+          {#if approval.project_kind === 'authorized_pentest'}
+            <span class="pl-sow-req">· SOW reference required for approval</span>
+          {:else}
+            <span class="pl-optional">(optional)</span>
+          {/if}
+        </label>
         <input
           id="approval-reason"
           class="pl-reason-input"
@@ -254,4 +261,7 @@
     color: #fff;
   }
   .pl-btn-approve:hover:not(:disabled) { background: #2ea043; }
+
+  .pl-sow-req { font-size: 10px; color: #d29922; font-weight: 400; text-transform: none; letter-spacing: 0; }
+  .pl-optional { font-size: 10px; color: #484f58; font-weight: 400; text-transform: none; letter-spacing: 0; }
 </style>
