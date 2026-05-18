@@ -194,21 +194,7 @@
 
     <div class="pl-field">
       <span class="pl-label">Add profile</span>
-      <div class="pl-row" style="flex-wrap:wrap;gap:5px">
-        <input class="pl-input" bind:value={ovpnName} placeholder="Name (optional)" style="flex:0 0 130px" />
-        <select class="pl-input pl-select" bind:value={ovpnKind} style="flex:0 0 150px">
-          <option value="">— type —</option>
-          <option value="starting_point">Starting Point</option>
-          <option value="machines">Machines</option>
-          <option value="fortresses">Fortresses</option>
-          <option value="pro_labs">Pro Labs</option>
-          <option value="seasonal">Seasonal</option>
-          <option value="release_arena">Release Arena</option>
-          <option value="custom_authorized">Custom / Authorized</option>
-        </select>
-        <input class="pl-input" bind:value={ovpnRegion} placeholder="Region (eu-1)" style="flex:0 0 90px" />
-      </div>
-      <div class="pl-row" style="margin-top:5px">
+      <div class="pl-row">
         <input class="pl-input pl-input-mono" value={ovpnPath} placeholder="Select .ovpn file…" readonly style="flex:1" />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
         <button class="pl-btn pl-btn-primary" onclick={saveProfile} disabled={!ovpnPath}>
