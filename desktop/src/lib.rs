@@ -33,6 +33,7 @@ pub fn run() {
             db_commands::save_message,
             db_commands::load_messages,
             db_commands::list_findings,
+            db_commands::clear_messages,
             db_commands::save_config_value,
             db_commands::load_config_value,
         ])

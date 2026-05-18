@@ -55,20 +55,36 @@ fn open() -> Result<Connection, String> {
         std::fs::create_dir_all(p).map_err(|e| format!("mkdir failed: {e}"))?;
     }
     let conn = Connection::open(&path).map_err(|e| format!("DB open failed: {e}"))?;
-    conn.execute_batch("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;")
+    conn.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA journal_mode=WAL;")
         .map_err(|e| format!("PRAGMA failed: {e}"))?;
+    ensure_schema(&conn)?;
     Ok(conn)
 }
 
-fn ensure_chat_table(conn: &Connection) -> Result<(), String> {
+// Creates the tables that Rust reads/writes so the app works before the
+// Python MCP server has ever run.  Matches the Python schema exactly so
+// subsequent CREATE TABLE IF NOT EXISTS calls from Python are no-ops.
+fn ensure_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS chat_messages (
+        "CREATE TABLE IF NOT EXISTS projects (
+            id               INTEGER PRIMARY KEY,
+            target           TEXT    NOT NULL DEFAULT '',
+            name             TEXT    NOT NULL,
+            kind             TEXT    NOT NULL,
+            htb_machine_id   INTEGER,
+            htb_container_id TEXT,
+            scope_json       TEXT,
+            status           TEXT    DEFAULT 'active',
+            created_at       INTEGER DEFAULT (strftime('%s','now')),
+            updated_at       INTEGER DEFAULT (strftime('%s','now'))
+        );
+        CREATE TABLE IF NOT EXISTS chat_messages (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             project_id  INTEGER NOT NULL,
             role        TEXT    NOT NULL,
             content     TEXT    NOT NULL,
             created_at  INTEGER DEFAULT (strftime('%s','now'))
-        )",
+        );",
     )
     .map_err(|e| e.to_string())
 }
@@ -145,6 +161,13 @@ pub fn create_project(name: String, target: String, kind: String) -> Result<Proj
     if !valid_kinds.contains(&kind.as_str()) {
         return Err(format!("Invalid kind: {kind}"));
     }
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("Name cannot be empty".into());
+    }
+    if name.contains('/') || name.contains("..") {
+        return Err("Name cannot contain '/' or '..'".into());
+    }
 
     let workspace = dirs::home_dir()
         .unwrap_or_default()
@@ -210,7 +233,6 @@ pub fn rename_project(id: i64, name: String) -> Result<Project, String> {
 #[tauri::command]
 pub fn delete_project(id: i64) -> Result<(), String> {
     let mut conn = open()?;
-    ensure_chat_table(&conn)?;
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM chat_messages WHERE project_id = ?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -226,7 +248,6 @@ pub fn delete_project(id: i64) -> Result<(), String> {
 #[tauri::command]
 pub fn save_message(project_id: i64, role: String, content: String) -> Result<i64, String> {
     let conn = open()?;
-    ensure_chat_table(&conn)?;
     conn.execute(
         "INSERT INTO chat_messages (project_id, role, content) VALUES (?1, ?2, ?3)",
         params![project_id, role, content],
@@ -238,7 +259,6 @@ pub fn save_message(project_id: i64, role: String, content: String) -> Result<i6
 #[tauri::command]
 pub fn load_messages(project_id: i64) -> Result<Vec<ChatMessage>, String> {
     let conn = open()?;
-    ensure_chat_table(&conn)?;
     let mut stmt = conn
         .prepare(
             "SELECT id, project_id, role, content, created_at \
@@ -266,6 +286,19 @@ pub fn load_messages(project_id: i64) -> Result<Vec<ChatMessage>, String> {
 #[tauri::command]
 pub fn list_findings(project_id: i64) -> Result<Vec<Finding>, String> {
     let conn = open()?;
+
+    // risk_items is created by the Python MCP server; return empty until it exists.
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='risk_items'",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .unwrap_or(0) > 0;
+    if !table_exists {
+        return Ok(vec![]);
+    }
+
     let mut stmt = conn
         .prepare(
             "SELECT id, project_id, title, severity, description,
@@ -295,4 +328,15 @@ pub fn list_findings(project_id: i64) -> Result<Vec<Finding>, String> {
         .collect();
 
     Ok(rows)
+}
+
+#[tauri::command]
+pub fn clear_messages(project_id: i64) -> Result<(), String> {
+    let conn = open()?;
+    conn.execute(
+        "DELETE FROM chat_messages WHERE project_id = ?1",
+        params![project_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

@@ -102,6 +102,7 @@
     pendingParts = [];
     sending = false;
     invoke("claude_clear_session").catch(() => {});
+    if (project?.id) invoke("clear_messages", { projectId: project.id }).catch(() => {});
   }
 
   function handleKey(e) {

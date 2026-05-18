@@ -37,15 +37,10 @@ impl Default for VpnState {
     }
 }
 
+#[derive(Default)]
 pub struct VpnManager {
     pub state: VpnState,
     child: Option<Child>,
-}
-
-impl Default for VpnManager {
-    fn default() -> Self {
-        Self { state: VpnState::default(), child: None }
-    }
 }
 
 pub type SharedVpnManager = Arc<Mutex<VpnManager>>;
@@ -102,62 +97,81 @@ pub async fn connect(
         m.child = Some(child);
     }
 
-    // Watch stdout for "Initialization Sequence Completed" and tun IP assignment
+    // Watch both stdout and stderr for "Initialization Sequence Completed" and tun IP.
+    // OpenVPN may write to either stream depending on platform and privilege level.
     let manager_clone = Arc::clone(&manager);
     let app_clone = app.clone();
 
     tokio::spawn(async move {
-        let stdout = {
+        let (stdout, stderr) = {
             let mut m = manager_clone.lock().unwrap();
-            m.child.as_mut().and_then(|c| c.stdout.take())
+            let stdout = m.child.as_mut().and_then(|c| c.stdout.take());
+            let stderr = m.child.as_mut().and_then(|c| c.stderr.take());
+            (stdout, stderr)
         };
 
-        if let Some(stdout) = stdout {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                // Parse tun IP from lines like:
-                //   "ip addr add 10.10.14.42/23 dev tun0"
-                //   "/sbin/ip addr add dev tun0 local 10.10.14.42 peer 10.10.14.43"
-                let tun_ip = parse_tun_ip(&line);
+        let (line_tx, mut line_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
-                if line.contains("Initialization Sequence Completed") {
-                    let mut m = manager_clone.lock().unwrap();
-                    m.state.status = VpnStatus::Connected;
-                    if let Some(ip) = tun_ip {
-                        m.state.tun_ip = Some(ip);
-                    }
+        if let Some(stdout) = stdout {
+            let tx = line_tx.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stdout).lines();
+                while let Ok(Some(line)) = lines.next_line().await { let _ = tx.send(line); }
+            });
+        }
+        if let Some(stderr) = stderr {
+            let tx = line_tx.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await { let _ = tx.send(line); }
+            });
+        }
+        drop(line_tx); // closes rx once both sub-tasks finish
+
+        // Parse tun IP from lines like:
+        //   "ip addr add 10.10.14.42/23 dev tun0"
+        //   "/sbin/ip addr add dev tun0 local 10.10.14.42 peer 10.10.14.43"
+        while let Some(line) = line_rx.recv().await {
+            let tun_ip = parse_tun_ip(&line);
+
+            if line.contains("Initialization Sequence Completed") {
+                let mut m = manager_clone.lock().unwrap();
+                m.state.status = VpnStatus::Connected;
+                if let Some(ip) = tun_ip { m.state.tun_ip = Some(ip); }
+                emit_state(&app_clone, &m.state);
+            } else if let Some(ip) = tun_ip {
+                let mut m = manager_clone.lock().unwrap();
+                m.state.tun_ip = Some(ip);
+            } else if line.contains("ERROR") || line.contains("error") {
+                let mut m = manager_clone.lock().unwrap();
+                if m.state.status != VpnStatus::Connected {
+                    m.state.status = VpnStatus::Error;
+                    m.state.error = Some(line.clone());
                     emit_state(&app_clone, &m.state);
-                } else if let Some(ip) = tun_ip {
-                    let mut m = manager_clone.lock().unwrap();
-                    m.state.tun_ip = Some(ip);
-                } else if line.contains("ERROR") || line.contains("error") {
-                    let mut m = manager_clone.lock().unwrap();
-                    if m.state.status != VpnStatus::Connected {
-                        m.state.status = VpnStatus::Error;
-                        m.state.error = Some(line.clone());
-                        emit_state(&app_clone, &m.state);
-                    }
                 }
             }
         }
 
-        // Process exited — mark disconnected unless we already cleaned up
+        // Both streams closed — process has exited; reap it
+        let child = { let mut m = manager_clone.lock().unwrap(); m.child.take() };
+        if let Some(mut c) = child { let _ = c.wait().await; }
+
         let mut m = manager_clone.lock().unwrap();
         if m.state.status != VpnStatus::Disconnected {
             m.state.status = VpnStatus::Disconnected;
             m.state.tun_ip = None;
             emit_state(&app_clone, &m.state);
         }
-        m.child = None;
     });
 
     Ok(())
 }
 
 fn parse_tun_ip(line: &str) -> Option<String> {
-    // Match "local X.X.X.X" or "addr add X.X.X.X/"
     for part in line.split_whitespace() {
-        let candidate = part.trim_end_matches(|c: char| !c.is_ascii_digit() && c != '.');
+        // Strip CIDR suffix (e.g., "10.10.14.42/23" → "10.10.14.42")
+        let candidate = part.split('/').next().unwrap_or("");
+        let candidate = candidate.trim_end_matches(|c: char| !c.is_ascii_digit() && c != '.');
         if looks_like_tun_ip(candidate) {
             return Some(candidate.to_string());
         }
