@@ -60,7 +60,7 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ## Requirements
 
-- Kali Linux (tested on 2024.x in VMware)
+- Kali Linux (tested on 2024.x — VMware and VirtualBox)
 - [`claude` CLI](https://claude.ai/code) installed and logged in (`~/.local/bin/claude`)
 - Python 3.11+ (for the MCP server)
 - OpenVPN (`/usr/sbin/openvpn`) — optional, for HTB lab access

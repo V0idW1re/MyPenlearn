@@ -130,6 +130,7 @@ pub async fn run_turn(
 
     let mut cmd = Command::new(CLAUDE_BIN);
     cmd.arg("--output-format").arg("stream-json")
+        .arg("--verbose")
         .arg("--dangerously-skip-permissions")
         .arg("--append-system-prompt").arg(SYSTEM_PROMPT)
         .arg("-p").arg(&message)
