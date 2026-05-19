@@ -40,12 +40,12 @@ async def _execute_command(args: dict) -> list[TextContent]:
     # Determine working directory
     if project_name:
         cwd = str(WORKSPACE_ROOT / project_name / "workspace")
-        Path(cwd).mkdir(parents=True, exist_ok=True)
     else:
         cwd = "/tmp"
 
     started = int(time.time())
     try:
+        Path(cwd).mkdir(parents=True, exist_ok=True)
         result = subprocess.run(
             command,
             shell=True,

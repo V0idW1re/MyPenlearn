@@ -401,9 +401,9 @@ pub async fn run_turn(
     state: SharedClaudeState,
     message: String,
 ) -> Result<(), String> {
-    let (session_id, work_dir) = {
+    let (session_id, work_dir, initial_project_id) = {
         let s = state.lock().unwrap();
-        (s.session_id.clone(), s.work_dir.clone())
+        (s.session_id.clone(), s.work_dir.clone(), s.project_id)
     };
 
     let work_dir = work_dir.unwrap_or_else(|| {
@@ -433,8 +433,8 @@ pub async fn run_turn(
         .spawn()
         .map_err(|e| format!("Failed to spawn claude: {e}"))?;
 
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let stdout = child.stdout.take().ok_or("failed to open stdout pipe")?;
+    let stderr = child.stderr.take().ok_or("failed to open stderr pipe")?;
 
     // Drain stderr in background (Claude Code logs go there)
     tokio::spawn(async move {
@@ -601,11 +601,11 @@ pub async fn run_turn(
         }
     }
 
-    // Signal frontend that the turn is complete
-    let project_id = state.lock().unwrap().project_id;
+    // Signal frontend that the turn is complete. Use the project_id captured at turn start
+    // so a concurrent project switch does not cause the done event to reference the new project.
     let _ = app.emit("claude://done", serde_json::json!({
         "session_id": new_session_id,
-        "project_id": project_id,
+        "project_id": initial_project_id,
     }));
 
     Ok(())

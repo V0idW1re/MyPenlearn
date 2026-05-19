@@ -112,17 +112,22 @@
     activeDbSessionId = null;
     if (!project) return;
     setTimeout(pollApprovals, 300);
+    const selectedId = project.id;
     const home = await homeDir();
     const workDir = `${home}/penligent/projects/${project.name}/workspace`;
     try {
-      const sessions = await invoke("list_resumable_sessions", { projectId: project.id });
+      const sessions = await invoke("list_resumable_sessions", { projectId: selectedId });
+      // Guard: user may have switched to a different project while this awaited
+      if (activeProject?.id !== selectedId) return;
       if (sessions.length > 0) {
         resumableSession = { ...sessions[0], workDir };
       } else {
-        const dbSid = await invoke("create_agent_session", { projectId: project.id }).catch(() => null);
+        const dbSid = await invoke("create_agent_session", { projectId: selectedId }).catch(() => null);
+        if (activeProject?.id !== selectedId) return;
         applyContext(project, workDir, null, dbSid);
       }
     } catch (_) {
+      if (activeProject?.id !== selectedId) return;
       applyContext(project, workDir, null, null);
     }
   }

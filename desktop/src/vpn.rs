@@ -94,10 +94,24 @@ pub async fn connect(
         .spawn()
         .map_err(|e| format!("Failed to spawn openvpn: {e}"))?;
 
-    // Transfer child ownership into the manager
-    {
+    // Transfer child ownership into the manager. If disconnect() was called while we were
+    // spawning (between the Connecting state change and here), the state is no longer
+    // Connecting — return the child for cleanup rather than storing it.
+    // The guard must be fully dropped before any `.await`, so we use a block that returns
+    // an Option<Child> to carry the orphan out without holding the lock.
+    let orphan: Option<tokio::process::Child> = {
         let mut m = manager.lock().unwrap();
-        m.child = Some(child);
+        if m.state.status == VpnStatus::Connecting {
+            m.child = Some(child);
+            None
+        } else {
+            Some(child)
+        }
+        // MutexGuard dropped here, before any await
+    };
+    if let Some(mut orphan) = orphan {
+        let _ = orphan.kill().await;
+        return Ok(());
     }
 
     // Watch both stdout and stderr for "Initialization Sequence Completed" and tun IP.
