@@ -413,14 +413,6 @@
   .pl-input[readonly] { cursor: default; color: #8b949e; }
   .pl-input-mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
 
-  .pl-select {
-    cursor: pointer;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236e7681'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 8px center;
-    padding-right: 24px;
-  }
 
   .pl-field-err { font-size: 11px; color: #f85149; margin-top: 2px; }
 

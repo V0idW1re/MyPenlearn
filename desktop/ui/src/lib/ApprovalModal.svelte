@@ -29,7 +29,7 @@
   }
 </script>
 
-<div class="pl-modal-backdrop" onclick={(e) => { if (e.target === e.currentTarget) {} }}>
+<div class="pl-modal-backdrop" role="dialog" aria-modal="true" aria-label="Approval Required">
   <div class="pl-modal">
     <div class="pl-modal-header">
       <span class="pl-modal-icon">⚠</span>
