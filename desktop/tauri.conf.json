@@ -34,6 +34,7 @@
       "deb": {
         "desktopTemplate": "penligent-local.desktop",
         "postInstallScript": "scripts/post-install.sh",
+        "preRemoveScript": "scripts/pre-remove.sh",
         "files": {
           "/usr/lib/penligent-local/mcp-server/pyproject.toml":                          "../mcp-server/pyproject.toml",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/__init__.py":               "../mcp-server/penligent_mcp/__init__.py",
