@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use rusqlite::{Connection, params};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use sha2::{Sha256, Digest};
+
+static SCHEMA_DONE: AtomicBool = AtomicBool::new(false);
 
 // ── Struct definitions ───────────────────────────────────────────────────────
 
@@ -70,7 +73,10 @@ fn open() -> Result<Connection, String> {
     let conn = Connection::open(&path).map_err(|e| format!("DB open failed: {e}"))?;
     conn.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA journal_mode=WAL;")
         .map_err(|e| format!("PRAGMA failed: {e}"))?;
-    ensure_schema(&conn)?;
+    if !SCHEMA_DONE.load(Ordering::Relaxed) {
+        ensure_schema(&conn)?;
+        SCHEMA_DONE.store(true, Ordering::Relaxed);
+    }
     Ok(conn)
 }
 
@@ -292,7 +298,15 @@ pub fn delete_project(id: i64) -> Result<(), String> {
     let tx = conn.transaction().map_err(|e| e.to_string())?;
     tx.execute("DELETE FROM chat_messages WHERE project_id = ?1", params![id])
         .map_err(|e| e.to_string())?;
-    // risk_items may not exist yet if the Python MCP server has never run
+    let _ = tx.execute("DELETE FROM approvals WHERE project_id = ?1", params![id]);
+    let _ = tx.execute("DELETE FROM agent_sessions WHERE project_id = ?1", params![id]);
+    let _ = tx.execute("DELETE FROM workspace_files WHERE project_id = ?1", params![id]);
+    let _ = tx.execute("DELETE FROM execution_results WHERE project_id = ?1", params![id]);
+    let _ = tx.execute(
+        "DELETE FROM plan_steps WHERE plan_id IN (SELECT id FROM plans WHERE project_id = ?1)",
+        params![id],
+    );
+    let _ = tx.execute("DELETE FROM plans WHERE project_id = ?1", params![id]);
     let _ = tx.execute("DELETE FROM risk_items WHERE project_id = ?1", params![id]);
     tx.execute("DELETE FROM projects WHERE id = ?1", params![id])
         .map_err(|e| e.to_string())?;
@@ -417,9 +431,11 @@ pub struct Approval {
     pub intent: String,
     pub scope_json: Option<String>,
     pub rate_limit: Option<i64>,
+    pub stop_conditions_json: Option<String>,
     pub time_window: Option<i64>,
     pub decision_note: Option<String>,
     pub requested_at: i64,
+    pub project_kind: String,
 }
 
 #[tauri::command]
@@ -440,25 +456,29 @@ pub fn list_pending_approvals(project_id: i64) -> Result<Vec<Approval>, String> 
 
     let mut stmt = conn
         .prepare(
-            "SELECT id, project_id, intent, scope_json, rate_limit, \
-             time_window, decision_note, requested_at \
-             FROM approvals \
-             WHERE project_id = ?1 AND decision = 'pending' \
-             ORDER BY requested_at DESC",
+            "SELECT a.id, a.project_id, a.intent, a.scope_json, a.rate_limit, \
+             a.stop_conditions_json, a.time_window, a.decision_note, a.requested_at, \
+             COALESCE(p.kind, '') \
+             FROM approvals a \
+             LEFT JOIN projects p ON p.id = a.project_id \
+             WHERE a.project_id = ?1 AND a.decision = 'pending' \
+             ORDER BY a.requested_at DESC",
         )
         .map_err(|e| e.to_string())?;
 
     let rows = stmt
         .query_map(params![project_id], |row| {
             Ok(Approval {
-                id:           row.get(0)?,
-                project_id:   row.get(1)?,
-                intent:       row.get(2)?,
-                scope_json:   row.get(3)?,
-                rate_limit:   row.get(4)?,
-                time_window:  row.get(5)?,
-                decision_note: row.get(6)?,
-                requested_at: row.get(7)?,
+                id:                   row.get(0)?,
+                project_id:           row.get(1)?,
+                intent:               row.get(2)?,
+                scope_json:           row.get(3)?,
+                rate_limit:           row.get(4)?,
+                stop_conditions_json: row.get(5)?,
+                time_window:          row.get(6)?,
+                decision_note:        row.get(7)?,
+                requested_at:         row.get(8)?,
+                project_kind:         row.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?
@@ -619,6 +639,7 @@ pub struct VpnProfile {
     pub name: String,
     pub ovpn_path: String,
     pub kind: Option<String>,
+    pub region: Option<String>,
     pub last_connected_at: Option<i64>,
     pub is_default: bool,
 }
@@ -638,14 +659,14 @@ pub fn save_vpn_profile(name: String, ovpn_path: String, kind: String, region: O
         params![name, ovpn_path, kind_opt, region_opt],
     ).map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
-    Ok(VpnProfile { id, name, ovpn_path, kind: kind_opt, last_connected_at: None, is_default: false })
+    Ok(VpnProfile { id, name, ovpn_path, kind: kind_opt, region: region_opt, last_connected_at: None, is_default: false })
 }
 
 #[tauri::command]
 pub fn list_vpn_profiles() -> Result<Vec<VpnProfile>, String> {
     let conn = open()?;
     let mut stmt = conn.prepare(
-        "SELECT id, name, ovpn_path, kind, last_connected_at, is_default \
+        "SELECT id, name, ovpn_path, kind, region, last_connected_at, is_default \
          FROM vpn_profiles ORDER BY is_default DESC, COALESCE(last_connected_at, 0) DESC",
     ).map_err(|e| e.to_string())?;
     let rows = stmt.query_map([], |row| {
@@ -654,8 +675,9 @@ pub fn list_vpn_profiles() -> Result<Vec<VpnProfile>, String> {
             name:              row.get(1)?,
             ovpn_path:         row.get(2)?,
             kind:              row.get(3)?,
-            last_connected_at: row.get(4)?,
-            is_default:        row.get::<_, i32>(5)? != 0,
+            region:            row.get(4)?,
+            last_connected_at: row.get(5)?,
+            is_default:        row.get::<_, i32>(6)? != 0,
         })
     }).map_err(|e| e.to_string())?
     .filter_map(|r| r.ok())

@@ -63,6 +63,7 @@
     await listen("vpn://dropped", (e) => { vpnDropped = e.payload; });
 
     await listen("claude://done", (e) => {
+      if (e.payload?.project_id && activeProject?.id !== e.payload.project_id) return;
       if (e.payload?.session_id) sessionId = e.payload.session_id;
       currentTool = null;
       pollApprovals();

@@ -147,6 +147,7 @@
   }
 
   $effect(() => {
+    if (notesTimer) { clearTimeout(notesTimer); notesTimer = null; }
     if (project) { refresh(); loadNotes(); loadPlan(); }
     else { files = []; notesContent = ""; plan = null; planSteps = []; }
   });
@@ -156,7 +157,10 @@
       if (project) loadPlan();
     });
   });
-  onDestroy(() => { unlisten?.(); });
+  onDestroy(() => {
+    unlisten?.();
+    if (notesTimer) { clearTimeout(notesTimer); notesTimer = null; }
+  });
 </script>
 
 <div class="pl-workspace">

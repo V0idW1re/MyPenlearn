@@ -602,8 +602,10 @@ pub async fn run_turn(
     }
 
     // Signal frontend that the turn is complete
+    let project_id = state.lock().unwrap().project_id;
     let _ = app.emit("claude://done", serde_json::json!({
-        "session_id": new_session_id
+        "session_id": new_session_id,
+        "project_id": project_id,
     }));
 
     Ok(())

@@ -118,7 +118,11 @@
           class="pl-finding"
           class:open={openFinding === f.id}
           style="border-left-color:{SEV_COLOR[f.severity] ?? '#8b949e'}"
-          onclick={() => { openFinding = openFinding === f.id ? null : f.id; }}
+          onclick={() => {
+            const next = openFinding === f.id ? null : f.id;
+            openFinding = next;
+            if (next !== null) loadEvidence(next);
+          }}
         >
           <div class="pl-finding-row">
             <span class="pl-priority" style="color:{SEV_COLOR[f.severity] ?? '#8b949e'}">
@@ -145,7 +149,6 @@
               <div class="pl-finding-impact">{f.impact}</div>
             {/if}
             {#if openFinding === f.id}
-              {loadEvidence(f.id)}
               {@const arts = evidenceMap[f.id] || []}
               {#if arts.length > 0}
                 <div class="pl-evidence">

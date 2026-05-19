@@ -28,6 +28,7 @@
   $effect(() => {
     const pid = project?.id;
     pendingParts = [];
+    sending = false;
     if (pid) loadHistory(pid);
     else messages = [];
   });

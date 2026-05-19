@@ -14,17 +14,17 @@ SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
 # record_finding
 # ---------------------------------------------------------------------------
 
-async def _record_finding(args: dict) -> str:
+async def _record_finding(args: dict) -> list:
     project_id = args.get("project_id")
     severity = (args.get("severity") or "").strip().lower()
     title = (args.get("title") or "").strip()
 
     if not project_id:
-        return "Error: project_id is required."
+        return _ok("Error: project_id is required.")
     if not title:
-        return "Error: title is required."
+        return _ok("Error: title is required.")
     if severity not in SEVERITY_ORDER:
-        return f"Error: severity must be one of {SEVERITY_ORDER}. Got: {severity!r}"
+        return _ok(f"Error: severity must be one of {SEVERITY_ORDER}. Got: {severity!r}")
 
     description = (args.get("description") or "").strip()
     evidence = args.get("evidence")
@@ -47,7 +47,7 @@ async def _record_finding(args: dict) -> str:
             "SELECT id FROM projects WHERE id=?", (int(project_id),)
         )).fetchone()
         if not row:
-            return f"Error: project_id {project_id} not found."
+            return _ok(f"Error: project_id {project_id} not found.")
 
         cur = await db.execute(
             """INSERT INTO risk_items
@@ -84,7 +84,7 @@ async def _record_finding(args: dict) -> str:
         finding_id = cur.lastrowid
 
     chain_str = f" chain={chain_pos}" if chain_pos is not None else ""
-    return (
+    return _ok(
         f"Finding recorded: id={finding_id} severity={severity}{chain_str} title={title!r}\n"
         f"  project_id={project_id} verify_status=open"
     )
@@ -183,10 +183,10 @@ register(
 # list_findings
 # ---------------------------------------------------------------------------
 
-async def _list_findings(args: dict) -> str:
+async def _list_findings(args: dict) -> list:
     project_id = args.get("project_id")
     if not project_id:
-        return "Error: project_id is required."
+        return _ok("Error: project_id is required.")
 
     severity_filter = (args.get("severity") or "").strip().lower()
     status_filter = (args.get("verify_status") or "").strip().lower()
@@ -212,7 +212,7 @@ async def _list_findings(args: dict) -> str:
         rows = await (await db.execute(query, params)).fetchall()
 
     if not rows:
-        return f"No findings for project {project_id}."
+        return _ok(f"No findings for project {project_id}.")
 
     lines = [f"Findings for project {project_id} ({len(rows)} total):"]
     for r in rows:
@@ -226,7 +226,7 @@ async def _list_findings(args: dict) -> str:
         if r["description"]:
             lines.append(f"    {r['description'][:120]}")
 
-    return "\n".join(lines)
+    return _ok("\n".join(lines))
 
 
 register(
@@ -262,22 +262,22 @@ register(
 # verify_finding
 # ---------------------------------------------------------------------------
 
-async def _verify_finding(args: dict) -> str:
+async def _verify_finding(args: dict) -> list:
     finding_id = args.get("finding_id")
     decision = (args.get("decision") or "").strip().lower()
     context = (args.get("context") or "").strip()
 
     if not finding_id:
-        return "Error: finding_id is required."
+        return _ok("Error: finding_id is required.")
     if decision not in ("verified", "false_positive"):
-        return "Error: decision must be 'verified' or 'false_positive'."
+        return _ok("Error: decision must be 'verified' or 'false_positive'.")
 
     async with get_db() as db:
         row = await (await db.execute(
             "SELECT id, title, severity FROM risk_items WHERE id=?", (int(finding_id),)
         )).fetchone()
         if not row:
-            return f"Error: finding id={finding_id} not found."
+            return _ok(f"Error: finding id={finding_id} not found.")
 
         await db.execute(
             "UPDATE risk_items SET verify_status=?, verify_context=? WHERE id=?",
@@ -285,7 +285,7 @@ async def _verify_finding(args: dict) -> str:
         )
         await db.commit()
 
-    return (
+    return _ok(
         f"Finding id={finding_id} ({row['severity'].upper()}: {row['title']!r}) "
         f"marked as {decision}."
         + (f"\n  Context: {context}" if context else "")
@@ -1015,9 +1015,7 @@ async def _ttp_lookup(args: dict) -> list[TextContent]:
     if not row:
         return _ok(f"No TTP entry found for '{category}'.")
 
-    keys = ["category", "name", "detection_method", "verification_payload",
-            "false_positive_patterns", "waf_bypass", "mitre_id", "asvs_id"]
-    record = dict(zip(keys, row))
+    record = dict(row)
     lines = [f"TTP: {record['name']} ({record['category']})"]
     if record.get("mitre_id"):
         lines.append(f"MITRE ATT&CK: {record['mitre_id']}")

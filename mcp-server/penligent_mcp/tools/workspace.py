@@ -187,6 +187,7 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _workspace_note(args: dict) -> list[TextContent]:
+    import asyncio
     import time
     project_name = args.get("project_name", "")
     note = args.get("note", "")
@@ -195,8 +196,12 @@ async def _workspace_note(args: dict) -> list[TextContent]:
     notes_file = ws / "notes.md"
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     entry = f"\n## [{ts}]{(' [' + tag + ']') if tag else ''}\n{note}\n"
-    existing = notes_file.read_text() if notes_file.exists() else "# Pentest Notes\n"
-    notes_file.write_text(existing + entry)
+    loop = asyncio.get_event_loop()
+    existing = await loop.run_in_executor(
+        None,
+        lambda: notes_file.read_text() if notes_file.exists() else "# Pentest Notes\n",
+    )
+    await loop.run_in_executor(None, notes_file.write_text, existing + entry)
     return _ok(f"Note appended to {project_name}/notes.md")
 
 register(Tool(
