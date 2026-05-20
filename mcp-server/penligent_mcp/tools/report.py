@@ -98,7 +98,7 @@ def _build_exec_summary(project: dict, findings: list, ts_str: str) -> str:
         ]
         for f in chained:
             pos = f["attack_chain_position"]
-            lines.append(f"{pos}. **{f['title']}** ({f['severity'].upper()}) — {(f.get('description') or '')[:120]}")
+            lines.append(f"{pos}. **{f['title']}** ({(f.get('severity') or '').upper()}) — {(f.get('description') or '')[:120]}")
         lines.append("")
 
     return "\n".join(lines)

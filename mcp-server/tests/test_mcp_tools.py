@@ -9340,5 +9340,52 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("[NFS shares found]", result)
 
 
+# ===========================================================================
+# Section 107 — report.py null severity in attack chain
+# ===========================================================================
+
+class TestReportNullSeverityAttackChain(unittest.TestCase):
+    """_build_exec_summary must not crash when attack-chain finding has severity=None."""
+
+    _PROJECT = {"name": "test-proj", "target": "10.10.10.1", "kind": "htb_machine"}
+
+    def test_no_attributeerror_when_severity_is_none(self):
+        """severity=None must not raise AttributeError: 'NoneType' has no .upper()."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        findings = [
+            {"id": 1, "title": "SQLi", "severity": None,
+             "verify_status": "open", "attack_chain_position": 1,
+             "description": "SQL injection"},
+        ]
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        self.assertIn("SQLi", result)
+        self.assertIn("Attack Chain", result)
+
+    def test_severity_none_renders_as_empty_string(self):
+        """Null severity in attack chain must appear as empty parens, not 'None'."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        findings = [
+            {"id": 1, "title": "Foo", "severity": None,
+             "verify_status": "open", "attack_chain_position": 1,
+             "description": None},
+        ]
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        self.assertNotIn("None.upper", result)
+        self.assertNotIn("AttributeError", result)
+        # Severity part renders as () not (None)
+        self.assertIn("()", result)
+
+    def test_normal_severity_still_uppercased(self):
+        """Regression: valid severity must still appear uppercased in attack chain."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        findings = [
+            {"id": 1, "title": "RCE", "severity": "critical",
+             "verify_status": "verified", "attack_chain_position": 1,
+             "description": "Remote code execution"},
+        ]
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        self.assertIn("CRITICAL", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
