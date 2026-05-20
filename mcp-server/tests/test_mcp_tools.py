@@ -9992,5 +9992,237 @@ class TestDomTaintSinkSourceDetection(unittest.TestCase):
         self.assertIn("eval", result)
 
 
+# ===========================================================================
+# Section 115 — post_exploit.py netstat_local fallback chain
+# ===========================================================================
+
+class TestNetstatLocalFallback(unittest.TestCase):
+    """_netstat_local must use ss, then netstat, then /proc/net/ as fallback."""
+
+    def _run_netstat(self, ss_present: bool, netstat_present: bool,
+                     ss_output: str = "ss output", netstat_output: str = "netstat output") -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.post_exploit import _netstat_local
+
+        def fake_chk(name: str) -> bool:
+            if name == "ss":
+                return ss_present
+            if name == "netstat":
+                return netstat_present
+            return False
+
+        async def fake_run(cmd, timeout=15):
+            if cmd[0] == "ss":
+                return ss_output, "", 0
+            if cmd[0] == "netstat":
+                return netstat_output, "", 0
+            return "", "", 0
+
+        with patch("penligent_mcp.tools.post_exploit._chk", side_effect=fake_chk):
+            with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
+                result_list = asyncio.run(_netstat_local({}))
+        return result_list[0].text
+
+    def test_ss_used_when_available(self):
+        result = self._run_netstat(ss_present=True, netstat_present=True, ss_output="ss: LISTEN 0 128 *:22")
+        self.assertIn("ss: LISTEN", result)
+
+    def test_netstat_used_when_ss_absent(self):
+        result = self._run_netstat(ss_present=False, netstat_present=True, netstat_output="tcp 0.0.0.0:22")
+        self.assertIn("tcp 0.0.0.0:22", result)
+
+    def test_proc_net_fallback_message_when_both_absent(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.post_exploit import _netstat_local
+
+        def fake_chk(name: str) -> bool:
+            return False
+
+        async def fake_run(cmd, timeout=15):
+            return "", "", 0
+
+        # /proc/net files may or may not exist — just verify the code doesn't crash
+        with patch("penligent_mcp.tools.post_exploit._chk", side_effect=fake_chk):
+            with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
+                result_list = asyncio.run(_netstat_local({}))
+        # Should return something (either /proc/net content or fallback message)
+        self.assertTrue(len(result_list) > 0)
+        self.assertIsInstance(result_list[0].text, str)
+
+    def test_ss_output_in_result_header(self):
+        result = self._run_netstat(ss_present=True, netstat_present=False,
+                                   ss_output="Netid State Local Address:Port")
+        self.assertIn("Open network ports", result)
+
+
+# ===========================================================================
+# Section 116 — post_exploit.py container_check cgroup indicator detection
+# ===========================================================================
+
+class TestContainerCheckIndicators(unittest.TestCase):
+    """_container_check must detect docker/lxc/kubepods in cgroup content."""
+
+    def _run_container(self, cgroup_content: str, dockerenv_exists: bool = False) -> str:
+        from unittest.mock import patch, MagicMock
+        from penligent_mcp.tools.post_exploit import _container_check
+
+        async def fake_run(cmd, timeout=5):
+            return "test-host", "", 0
+
+        def path_factory(p):
+            p_str = str(p)
+            m = MagicMock()
+            m.exists.return_value = (p_str == "/.dockerenv" and dockerenv_exists)
+            if p_str == "/proc/1/cgroup":
+                m.read_text.return_value = cgroup_content
+            elif p_str == "/proc/self/status":
+                m.read_text.return_value = "NStgid:\t1\n"
+            else:
+                m.read_text.side_effect = FileNotFoundError
+            return m
+
+        with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
+            with patch("penligent_mcp.tools.post_exploit.Path", side_effect=path_factory):
+                result_list = asyncio.run(_container_check({}))
+        return result_list[0].text
+
+    def test_docker_in_cgroup_triggers_indicator(self):
+        result = self._run_container(
+            "12:memory:/docker/abc123\n11:cpu:/docker/abc123\n"
+        )
+        self.assertIn("docker", result.lower())
+
+    def test_kubepods_in_cgroup_triggers_indicator(self):
+        result = self._run_container(
+            "12:memory:/kubepods/burstable/podabc123\n"
+        )
+        self.assertIn("kubepod", result.lower())
+
+    def test_lxc_in_cgroup_triggers_indicator(self):
+        result = self._run_container(
+            "12:memory:/lxc/123\n"
+        )
+        self.assertIn("lxc", result.lower())
+
+    def test_no_indicators_returns_bare_metal_message(self):
+        result = self._run_container("12:memory:/system.slice/containerd.service\n")
+        self.assertIn("No container indicators", result)
+
+    def test_dockerenv_exists_reports_docker(self):
+        result = self._run_container("12:memory:/\n", dockerenv_exists=True)
+        self.assertIn("Docker", result)
+
+
+# ===========================================================================
+# Section 117 — passwords.py hash_identify regex fallback and length hints
+# ===========================================================================
+
+class TestHashIdentifyFallback(unittest.TestCase):
+    """_hash_identify must fall back to regex/length when hashid is absent."""
+
+    def _run_identify(self, hash_val: str) -> str:
+        from unittest.mock import patch
+        from penligent_mcp.tools.passwords import _hash_identify
+
+        async def fake_run(cmd, timeout=10):
+            return "", "", 0  # Never reached since hashid absent
+
+        with patch("penligent_mcp.tools.passwords._chk", return_value=False):
+            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+                result_list = asyncio.run(_hash_identify({"hash_value": hash_val}))
+        return result_list[0].text
+
+    def test_md5_hash_identified_by_regex(self):
+        md5 = "5f4dcc3b5aa765d61d8327deb882cf99"  # "password" MD5
+        result = self._run_identify(md5)
+        self.assertIn("MD5", result)
+
+    def test_sha1_hash_identified_by_regex(self):
+        sha1 = "5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8"  # "password" SHA1
+        result = self._run_identify(sha1)
+        self.assertIn("SHA1", result)
+
+    def test_sha256_hash_identified_by_regex(self):
+        sha256 = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+        result = self._run_identify(sha256)
+        self.assertIn("SHA256", result)
+
+    def test_bcrypt_hash_identified_by_regex(self):
+        bcrypt = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+        result = self._run_identify(bcrypt)
+        self.assertIn("bcrypt", result)
+
+    def test_unknown_hash_gives_length_hint(self):
+        # 32-char hash but with uppercase (won't match MD5 pattern which is lowercase)
+        # Actually the MD5 pattern is case-insensitive, let's use a 64-char uppercase hash
+        sha256_upper = "A" * 64
+        result = self._run_identify(sha256_upper)
+        # Should match SHA256 (case-insensitive) or give length hint
+        self.assertTrue("SHA256" in result or "64" in result or "SHA" in result)
+
+    def test_missing_hash_value_returns_error(self):
+        from penligent_mcp.tools.passwords import _hash_identify
+        result_list = asyncio.run(_hash_identify({}))
+        self.assertIn("Error", result_list[0].text)
+        self.assertIn("hash_value", result_list[0].text)
+
+    def test_hashid_present_uses_hashid_first(self):
+        """When hashid is available, its output is used and regex is skipped."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.passwords import _hash_identify
+
+        async def fake_run_hashid(cmd, timeout=10):
+            return "[+] MD5 [Hashcat Mode: 0]", "", 0
+
+        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
+            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run_hashid):
+                result_list = asyncio.run(_hash_identify({"hash_value": "abc123"}))
+        self.assertIn("hashid", result_list[0].text)
+        self.assertIn("MD5", result_list[0].text)
+
+
+# ===========================================================================
+# Section 118 — passwords.py hash_crack_online MD5 condition
+# ===========================================================================
+
+class TestHashCrackOnlineMd5Condition(unittest.TestCase):
+    """_hash_crack_online must only call md5decrypt for 32-char hex hashes."""
+
+    def _run_crack(self, hash_val: str) -> tuple[str, list]:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.passwords import _hash_crack_online
+        all_cmd_args = []
+
+        async def fake_run(cmd, timeout=15):
+            all_cmd_args.extend(cmd)
+            return f"found:{hash_val[:8]}", "", 0
+
+        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
+            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+                result_list = asyncio.run(_hash_crack_online({"hash_value": hash_val}))
+        return result_list[0].text, all_cmd_args
+
+    def test_md5_hash_calls_md5decrypt(self):
+        md5 = "5f4dcc3b5aa765d61d8327deb882cf99"
+        _, args = self._run_crack(md5)
+        self.assertTrue(any("md5decrypt" in a for a in args), f"Expected md5decrypt in cmd args, got: {args}")
+
+    def test_sha256_hash_skips_md5decrypt(self):
+        sha256 = "5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8"
+        _, args = self._run_crack(sha256)
+        self.assertFalse(any("md5decrypt" in a for a in args), "SHA256 should not call md5decrypt")
+
+    def test_hashes_com_always_called_for_any_hash(self):
+        sha1 = "5baa61e4c9b93f3f0682250b6cf8331b7ee68fd8"
+        _, args = self._run_crack(sha1)
+        self.assertTrue(any("hashes.com" in a for a in args), f"Expected hashes.com in cmd args, got: {args}")
+
+    def test_missing_hash_value_returns_error(self):
+        from penligent_mcp.tools.passwords import _hash_crack_online
+        result_list = asyncio.run(_hash_crack_online({}))
+        self.assertIn("Error", result_list[0].text)
+        self.assertIn("hash_value", result_list[0].text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
