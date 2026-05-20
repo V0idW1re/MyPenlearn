@@ -8725,5 +8725,392 @@ class TestHydraCommandConstruction(unittest.TestCase):
         self.assertTrue(any("Error" in item.text for item in result))
 
 
+# ===========================================================================
+# Section 102 — recon.py argument guards (missing required fields)
+# ===========================================================================
+
+class TestReconArgGuards(unittest.TestCase):
+    """Every recon tool must return 'Error:' when its required arg is absent."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_port_enum_missing_target(self):
+        from penligent_mcp.tools.recon import _port_enum
+        self.assertIn("Error", self._run(_port_enum({})))
+
+    def test_port_scan_missing_target(self):
+        from penligent_mcp.tools.recon import _port_scan
+        self.assertIn("Error", self._run(_port_scan({})))
+
+    def test_port_scan_full_missing_target(self):
+        from penligent_mcp.tools.recon import _port_scan_full
+        self.assertIn("Error", self._run(_port_scan_full({})))
+
+    def test_port_scan_udp_missing_target(self):
+        from penligent_mcp.tools.recon import _port_scan_udp
+        self.assertIn("Error", self._run(_port_scan_udp({})))
+
+    def test_service_detect_missing_target(self):
+        from penligent_mcp.tools.recon import _service_detect
+        self.assertIn("Error", self._run(_service_detect({})))
+
+    def test_os_detect_missing_target(self):
+        from penligent_mcp.tools.recon import _os_detect
+        self.assertIn("Error", self._run(_os_detect({})))
+
+    def test_ping_sweep_missing_cidr(self):
+        from penligent_mcp.tools.recon import _ping_sweep
+        self.assertIn("Error", self._run(_ping_sweep({})))
+
+    def test_dns_resolve_missing_hostname(self):
+        from penligent_mcp.tools.recon import _dns_resolve
+        self.assertIn("Error", self._run(_dns_resolve({})))
+
+    def test_dns_brute_missing_domain(self):
+        from penligent_mcp.tools.recon import _dns_brute
+        self.assertIn("Error", self._run(_dns_brute({})))
+
+    def test_dns_zone_transfer_missing_domain(self):
+        from penligent_mcp.tools.recon import _dns_zone_transfer
+        self.assertIn("Error", self._run(_dns_zone_transfer({})))
+
+    def test_dns_enum_missing_domain(self):
+        from penligent_mcp.tools.recon import _dns_enum
+        self.assertIn("Error", self._run(_dns_enum({})))
+
+    def test_subdomain_brute_missing_domain(self):
+        from penligent_mcp.tools.recon import _subdomain_brute
+        self.assertIn("Error", self._run(_subdomain_brute({})))
+
+    def test_vhost_fuzz_missing_both(self):
+        from penligent_mcp.tools.recon import _vhost_fuzz
+        self.assertIn("Error", self._run(_vhost_fuzz({})))
+
+    def test_vhost_fuzz_missing_domain(self):
+        from penligent_mcp.tools.recon import _vhost_fuzz
+        self.assertIn("Error", self._run(_vhost_fuzz({"target": "http://10.10.10.1"})))
+
+    def test_file_brute_missing_target(self):
+        from penligent_mcp.tools.recon import _file_brute
+        self.assertIn("Error", self._run(_file_brute({})))
+
+    def test_param_fuzz_missing_target(self):
+        from penligent_mcp.tools.recon import _param_fuzz
+        self.assertIn("Error", self._run(_param_fuzz({})))
+
+    def test_cert_transparency_missing_domain(self):
+        from penligent_mcp.tools.recon import _cert_transparency
+        self.assertIn("Error", self._run(_cert_transparency({})))
+
+    def test_whois_lookup_missing_target(self):
+        from penligent_mcp.tools.recon import _whois_lookup
+        self.assertIn("Error", self._run(_whois_lookup({})))
+
+    def test_reverse_dns_missing_ip(self):
+        from penligent_mcp.tools.recon import _reverse_dns
+        self.assertIn("Error", self._run(_reverse_dns({})))
+
+    def test_traceroute_missing_target(self):
+        from penligent_mcp.tools.recon import _traceroute
+        self.assertIn("Error", self._run(_traceroute({})))
+
+
+# ===========================================================================
+# Section 103 — recon.py nmap command construction and output parsing
+# ===========================================================================
+
+class TestReconNmapAndOutputParsing(unittest.TestCase):
+    """Verify nmap command flags and output-parsing logic for recon tools."""
+
+    def _capture_recon(self, handler_fn, args: dict, stdout_val="", stderr_val="", rc=0):
+        """Run a recon handler with _run_subprocess mocked; return (result, captured_cmd)."""
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured.extend(cmd)
+            return stdout_val, stderr_val, rc
+
+        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                result = asyncio.run(handler_fn(args))
+        return result, captured
+
+    # port_scan: -sV -p 1-1000 --open
+    def test_port_scan_uses_sV_p1000(self):
+        from penligent_mcp.tools.recon import _port_scan
+        _, cmd = self._capture_recon(_port_scan, {"target": "10.10.10.1"})
+        self.assertIn("-sV", cmd)
+        self.assertIn("1-1000", cmd)
+        self.assertIn("--open", cmd)
+        self.assertIn("10.10.10.1", cmd)
+
+    # port_scan_full: -sV -p-
+    def test_port_scan_full_uses_p_dash(self):
+        from penligent_mcp.tools.recon import _port_scan_full
+        _, cmd = self._capture_recon(_port_scan_full, {"target": "10.10.10.1"})
+        self.assertIn("-p-", cmd)
+        self.assertIn("-sV", cmd)
+
+    # port_scan_udp: -sU --top-ports 100
+    def test_port_scan_udp_uses_sU(self):
+        from penligent_mcp.tools.recon import _port_scan_udp
+        _, cmd = self._capture_recon(_port_scan_udp, {"target": "10.10.10.1"})
+        self.assertIn("-sU", cmd)
+        self.assertIn("--top-ports", cmd)
+        self.assertIn("100", cmd)
+
+    # service_detect: -sV --version-intensity 9
+    def test_service_detect_intensity_9(self):
+        from penligent_mcp.tools.recon import _service_detect
+        _, cmd = self._capture_recon(_service_detect, {"target": "10.10.10.1"})
+        self.assertIn("--version-intensity", cmd)
+        idx = cmd.index("--version-intensity")
+        self.assertEqual(cmd[idx + 1], "9")
+
+    def test_service_detect_custom_ports(self):
+        from penligent_mcp.tools.recon import _service_detect
+        _, cmd = self._capture_recon(_service_detect, {
+            "target": "10.10.10.1", "ports": "22,80,443",
+        })
+        self.assertIn("-p", cmd)
+        self.assertIn("22,80,443", cmd)
+
+    # os_detect: -O
+    def test_os_detect_uses_O_flag(self):
+        from penligent_mcp.tools.recon import _os_detect
+        _, cmd = self._capture_recon(_os_detect, {"target": "10.10.10.1"})
+        self.assertIn("-O", cmd)
+        self.assertNotIn("-sV", cmd)
+
+    # ping_sweep: host extraction regex
+    def test_ping_sweep_parses_live_hosts(self):
+        from penligent_mcp.tools.recon import _ping_sweep
+        nmap_out = (
+            "Nmap scan report for 192.168.1.1\n"
+            "Host is up (0.001s latency).\n"
+            "Nmap scan report for 192.168.1.5\n"
+            "Host is up (0.002s latency).\n"
+        )
+        result, _ = self._capture_recon(_ping_sweep, {"cidr": "192.168.1.0/24"},
+                                        stdout_val=nmap_out)
+        self.assertIn("192.168.1.1", result)
+        self.assertIn("192.168.1.5", result)
+        self.assertIn("2", result)  # "Live hosts ... (2)"
+
+    def test_ping_sweep_no_hosts_reports_none(self):
+        from penligent_mcp.tools.recon import _ping_sweep
+        result, _ = self._capture_recon(_ping_sweep, {"cidr": "192.168.1.0/24"},
+                                        stdout_val="Nmap done: 256 IP addresses (0 hosts up)")
+        self.assertIn("No live hosts", result)
+
+    # dns_zone_transfer: REFUSED detection
+    def test_dns_zone_transfer_refused(self):
+        from penligent_mcp.tools.recon import _dns_zone_transfer
+        result, _ = self._capture_recon(_dns_zone_transfer, {"domain": "example.com"},
+                                        stdout_val="; Transfer failed.\n; REFUSED\n")
+        self.assertIn("refused", result.lower())
+
+    def test_dns_zone_transfer_nameserver_arg(self):
+        from penligent_mcp.tools.recon import _dns_zone_transfer
+        _, cmd = self._capture_recon(_dns_zone_transfer, {
+            "domain": "example.com", "nameserver": "8.8.8.8",
+        })
+        self.assertIn("@8.8.8.8", cmd)
+
+    # reverse_dns: no PTR record
+    def test_reverse_dns_no_ptr(self):
+        from penligent_mcp.tools.recon import _reverse_dns
+        result, _ = self._capture_recon(_reverse_dns, {"ip": "10.0.0.1"},
+                                        stdout_val="")
+        self.assertIn("No PTR record", result)
+
+    def test_reverse_dns_with_result(self):
+        from penligent_mcp.tools.recon import _reverse_dns
+        result, _ = self._capture_recon(_reverse_dns, {"ip": "8.8.8.8"},
+                                        stdout_val="dns.google.\n")
+        self.assertIn("dns.google", result)
+
+
+# ===========================================================================
+# Section 104 — recon.py binary-fallback and param_fuzz FUZZ injection
+# ===========================================================================
+
+class TestReconFallbackAndFuzz(unittest.TestCase):
+    """Tool-binary fallback logic and param_fuzz FUZZ-URL injection."""
+
+    def _capture_recon(self, handler_fn, args: dict, which_side_effect=None):
+        """Run handler with mocked which + subprocess; return (result, captured_cmd)."""
+        import contextlib
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured.extend(cmd)
+            return "output", "", 0
+
+        patch_list = [
+            patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub),
+            patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock),
+        ]
+        if which_side_effect is not None:
+            patch_list.append(patch("shutil.which", side_effect=which_side_effect))
+
+        with contextlib.ExitStack() as stack:
+            for p in patch_list:
+                stack.enter_context(p)
+            result = asyncio.run(handler_fn(args))
+        return result, captured
+
+    def test_dns_brute_uses_gobuster_when_available(self):
+        """dns_brute picks gobuster when both gobuster and dnsrecon are present."""
+        from penligent_mcp.tools.recon import _dns_brute
+
+        def _which(name):
+            return "/usr/bin/" + name if name in ("gobuster", "dnsrecon") else None
+
+        result, captured = self._capture_recon(
+            _dns_brute, {"domain": "example.com"},
+            which_side_effect=_which,
+        )
+        self.assertIn("gobuster", captured)
+
+    def test_dns_brute_falls_back_to_dnsrecon(self):
+        """dns_brute uses dnsrecon when gobuster is absent."""
+        from penligent_mcp.tools.recon import _dns_brute
+
+        def _which(name):
+            return "/usr/bin/dnsrecon" if name == "dnsrecon" else None
+
+        result, captured = self._capture_recon(
+            _dns_brute, {"domain": "example.com"},
+            which_side_effect=_which,
+        )
+        self.assertIn("dnsrecon", captured)
+
+    def test_dns_brute_error_when_neither_found(self):
+        """dns_brute returns error when neither gobuster nor dnsrecon is on PATH."""
+        from penligent_mcp.tools.recon import _dns_brute
+        from unittest.mock import patch
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_dns_brute({"domain": "example.com"}))
+        self.assertIn("Error", result)
+
+    def test_dir_brute_uses_feroxbuster_when_available(self):
+        """dir_brute picks feroxbuster when available."""
+        from penligent_mcp.tools.recon import _dir_brute
+
+        def _which(name):
+            return "/usr/bin/" + name if name == "feroxbuster" else None
+
+        result, captured = self._capture_recon(
+            _dir_brute, {"target": "http://10.10.10.1"},
+            which_side_effect=_which,
+        )
+        self.assertIn("feroxbuster", captured)
+
+    def test_dir_brute_falls_back_to_gobuster(self):
+        """dir_brute uses gobuster when feroxbuster is absent."""
+        from penligent_mcp.tools.recon import _dir_brute
+
+        def _which(name):
+            return "/usr/bin/gobuster" if name == "gobuster" else None
+
+        result, captured = self._capture_recon(
+            _dir_brute, {"target": "http://10.10.10.1"},
+            which_side_effect=_which,
+        )
+        self.assertIn("gobuster", captured)
+
+    def test_dir_brute_error_when_neither_found(self):
+        from penligent_mcp.tools.recon import _dir_brute
+        from unittest.mock import patch
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_dir_brute({"target": "http://10.10.10.1"}))
+        self.assertIn("Error", result)
+
+    def test_param_fuzz_appends_fuzz_when_absent(self):
+        """If FUZZ not in URL, param_fuzz must append ?FUZZ=1 automatically."""
+        from penligent_mcp.tools.recon import _param_fuzz
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=180):
+            captured.extend(cmd)
+            return "", "", 0
+
+        def _which(name):
+            return "/usr/bin/ffuf" if name == "ffuf" else None
+
+        with patch("shutil.which", side_effect=_which):
+            with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                    asyncio.run(_param_fuzz({"target": "http://10.10.10.1/api"}))
+
+        url_arg = captured[captured.index("-u") + 1]
+        self.assertIn("FUZZ", url_arg)
+
+    def test_param_fuzz_keeps_fuzz_in_url_when_present(self):
+        """If FUZZ already in URL, param_fuzz must not add another one."""
+        from penligent_mcp.tools.recon import _param_fuzz
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=180):
+            captured.extend(cmd)
+            return "", "", 0
+
+        def _which(name):
+            return "/usr/bin/ffuf" if name == "ffuf" else None
+
+        with patch("shutil.which", side_effect=_which):
+            with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                    asyncio.run(_param_fuzz({"target": "http://10.10.10.1/api?id=FUZZ"}))
+
+        url_arg = captured[captured.index("-u") + 1]
+        self.assertEqual(url_arg, "http://10.10.10.1/api?id=FUZZ")
+
+    def test_cert_transparency_parses_json(self):
+        """cert_transparency extracts unique name_value entries from crt.sh JSON."""
+        import json as _json
+        from penligent_mcp.tools.recon import _cert_transparency
+        from unittest.mock import patch, AsyncMock
+
+        records = [
+            {"name_value": "sub1.example.com"},
+            {"name_value": "sub2.example.com"},
+            {"name_value": "sub1.example.com"},  # duplicate
+        ]
+        crt_json = _json.dumps(records)
+
+        async def fake_sub(cmd, timeout=30):
+            return crt_json, "", 0
+
+        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                result = asyncio.run(_cert_transparency({"domain": "example.com"}))
+
+        self.assertIn("sub1.example.com", result)
+        self.assertIn("sub2.example.com", result)
+        # 2 unique names (sub1 and sub2, duplicate removed)
+        self.assertIn("2 unique", result)
+
+    def test_cert_transparency_no_records(self):
+        """cert_transparency with empty stdout reports no records found."""
+        from penligent_mcp.tools.recon import _cert_transparency
+        from unittest.mock import patch, AsyncMock
+
+        async def fake_sub(cmd, timeout=30):
+            return "", "", 0
+
+        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                result = asyncio.run(_cert_transparency({"domain": "example.com"}))
+
+        self.assertIn("No certificate transparency", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
