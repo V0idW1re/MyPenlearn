@@ -7953,5 +7953,306 @@ class TestSprayHttpEdgeCases(unittest.TestCase):
         self.assertIn("[SUCCESS]", result)
 
 
+# ===========================================================================
+# Section 95 — exploit.py subprocess tool guards and flag construction
+# ===========================================================================
+
+class TestExploitSubprocessToolGuards(unittest.TestCase):
+    """Binary-not-found guards and flag construction for exploit.py subprocess tools."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _capture_exploit(self, handler_coro, which_val="/usr/bin/dummy"):
+        """Run exploit handler with subprocess and shutil.which mocked."""
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=60):
+            captured.extend(cmd)
+            return "ok", "", 0
+
+        with patch("shutil.which", return_value=which_val):
+            with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+                    result = self._run(handler_coro)
+        return result, captured
+
+    # --- msfvenom binary guards ---
+
+    def test_msfvenom_linux_no_binary_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.exploit import _msfvenom_linux
+        with patch("shutil.which", return_value=None):
+            result = self._run(_msfvenom_linux({"lhost": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("msfvenom", result)
+
+    def test_msfvenom_linux_missing_lhost_returns_error(self):
+        from penligent_mcp.tools.exploit import _msfvenom_linux
+        result, _ = self._capture_exploit(_msfvenom_linux({}))
+        self.assertIn("Error", result)
+        self.assertIn("lhost", result)
+
+    def test_msfvenom_linux_cmd_has_payload_and_lhost(self):
+        from penligent_mcp.tools.exploit import _msfvenom_linux
+        _, cmd = self._capture_exploit(_msfvenom_linux({"lhost": "10.0.0.1", "lport": 9001}))
+        self.assertIn("linux/x64/shell_reverse_tcp", cmd)
+        self.assertIn("LHOST=10.0.0.1", cmd)
+        self.assertIn("LPORT=9001", cmd)
+
+    def test_msfvenom_windows_no_binary_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.exploit import _msfvenom_windows
+        with patch("shutil.which", return_value=None):
+            result = self._run(_msfvenom_windows({"lhost": "10.0.0.1"}))
+        self.assertIn("Error", result)
+
+    def test_msfvenom_windows_encoder_adds_e_flag(self):
+        from penligent_mcp.tools.exploit import _msfvenom_windows
+        _, cmd = self._capture_exploit(
+            _msfvenom_windows({"lhost": "10.0.0.1", "encoder": "x64/xor"})
+        )
+        self.assertIn("-e", cmd)
+        self.assertIn("x64/xor", cmd)
+        self.assertIn("-i", cmd)
+
+    def test_msfvenom_windows_no_encoder_no_e_flag(self):
+        from penligent_mcp.tools.exploit import _msfvenom_windows
+        _, cmd = self._capture_exploit(_msfvenom_windows({"lhost": "10.0.0.1"}))
+        self.assertNotIn("-e", cmd)
+
+    def test_msfvenom_php_no_binary_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.exploit import _msfvenom_php
+        with patch("shutil.which", return_value=None):
+            result = self._run(_msfvenom_php({"lhost": "10.0.0.1"}))
+        self.assertIn("Error", result)
+
+    def test_msfvenom_php_cmd_uses_raw_format(self):
+        from penligent_mcp.tools.exploit import _msfvenom_php
+        _, cmd = self._capture_exploit(_msfvenom_php({"lhost": "10.0.0.1"}))
+        self.assertIn("php/reverse_php", cmd)
+        self.assertIn("-f", cmd)
+        self.assertIn("raw", cmd)
+
+    # --- impacket-psexec ---
+
+    def test_impacket_psexec_no_binary_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        with patch("shutil.which", return_value=None):
+            result = self._run(_impacket_psexec({"target": "10.0.0.1", "username": "admin"}))
+        self.assertIn("Error", result)
+        self.assertIn("impacket", result)
+
+    def test_impacket_psexec_missing_target_returns_error(self):
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        result, _ = self._capture_exploit(_impacket_psexec({"username": "admin"}))
+        self.assertIn("Error", result)
+
+    def test_impacket_psexec_nt_hash_uses_hashes_flag(self):
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        _, cmd = self._capture_exploit(
+            _impacket_psexec({
+                "target": "10.0.0.1", "username": "admin",
+                "nt_hash": "aad3b435b51404eeaad3b435b51404ee",
+            }),
+            which_val="/usr/bin/impacket-psexec",
+        )
+        self.assertIn("-hashes", cmd)
+        self.assertIn(":aad3b435b51404eeaad3b435b51404ee", cmd)
+
+    def test_impacket_psexec_no_hash_no_hashes_flag(self):
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        _, cmd = self._capture_exploit(
+            _impacket_psexec({"target": "10.0.0.1", "username": "admin", "password": "pass"}),
+            which_val="/usr/bin/impacket-psexec",
+        )
+        self.assertNotIn("-hashes", cmd)
+
+
+# ===========================================================================
+# Section 96 — exploit.py pure-Python tools: chisel tunnel and offline lookups
+# ===========================================================================
+
+class TestChiselTunnel(unittest.TestCase):
+    """_chisel_tunnel generates correct command strings for each tunnel type."""
+
+    def _run(self, **kwargs) -> str:
+        from penligent_mcp.tools.exploit import _chisel_tunnel
+        return asyncio.run(_chisel_tunnel(kwargs))
+
+    def test_socks5_uses_local_port_in_r_socks(self):
+        """socks5 mode must include local_port in R:{port}:socks — not just R:socks."""
+        result = self._run(lhost="10.0.0.1", local_port=9050)
+        self.assertIn("R:9050:socks", result)
+
+    def test_socks5_default_local_port_1080(self):
+        result = self._run(lhost="10.0.0.1")
+        self.assertIn("R:1080:socks", result)
+
+    def test_socks5_proxychains_config_matches_local_port(self):
+        """proxychains comment must reflect the actual local_port, not a hardcoded 1080."""
+        result = self._run(lhost="10.0.0.1", local_port=9050)
+        self.assertIn("127.0.0.1 9050", result)
+        self.assertNotIn("127.0.0.1 1080", result)
+
+    def test_forward_uses_r_colon_format(self):
+        result = self._run(lhost="10.0.0.1", tunnel_type="forward",
+                           local_port=8888, remote_host="192.168.1.10", remote_port=3389)
+        self.assertIn("R:8888:192.168.1.10:3389", result)
+
+    def test_reverse_forward_no_r_prefix(self):
+        result = self._run(lhost="10.0.0.1", tunnel_type="reverse_forward",
+                           local_port=8888, remote_host="192.168.1.10", remote_port=3389)
+        self.assertIn("8888:192.168.1.10:3389", result)
+        # reverse_forward uses direct tunnel, not reverse
+        self.assertNotIn("R:8888", result)
+
+    def test_missing_lhost_returns_error(self):
+        result = self._run()
+        self.assertIn("Error", result)
+        self.assertIn("lhost", result)
+
+    def test_unknown_tunnel_type_returns_error(self):
+        result = self._run(lhost="10.0.0.1", tunnel_type="magic_beans")
+        self.assertIn("Error", result)
+        self.assertIn("tunnel_type", result)
+
+    def test_all_types_mention_download_url(self):
+        for t in ("socks5", "forward", "reverse_forward"):
+            result = self._run(lhost="10.0.0.1", tunnel_type=t)
+            self.assertIn("chisel", result, f"{t} result lacks chisel download hint")
+
+
+class TestGtfobinsLookup(unittest.TestCase):
+    """_gtfobins_lookup offline fallback and function filter."""
+
+    def _lookup(self, binary, function="", curl_rc=1) -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.exploit import _gtfobins_lookup
+
+        async def fake_sub(cmd, timeout=10):
+            # Simulate curl failure so offline path is used
+            return "", "curl: (6) Could not resolve host", curl_rc
+
+        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+                return asyncio.run(_gtfobins_lookup({"binary": binary, "function": function}))
+
+    def test_missing_binary_returns_error(self):
+        from penligent_mcp.tools.exploit import _gtfobins_lookup
+        result = asyncio.run(_gtfobins_lookup({}))
+        self.assertIn("Error", result)
+        self.assertIn("binary", result)
+
+    def test_offline_fallback_python3(self):
+        result = self._lookup("python3")
+        self.assertIn("python3", result)
+        self.assertIn("shell", result)
+
+    def test_offline_fallback_includes_payload(self):
+        result = self._lookup("bash")
+        self.assertIn("bash", result)
+        self.assertIn("sudo", result.lower())
+
+    def test_offline_function_filter_narrows_results(self):
+        result = self._lookup("python3", function="file-read")
+        self.assertIn("file-read", result)
+
+    def test_offline_unknown_binary_mentions_available(self):
+        result = self._lookup("notarealbinary_xyz")
+        self.assertIn("not in GTFOBins", result)
+
+    def test_offline_result_includes_url(self):
+        result = self._lookup("vim")
+        self.assertIn("gtfobins.github.io", result)
+
+
+class TestLolbasLookup(unittest.TestCase):
+    """_lolbas_lookup offline fallback and function filter."""
+
+    def _lookup(self, binary, function="") -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.exploit import _lolbas_lookup
+
+        async def fake_sub(cmd, timeout=10):
+            return "", "curl error", 1
+
+        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+                return asyncio.run(_lolbas_lookup({"binary": binary, "function": function}))
+
+    def test_missing_binary_returns_error(self):
+        from penligent_mcp.tools.exploit import _lolbas_lookup
+        result = asyncio.run(_lolbas_lookup({}))
+        self.assertIn("Error", result)
+
+    def test_offline_certutil_download(self):
+        result = self._lookup("certutil")
+        self.assertIn("certutil", result)
+        self.assertIn("Download", result)
+
+    def test_offline_certutil_has_urlcache_example(self):
+        result = self._lookup("certutil")
+        self.assertIn("urlcache", result.lower())
+
+    def test_offline_function_filter_download(self):
+        result = self._lookup("powershell", function="download")
+        self.assertIn("Download", result)
+
+    def test_offline_unknown_binary_mentions_available(self):
+        result = self._lookup("notawindowsbinary_xyz")
+        self.assertIn("not in LOLBAS", result)
+
+    def test_offline_result_includes_url(self):
+        result = self._lookup("certutil")
+        self.assertIn("lolbas-project.github.io", result)
+
+
+class TestLinpeasOutputFileQuoting(unittest.TestCase):
+    """_linpeas_run must quote output_file in the shell command to prevent injection."""
+
+    def test_output_file_with_spaces_is_quoted(self):
+        """A path with spaces must be shell-quoted so tee receives it as one token."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.exploit import _linpeas_run
+
+        captured_cmds = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured_cmds.extend(cmd)
+            return "", "", 0
+
+        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+                asyncio.run(_linpeas_run({"output_file": "/tmp/my output.txt"}))
+
+        shell_str = " ".join(captured_cmds)
+        # shlex.quote wraps in single quotes → tee '/tmp/my output.txt'
+        self.assertIn("'", shell_str)
+        self.assertNotIn("tee /tmp/my output.txt", shell_str)
+
+    def test_output_file_default_path_safe(self):
+        """Default path /tmp/linpeas_output.txt must appear in the shell command."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.exploit import _linpeas_run
+
+        captured_cmds = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured_cmds.extend(cmd)
+            return "output line", "", 0
+
+        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+                result = asyncio.run(_linpeas_run({}))
+
+        shell_str = " ".join(captured_cmds)
+        self.assertIn("linpeas_output.txt", shell_str)
+        self.assertIn("linPEAS", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
