@@ -119,6 +119,8 @@ async def _objdump_analyze(args: dict) -> str:
 
     if not binary:
         return "Error: binary is required."
+    if not shutil.which("objdump"):
+        return "Error: objdump not found in PATH. Install: apt install binutils"
 
     cmd = ["objdump"]
     if disassemble:

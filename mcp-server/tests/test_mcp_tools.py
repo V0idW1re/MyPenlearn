@@ -7289,6 +7289,611 @@ class TestWorkspaceNote(unittest.TestCase):
 # Section 88 — spray_http edge cases: empty failure_string and unknown status
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Section 89 — binary.py objdump binary-not-found guard (bug fix regression)
+# ---------------------------------------------------------------------------
+
+class TestObjdumpBinaryGuard(unittest.TestCase):
+    """_objdump_analyze must return a friendly error when objdump is not installed."""
+
+    def test_objdump_not_installed_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.binary import _objdump_analyze
+
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_objdump_analyze({"binary": "/bin/ls"}))
+        self.assertIn("Error", result)
+        self.assertIn("objdump", result)
+
+    def test_objdump_disassemble_flag_used(self):
+        """When disassemble=True (default) the -d flag must be in the command."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.binary import _objdump_analyze
+
+        captured = []
+
+        async def fake_run(cmd, timeout=120):
+            captured.extend(cmd)
+            return "disassembly output", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/objdump"):
+            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+                    asyncio.run(_objdump_analyze({"binary": "/bin/ls"}))
+
+        self.assertIn("-d", captured)
+        self.assertNotIn("-x", captured)
+
+    def test_objdump_headers_flag_when_no_disassemble(self):
+        """When disassemble=False the -x flag must replace -d."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.binary import _objdump_analyze
+
+        captured = []
+
+        async def fake_run(cmd, timeout=120):
+            captured.extend(cmd)
+            return "header output", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/objdump"):
+            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+                    asyncio.run(_objdump_analyze({"binary": "/bin/ls", "disassemble": False}))
+
+        self.assertIn("-x", captured)
+        self.assertNotIn("-d", captured)
+
+    def test_objdump_section_flag(self):
+        """When section is specified, -j <section> must appear in the command."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.binary import _objdump_analyze
+
+        captured = []
+
+        async def fake_run(cmd, timeout=120):
+            captured.extend(cmd)
+            return "section output", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/objdump"):
+            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+                    asyncio.run(_objdump_analyze({"binary": "/bin/ls", "section": ".text"}))
+
+        self.assertIn("-j", captured)
+        j_idx = captured.index("-j")
+        self.assertEqual(captured[j_idx + 1], ".text")
+
+
+# ---------------------------------------------------------------------------
+# Section 90 — binary.py command construction tests
+# ---------------------------------------------------------------------------
+
+class TestBinaryToolCmdConstruction(unittest.TestCase):
+    """Verify that binary.py tools assemble the correct CLI commands."""
+
+    def _capture(self, coro, module_path: str) -> list:
+        """Run coro with _run_subprocess mocked; return captured cmd list."""
+        from unittest.mock import patch, AsyncMock
+
+        captured = []
+
+        async def fake_run(cmd, timeout=None):
+            captured.extend(cmd)
+            return "output", "", 0
+
+        with patch(f"{module_path}._run_subprocess", side_effect=fake_run):
+            with patch(f"{module_path}._persist", new_callable=AsyncMock):
+                asyncio.run(coro)
+        return captured
+
+    def test_checksec_file_eq_format(self):
+        """`checksec --file=<binary>` format must be used (not --file <binary>)."""
+        from penligent_mcp.tools.binary import _checksec
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/checksec"):
+            cmd = self._capture(_checksec({"binary": "/tmp/vuln"}), "penligent_mcp.tools.binary")
+        self.assertIn("--file=/tmp/vuln", cmd)
+
+    def test_xxd_hexdump_offset_flag(self):
+        """-s offset must appear when offset is supplied."""
+        from penligent_mcp.tools.binary import _xxd_hexdump
+        cmd = self._capture(
+            _xxd_hexdump({"file_path": "/tmp/f.bin", "offset": 16}),
+            "penligent_mcp.tools.binary",
+        )
+        self.assertIn("-s", cmd)
+        s_idx = cmd.index("-s")
+        self.assertEqual(cmd[s_idx + 1], "16")
+
+    def test_xxd_hexdump_length_flag(self):
+        """-l length must appear when length is supplied."""
+        from penligent_mcp.tools.binary import _xxd_hexdump
+        cmd = self._capture(
+            _xxd_hexdump({"file_path": "/tmp/f.bin", "length": 64}),
+            "penligent_mcp.tools.binary",
+        )
+        self.assertIn("-l", cmd)
+        l_idx = cmd.index("-l")
+        self.assertEqual(cmd[l_idx + 1], "64")
+
+    def test_xxd_hexdump_no_length_flag_when_omitted(self):
+        """-l must not appear when length is not provided."""
+        from penligent_mcp.tools.binary import _xxd_hexdump
+        cmd = self._capture(
+            _xxd_hexdump({"file_path": "/tmp/f.bin"}),
+            "penligent_mcp.tools.binary",
+        )
+        self.assertNotIn("-l", cmd)
+
+    def test_binwalk_extract_flag(self):
+        """-e must appear when extract=True."""
+        from penligent_mcp.tools.binary import _binwalk_analyze
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/binwalk"):
+            cmd = self._capture(
+                _binwalk_analyze({"file_path": "/tmp/fw.bin", "extract": True}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("-e", cmd)
+
+    def test_binwalk_no_extract_flag_when_false(self):
+        """-e must NOT appear when extract=False."""
+        from penligent_mcp.tools.binary import _binwalk_analyze
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/binwalk"):
+            cmd = self._capture(
+                _binwalk_analyze({"file_path": "/tmp/fw.bin", "extract": False}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertNotIn("-e", cmd)
+
+    def test_ropgadget_binary_flag(self):
+        """ROPgadget must use --binary flag."""
+        from penligent_mcp.tools.binary import _ropgadget_search
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/ROPgadget"):
+            cmd = self._capture(
+                _ropgadget_search({"binary": "/tmp/vuln"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("--binary", cmd)
+        b_idx = cmd.index("--binary")
+        self.assertEqual(cmd[b_idx + 1], "/tmp/vuln")
+
+    def test_ropgadget_only_filter(self):
+        """--only filter must appear when only= is specified."""
+        from penligent_mcp.tools.binary import _ropgadget_search
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/ROPgadget"):
+            cmd = self._capture(
+                _ropgadget_search({"binary": "/tmp/vuln", "only": "pop|ret"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("--only", cmd)
+        o_idx = cmd.index("--only")
+        self.assertEqual(cmd[o_idx + 1], "pop|ret")
+
+    def test_steghide_extract_command(self):
+        """extract action must build `steghide extract -sf cover -p passphrase` command."""
+        from penligent_mcp.tools.binary import _steghide_analyze
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/steghide"):
+            cmd = self._capture(
+                _steghide_analyze({"cover_file": "/tmp/img.jpg", "action": "extract", "passphrase": "secret"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("extract", cmd)
+        self.assertIn("-sf", cmd)
+        self.assertIn("-p", cmd)
+        p_idx = cmd.index("-p")
+        self.assertEqual(cmd[p_idx + 1], "secret")
+
+    def test_steghide_info_command(self):
+        """info action must build `steghide info cover` command."""
+        from penligent_mcp.tools.binary import _steghide_analyze
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/steghide"):
+            cmd = self._capture(
+                _steghide_analyze({"cover_file": "/tmp/img.jpg", "action": "info"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("info", cmd)
+        self.assertNotIn("embed", cmd)
+        self.assertNotIn("extract", cmd)
+
+    def test_exiftool_json_format(self):
+        """output_format='json' must produce -json flag."""
+        from penligent_mcp.tools.binary import _exiftool_extract
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
+            cmd = self._capture(
+                _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "json"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("-json", cmd)
+
+    def test_exiftool_xml_format(self):
+        """output_format='xml' must produce -xml flag."""
+        from penligent_mcp.tools.binary import _exiftool_extract
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
+            cmd = self._capture(
+                _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "xml"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("-xml", cmd)
+
+    def test_exiftool_no_format_flag_for_unknown(self):
+        """output_format='txt' (not in json/xml/csv) must produce NO format flag."""
+        from penligent_mcp.tools.binary import _exiftool_extract
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
+            cmd = self._capture(
+                _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "txt"}),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertNotIn("-txt", cmd)
+        self.assertNotIn("-json", cmd)
+        self.assertNotIn("-xml", cmd)
+
+    def test_hashpump_all_flags(self):
+        """hashpump must receive -s, -d, -k, -a flags with correct values."""
+        from penligent_mcp.tools.binary import _hashpump_attack
+        with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/hashpump"):
+            cmd = self._capture(
+                _hashpump_attack({
+                    "signature": "deadbeef",
+                    "data": "hello",
+                    "key_length": 8,
+                    "append_data": "admin",
+                }),
+                "penligent_mcp.tools.binary",
+            )
+        self.assertIn("-s", cmd)
+        self.assertEqual(cmd[cmd.index("-s") + 1], "deadbeef")
+        self.assertIn("-d", cmd)
+        self.assertEqual(cmd[cmd.index("-d") + 1], "hello")
+        self.assertIn("-k", cmd)
+        self.assertEqual(cmd[cmd.index("-k") + 1], "8")
+        self.assertIn("-a", cmd)
+        self.assertEqual(cmd[cmd.index("-a") + 1], "admin")
+
+
+# ---------------------------------------------------------------------------
+# Section 91 — cloud.py command construction tests
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Section 92 — report.py _build_exec_summary: NULL description in attack chain
+# ---------------------------------------------------------------------------
+
+class TestReportNullDescription(unittest.TestCase):
+    """_build_exec_summary must not raise TypeError when description is None (bug fix)."""
+
+    _PROJECT = {"name": "test-proj", "target": "10.10.10.1", "kind": "htb_machine"}
+
+    def test_no_typeerror_when_description_is_none(self):
+        """Chained finding with description=None must not raise TypeError."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        findings = [
+            {"id": 1, "title": "SQLi", "severity": "critical",
+             "verify_status": "verified", "attack_chain_position": 1,
+             "description": None},
+        ]
+        # Should not raise
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        self.assertIn("SQLi", result)
+        self.assertIn("Attack Chain", result)
+
+    def test_description_truncated_to_120_chars_when_present(self):
+        """When description is set, only the first 120 characters should appear in the chain."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        long_desc = "X" * 200
+        findings = [
+            {"id": 1, "title": "RCE", "severity": "high",
+             "verify_status": "open", "attack_chain_position": 1,
+             "description": long_desc},
+        ]
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        # Should contain up to 120 Xs, not all 200
+        self.assertIn("X" * 120, result)
+        self.assertNotIn("X" * 121, result)
+
+    def test_empty_string_description_handled_cleanly(self):
+        """Empty string description must also not crash."""
+        from penligent_mcp.tools.report import _build_exec_summary
+        findings = [
+            {"id": 1, "title": "XSS", "severity": "medium",
+             "verify_status": "open", "attack_chain_position": 2,
+             "description": ""},
+        ]
+        result = _build_exec_summary(self._PROJECT, findings, "2026-05-20")
+        self.assertIn("XSS", result)
+
+
+# ---------------------------------------------------------------------------
+# Section 93 — report.py _build_controls_json pure function
+# ---------------------------------------------------------------------------
+
+class TestReportBuildControlsJson(unittest.TestCase):
+    """_build_controls_json aggregates compliance controls across findings."""
+
+    def test_empty_findings_returns_empty_dict(self):
+        from penligent_mcp.tools.report import _build_controls_json
+        self.assertEqual(_build_controls_json([]), {})
+
+    def test_finding_without_controls_skipped(self):
+        from penligent_mcp.tools.report import _build_controls_json
+        findings = [{"id": 1, "title": "Test", "severity": "high",
+                     "compliance_controls_json": None}]
+        self.assertEqual(_build_controls_json(findings), {})
+
+    def test_single_finding_with_controls_indexed(self):
+        import json
+        from penligent_mcp.tools.report import _build_controls_json
+        findings = [
+            {"id": 1, "title": "SQLi", "severity": "critical",
+             "compliance_controls_json": json.dumps({
+                 "PCI_DSS": ["6.2.4"],
+                 "NIST_800_115": ["Testing Authentication Mechanisms"],
+             })},
+        ]
+        result = _build_controls_json(findings)
+        self.assertIn("PCI_DSS", result)
+        self.assertIn("6.2.4", result["PCI_DSS"])
+        self.assertEqual(result["PCI_DSS"]["6.2.4"][0]["finding_id"], 1)
+
+    def test_two_findings_same_control_merged(self):
+        """Multiple findings mapped to the same control must be listed under that control."""
+        import json
+        from penligent_mcp.tools.report import _build_controls_json
+        findings = [
+            {"id": 1, "title": "SQLi", "severity": "critical",
+             "compliance_controls_json": json.dumps({"OWASP": ["A03:2021"]})},
+            {"id": 2, "title": "XSS", "severity": "high",
+             "compliance_controls_json": json.dumps({"OWASP": ["A03:2021"]})},
+        ]
+        result = _build_controls_json(findings)
+        entries = result["OWASP"]["A03:2021"]
+        self.assertEqual(len(entries), 2)
+        ids = {e["finding_id"] for e in entries}
+        self.assertIn(1, ids)
+        self.assertIn(2, ids)
+
+    def test_malformed_json_skipped_gracefully(self):
+        """Findings with invalid JSON in compliance_controls_json must be skipped."""
+        from penligent_mcp.tools.report import _build_controls_json
+        findings = [
+            {"id": 1, "title": "Bad JSON", "severity": "low",
+             "compliance_controls_json": "not-valid-json"},
+        ]
+        # Should not raise, just skip the bad entry
+        result = _build_controls_json(findings)
+        self.assertEqual(result, {})
+
+
+# ---------------------------------------------------------------------------
+# Section 94 — report.py _build_finding_md structured sub-fields
+# ---------------------------------------------------------------------------
+
+class TestReportFindingMdStructures(unittest.TestCase):
+    """_build_finding_md must correctly render remediation dicts, repro lists, and compliance."""
+
+    _BASE = {
+        "id": 1, "title": "IDOR on /api/users", "severity": "high",
+        "verify_status": "verified", "description": "User can access other users' profiles.",
+        "impact": "Unauthorized data access.", "cve_id": None, "cvss": 7.5,
+        "ttp_category": "idor", "mitre_attack_id": "T1078", "owasp_asvs_id": "V4.2",
+        "attack_chain_position": None, "evidence_json": None,
+        "repro_steps_json": None, "remediation_json": None,
+        "compliance_controls_json": None,
+    }
+
+    def _finding(self, **overrides) -> dict:
+        f = dict(self._BASE)
+        f.update(overrides)
+        return f
+
+    def test_repro_steps_list_rendered_as_numbered_list(self):
+        import json
+        from penligent_mcp.tools.report import _build_finding_md
+        f = self._finding(repro_steps_json=json.dumps([
+            "Browse to /api/users/1",
+            "Change 1 to 2 in the URL",
+            "Observe other user data returned",
+        ]))
+        result = _build_finding_md(f, 1)
+        self.assertIn("1. Browse to /api/users/1", result)
+        self.assertIn("2. Change 1 to 2", result)
+        self.assertIn("3. Observe other user", result)
+
+    def test_remediation_dict_renders_owner_and_actions(self):
+        import json
+        from penligent_mcp.tools.report import _build_finding_md
+        rem = {
+            "owner": "backend-team",
+            "priority": "P1",
+            "actions": ["Add server-side authorization check", "Return 403 for unauthorized access"],
+            "verification": "Re-run IDOR test after deploy",
+        }
+        f = self._finding(remediation_json=json.dumps(rem))
+        result = _build_finding_md(f, 1)
+        self.assertIn("backend-team", result)
+        self.assertIn("Add server-side authorization check", result)
+        self.assertIn("Re-run IDOR test after deploy", result)
+
+    def test_compliance_controls_rendered(self):
+        import json
+        from penligent_mcp.tools.report import _build_finding_md
+        ctrl = {"OWASP_ASVS": ["V4.2.1"], "PCI_DSS": ["6.2.4"]}
+        f = self._finding(compliance_controls_json=json.dumps(ctrl))
+        result = _build_finding_md(f, 1)
+        self.assertIn("OWASP ASVS", result)
+        self.assertIn("V4.2.1", result)
+        self.assertIn("PCI DSS", result)
+        self.assertIn("6.2.4", result)
+
+    def test_evidence_json_dict_formatted_as_code_block(self):
+        import json
+        from penligent_mcp.tools.report import _build_finding_md
+        evidence = {"method": "GET", "url": "/api/users/2", "status": 200}
+        f = self._finding(evidence_json=json.dumps(evidence))
+        result = _build_finding_md(f, 1)
+        self.assertIn("```", result)
+        self.assertIn("method", result)
+        self.assertIn("GET", result)
+
+    def test_missing_optional_fields_no_crash(self):
+        """Finding with only required fields must render without raising."""
+        from penligent_mcp.tools.report import _build_finding_md
+        minimal = {
+            "id": 99, "title": "Minimal Finding", "severity": "info",
+            "verify_status": "open",
+        }
+        # Should not raise KeyError or AttributeError
+        result = _build_finding_md(minimal, 1)
+        self.assertIn("Minimal Finding", result)
+
+
+class TestCloudToolCmdConstruction(unittest.TestCase):
+    """Verify that cloud.py tools assemble the correct CLI commands."""
+
+    def _capture(self, coro, module_path: str, which_bin: str) -> list:
+        from unittest.mock import patch, AsyncMock
+
+        captured = []
+
+        async def fake_run(cmd, timeout=None):
+            captured.extend(cmd)
+            return "output", "", 0
+
+        with patch("shutil.which", return_value=which_bin):
+            with patch(f"{module_path}._run_subprocess", side_effect=fake_run):
+                with patch(f"{module_path}._persist", new_callable=AsyncMock):
+                    asyncio.run(coro)
+        return captured
+
+    def test_trivy_scan_type_and_format(self):
+        """trivy must use the scan_type as a positional arg and --format."""
+        from penligent_mcp.tools.cloud import _trivy_scan
+        cmd = self._capture(
+            _trivy_scan({"target": "ubuntu:20.04", "scan_type": "image", "output_format": "json"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/trivy",
+        )
+        self.assertIn("image", cmd)
+        self.assertIn("--format", cmd)
+        fmt_idx = cmd.index("--format")
+        self.assertEqual(cmd[fmt_idx + 1], "json")
+
+    def test_trivy_severity_filter(self):
+        """--severity must appear when severity is specified."""
+        from penligent_mcp.tools.cloud import _trivy_scan
+        cmd = self._capture(
+            _trivy_scan({"target": "nginx:latest", "severity": "CRITICAL,HIGH"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/trivy",
+        )
+        self.assertIn("--severity", cmd)
+        sev_idx = cmd.index("--severity")
+        self.assertEqual(cmd[sev_idx + 1], "CRITICAL,HIGH")
+
+    def test_kube_hunter_remote_target(self):
+        """When target is given, --remote flag must be used."""
+        from penligent_mcp.tools.cloud import _kube_hunter
+        cmd = self._capture(
+            _kube_hunter({"target": "10.10.10.1"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+        )
+        self.assertIn("--remote", cmd)
+        r_idx = cmd.index("--remote")
+        self.assertEqual(cmd[r_idx + 1], "10.10.10.1")
+
+    def test_kube_hunter_cidr_mode(self):
+        """When cidr is given (and no target), --cidr must be used."""
+        from penligent_mcp.tools.cloud import _kube_hunter
+        cmd = self._capture(
+            _kube_hunter({"cidr": "10.0.0.0/24"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+        )
+        self.assertIn("--cidr", cmd)
+        self.assertNotIn("--remote", cmd)
+        self.assertNotIn("--pod", cmd)
+
+    def test_kube_hunter_pod_mode_when_no_target_no_cidr(self):
+        """When neither target nor cidr is given, --pod fallback must be used."""
+        from penligent_mcp.tools.cloud import _kube_hunter
+        cmd = self._capture(
+            _kube_hunter({}),
+            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+        )
+        self.assertIn("--pod", cmd)
+
+    def test_kube_hunter_active_flag(self):
+        """--active must appear when active=True."""
+        from penligent_mcp.tools.cloud import _kube_hunter
+        cmd = self._capture(
+            _kube_hunter({"active": True}),
+            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+        )
+        self.assertIn("--active", cmd)
+
+    def test_kube_hunter_no_active_flag_by_default(self):
+        """--active must NOT appear when active is False (default)."""
+        from penligent_mcp.tools.cloud import _kube_hunter
+        cmd = self._capture(
+            _kube_hunter({}),
+            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+        )
+        self.assertNotIn("--active", cmd)
+
+    def test_checkov_directory_flag(self):
+        """checkov must use -d for the directory argument."""
+        from penligent_mcp.tools.cloud import _checkov_scan
+        cmd = self._capture(
+            _checkov_scan({"directory": "/app/terraform"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/checkov",
+        )
+        self.assertIn("-d", cmd)
+        d_idx = cmd.index("-d")
+        self.assertEqual(cmd[d_idx + 1], "/app/terraform")
+
+    def test_checkov_framework_flag(self):
+        """--framework must appear when framework is specified."""
+        from penligent_mcp.tools.cloud import _checkov_scan
+        cmd = self._capture(
+            _checkov_scan({"framework": "terraform"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/checkov",
+        )
+        self.assertIn("--framework", cmd)
+        fw_idx = cmd.index("--framework")
+        self.assertEqual(cmd[fw_idx + 1], "terraform")
+
+    def test_falco_monitor_uses_timeout_wrapper(self):
+        """falco_monitor must wrap falco in `timeout <duration>` to enforce monitoring limit."""
+        from penligent_mcp.tools.cloud import _falco_monitor
+        cmd = self._capture(
+            _falco_monitor({"duration": 30}),
+            "penligent_mcp.tools.cloud", "/usr/bin/falco",
+        )
+        self.assertEqual(cmd[0], "timeout")
+        self.assertEqual(cmd[1], "30")
+        self.assertIn("falco", cmd)
+
+    def test_falco_rules_file_flag(self):
+        """--rules must appear when rules_file is specified."""
+        from penligent_mcp.tools.cloud import _falco_monitor
+        cmd = self._capture(
+            _falco_monitor({"rules_file": "/etc/falco/custom.yaml"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/falco",
+        )
+        self.assertIn("--rules", cmd)
+        r_idx = cmd.index("--rules")
+        self.assertEqual(cmd[r_idx + 1], "/etc/falco/custom.yaml")
+
+    def test_terrascan_iac_type_and_dir(self):
+        """terrascan must pass -t iac_type and -d iac_dir."""
+        from penligent_mcp.tools.cloud import _terrascan_scan
+        cmd = self._capture(
+            _terrascan_scan({"iac_type": "terraform", "iac_dir": "/app/infra"}),
+            "penligent_mcp.tools.cloud", "/usr/bin/terrascan",
+        )
+        self.assertIn("-t", cmd)
+        t_idx = cmd.index("-t")
+        self.assertEqual(cmd[t_idx + 1], "terraform")
+        self.assertIn("-d", cmd)
+        d_idx = cmd.index("-d")
+        self.assertEqual(cmd[d_idx + 1], "/app/infra")
+
+
 class TestSprayHttpEdgeCases(unittest.TestCase):
     """Edge cases for _spray_http: empty failure_string defaults and missing status sentinel."""
 
