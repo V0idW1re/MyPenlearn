@@ -8254,5 +8254,126 @@ class TestLinpeasOutputFileQuoting(unittest.TestCase):
         self.assertIn("linPEAS", result)
 
 
+# ===========================================================================
+# Section 97 — scanner.py: binary guards and error paths
+# ===========================================================================
+
+class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
+    """Binary-not-found guards and required-arg errors for scanner.py tools."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    # --- nuclei binary guard (shared by all nuclei_* tools) ---
+
+    def test_nuclei_missing_returns_error(self):
+        """All nuclei tools call _nuclei_run which checks shutil.which('nuclei')."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _nuclei_cves
+        with patch("shutil.which", return_value=None):
+            result = self._run(_nuclei_cves({"target": "http://10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("nuclei", result)
+
+    def test_nuclei_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _nuclei_cves
+        result = self._run(_nuclei_cves({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    # --- sqli_detect ---
+
+    def test_sqli_detect_sqlmap_missing_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _sqli_detect
+        with patch("shutil.which", return_value=None):
+            result = self._run(_sqli_detect({"target": "http://10.0.0.1/?id=1"}))
+        self.assertIn("Error", result)
+        self.assertIn("sqlmap", result)
+
+    def test_sqli_detect_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _sqli_detect
+        result = self._run(_sqli_detect({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    def test_sqli_detect_target_with_semicolon_blocked(self):
+        """Semicolons in target are shell metacharacters and must be rejected."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _sqli_detect
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            result = self._run(_sqli_detect({"target": "http://host/; id"}))
+        self.assertIn("Error", result)
+        self.assertIn("metacharacter", result)
+
+    def test_sqli_detect_data_with_pipe_blocked(self):
+        """Pipe in data field is a shell metacharacter and must be rejected."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _sqli_detect
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            result = self._run(_sqli_detect({
+                "target": "http://host/", "data": "user=foo | id"
+            }))
+        self.assertIn("Error", result)
+
+    def test_sqli_detect_param_starting_with_dash_blocked(self):
+        """param that starts with '-' looks like a flag and must be rejected."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _sqli_detect
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            result = self._run(_sqli_detect({
+                "target": "http://host/", "param": "--os-shell"
+            }))
+        self.assertIn("Error", result)
+
+    # --- xss_probe / testssl_scan binary guards ---
+
+    def test_xss_probe_dalfox_missing_returns_install_hint(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _xss_probe
+        with patch("shutil.which", return_value=None):
+            result = self._run(_xss_probe({"target": "http://host/?q=test"}))
+        self.assertIn("dalfox", result)
+        self.assertIn("not installed", result.lower())
+
+    def test_testssl_missing_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _testssl_scan
+        with patch("shutil.which", return_value=None):
+            result = self._run(_testssl_scan({"target": "example.com:443"}))
+        self.assertIn("Error", result)
+        self.assertIn("testssl", result)
+
+    # --- searchsploit ---
+
+    def test_searchsploit_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _searchsploit
+        result = self._run(_searchsploit({}))
+        self.assertIn("Error", result)
+        self.assertIn("query", result)
+
+    def test_searchsploit_binary_missing_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _searchsploit
+        with patch("shutil.which", return_value=None):
+            result = self._run(_searchsploit({"query": "vsftpd 2.3.4"}))
+        self.assertIn("Error", result)
+        self.assertIn("searchsploit", result)
+
+    # --- parsing_diff and dom_taint empty target ---
+
+    def test_parsing_diff_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _parsing_diff
+        result = self._run(_parsing_diff({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    def test_dom_taint_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _dom_taint
+        result = self._run(_dom_taint({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -305,7 +305,7 @@ _SHELL_METACHARACTERS = {";", "&&", "||", "|", "`", "$(", ">", "<", "\n"}
 
 
 def _safe_arg(value: str) -> bool:
-    """Return False if value contains shell metacharacters or blocked flags."""
+    """Return False if value contains shell metacharacters."""
     for meta in _SHELL_METACHARACTERS:
         if meta in value:
             return False
