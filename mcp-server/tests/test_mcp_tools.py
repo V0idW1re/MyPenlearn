@@ -9112,5 +9112,233 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
         self.assertIn("No certificate transparency", result)
 
 
+# ===========================================================================
+# Section 105 — network.py original tool missing-arg guards
+# ===========================================================================
+
+class TestNetworkOriginalToolArgGuards(unittest.TestCase):
+    """Tools not already covered by TestNetworkArgGuards must reject missing required args."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_smb_brute_missing_target(self):
+        from penligent_mcp.tools.network import _smb_brute
+        self.assertIn("Error", self._run(_smb_brute({})))
+
+    def test_ldap_dump_missing_target(self):
+        from penligent_mcp.tools.network import _ldap_dump
+        self.assertIn("Error", self._run(_ldap_dump({})))
+
+    def test_ldap_dump_missing_username(self):
+        """ldap_dump requires username even if target is present."""
+        from penligent_mcp.tools.network import _ldap_dump
+        r = self._run(_ldap_dump({"target": "10.10.10.1"}))
+        self.assertIn("Error", r)
+        self.assertIn("username", r)
+
+    def test_rpc_enum_missing_target(self):
+        from penligent_mcp.tools.network import _rpc_enum
+        self.assertIn("Error", self._run(_rpc_enum({})))
+
+    def test_rpc_users_missing_target(self):
+        from penligent_mcp.tools.network import _rpc_users
+        self.assertIn("Error", self._run(_rpc_users({})))
+
+    def test_snmp_brute_missing_target(self):
+        from penligent_mcp.tools.network import _snmp_brute
+        self.assertIn("Error", self._run(_snmp_brute({})))
+
+    def test_nfs_enum_missing_target(self):
+        from penligent_mcp.tools.network import _nfs_enum
+        self.assertIn("Error", self._run(_nfs_enum({})))
+
+    def test_ftp_brute_missing_target(self):
+        from penligent_mcp.tools.network import _ftp_brute
+        self.assertIn("Error", self._run(_ftp_brute({})))
+
+    def test_ssh_brute_missing_target(self):
+        from penligent_mcp.tools.network import _ssh_brute
+        self.assertIn("Error", self._run(_ssh_brute({})))
+
+    def test_smtp_open_relay_missing_target(self):
+        from penligent_mcp.tools.network import _smtp_open_relay
+        self.assertIn("Error", self._run(_smtp_open_relay({})))
+
+    def test_mssql_probe_missing_target(self):
+        from penligent_mcp.tools.network import _mssql_probe
+        self.assertIn("Error", self._run(_mssql_probe({})))
+
+    def test_mongodb_check_missing_target(self):
+        from penligent_mcp.tools.network import _mongodb_check
+        self.assertIn("Error", self._run(_mongodb_check({})))
+
+    def test_netbios_scan_missing_target(self):
+        from penligent_mcp.tools.network import _netbios_scan
+        self.assertIn("Error", self._run(_netbios_scan({})))
+
+
+# ===========================================================================
+# Section 106 — network.py output parsing and detection logic
+# ===========================================================================
+
+class TestNetworkOutputParsing(unittest.TestCase):
+    """Verify vulnerability detection and user-extraction regex in network.py tools."""
+
+    def _capture_network(self, handler_fn, args: dict, stdout_val="", stderr_val="", rc=0):
+        """Run network handler with _run_subprocess mocked."""
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured.extend(cmd)
+            return stdout_val, stderr_val, rc
+
+        with patch("shutil.which", return_value="/usr/bin/dummy"):
+            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+                    result = asyncio.run(handler_fn(args))
+        return result, captured
+
+    # smb_null_session: VULN tag when share names found
+    def test_smb_null_session_vuln_when_sharename_in_output(self):
+        from penligent_mcp.tools.network import _smb_null_session
+        result, _ = self._capture_network(
+            _smb_null_session, {"target": "10.10.10.1"},
+            stdout_val="Sharename       Type      Comment\n--------        ----      -------\n",
+        )
+        self.assertIn("[VULN]", result)
+
+    def test_smb_null_session_vuln_when_disk_in_output(self):
+        from penligent_mcp.tools.network import _smb_null_session
+        result, _ = self._capture_network(
+            _smb_null_session, {"target": "10.10.10.1"},
+            stdout_val="  ADMIN$          Disk      Remote Admin\n",
+        )
+        self.assertIn("[VULN]", result)
+
+    def test_smb_null_session_no_vuln_for_empty_output(self):
+        from penligent_mcp.tools.network import _smb_null_session
+        result, _ = self._capture_network(
+            _smb_null_session, {"target": "10.10.10.1"},
+            stdout_val="",
+        )
+        self.assertNotIn("[VULN]", result)
+
+    # ftp_anon: VULN when exit_code == 0
+    def test_ftp_anon_vuln_on_rc_zero(self):
+        from penligent_mcp.tools.network import _ftp_anon
+        result, _ = self._capture_network(
+            _ftp_anon, {"target": "10.10.10.1"},
+            stdout_val="drwxr-xr-x  pub\n",
+            rc=0,
+        )
+        self.assertIn("[VULN]", result)
+
+    def test_ftp_anon_vuln_on_230_in_stderr(self):
+        """Even if rc != 0, '230' in stderr should trigger VULN."""
+        from penligent_mcp.tools.network import _ftp_anon
+        result, _ = self._capture_network(
+            _ftp_anon, {"target": "10.10.10.1"},
+            stdout_val="", stderr_val="230 Login successful.\n",
+            rc=1,
+        )
+        self.assertIn("[VULN]", result)
+
+    def test_ftp_anon_no_vuln_on_nonzero_rc(self):
+        from penligent_mcp.tools.network import _ftp_anon
+        result, _ = self._capture_network(
+            _ftp_anon, {"target": "10.10.10.1"},
+            stdout_val="", stderr_val="530 Login failed.\n",
+            rc=1,
+        )
+        self.assertNotIn("[VULN]", result)
+
+    # smtp_open_relay: VULN detection
+    def test_smtp_open_relay_vuln_detected(self):
+        from penligent_mcp.tools.network import _smtp_open_relay
+        result, _ = self._capture_network(
+            _smtp_open_relay, {"target": "10.10.10.1"},
+            stdout_val="| smtp-open-relay:\n|   Server is an open relay\n|_  tested: ...\n",
+        )
+        self.assertIn("[VULN]", result)
+
+    def test_smtp_open_relay_no_vuln(self):
+        from penligent_mcp.tools.network import _smtp_open_relay
+        result, _ = self._capture_network(
+            _smtp_open_relay, {"target": "10.10.10.1"},
+            stdout_val="| smtp-open-relay:\n|_  Server is NOT an open relay\n",
+        )
+        self.assertNotIn("[VULN]", result)
+
+    # smb_enum: fallback from enum4linux-ng to enum4linux
+    def test_smb_enum_uses_enum4linux_ng_first(self):
+        from penligent_mcp.tools.network import _smb_enum
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=120):
+            captured.extend(cmd)
+            return "output", "", 0
+
+        def _which(name):
+            return "/usr/bin/" + name  # both present
+
+        with patch("shutil.which", side_effect=_which):
+            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+                    asyncio.run(_smb_enum({"target": "10.10.10.1"}))
+
+        self.assertIn("enum4linux-ng", captured)
+
+    def test_smb_enum_falls_back_to_enum4linux(self):
+        from penligent_mcp.tools.network import _smb_enum
+        from unittest.mock import patch, AsyncMock
+        captured = []
+
+        async def fake_sub(cmd, timeout=120):
+            captured.extend(cmd)
+            return "output", "", 0
+
+        def _which(name):
+            return "/usr/bin/enum4linux" if name == "enum4linux" else None
+
+        with patch("shutil.which", side_effect=_which):
+            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+                    asyncio.run(_smb_enum({"target": "10.10.10.1"}))
+
+        self.assertIn("enum4linux", captured)
+        self.assertNotIn("enum4linux-ng", captured)
+
+    # ssh_brute: credential extraction
+    def test_ssh_brute_credential_detection(self):
+        from penligent_mcp.tools.network import _ssh_brute
+        cred_line = "[22][ssh] host: 10.10.10.1   login: root   password: toor"
+        result, _ = self._capture_network(
+            _ssh_brute, {"target": "10.10.10.1"},
+            stdout_val=cred_line + "\n",
+        )
+        self.assertIn("SSH credentials found", result)
+        self.assertIn("root", result)
+
+    def test_ssh_brute_no_credentials(self):
+        from penligent_mcp.tools.network import _ssh_brute
+        result, _ = self._capture_network(
+            _ssh_brute, {"target": "10.10.10.1"},
+            stdout_val="Hydra done: 0 valid passwords found\n",
+        )
+        self.assertIn("No credentials found", result)
+
+    # nfs_enum: export list detection
+    def test_nfs_enum_export_list_detected(self):
+        from penligent_mcp.tools.network import _nfs_enum
+        result, _ = self._capture_network(
+            _nfs_enum, {"target": "10.10.10.1"},
+            stdout_val="Export list for 10.10.10.1:\n/data  *\n",
+        )
+        self.assertIn("[NFS shares found]", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

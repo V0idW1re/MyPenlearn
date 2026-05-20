@@ -119,7 +119,7 @@ async def _smb_null_session(args: dict) -> str:
     await _persist(project_id, "smb_null_session", args, stdout, stderr, exit_code)
     if exit_code == -1:
         return stderr
-    if "Sharename" in stdout or "DISK" in stdout or "IPC" in stdout:
+    if "Sharename" in stdout or "Disk" in stdout or "IPC" in stdout:
         return f"[VULN] Null session allowed on {target}!\n{stdout}"
     return f"Null session result for {target}:\n{stdout or stderr}"
 
