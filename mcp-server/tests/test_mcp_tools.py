@@ -8435,5 +8435,295 @@ class TestRunSubprocessFileNotFound(unittest.TestCase):
         self.assertIn("not found", result)
 
 
+# ===========================================================================
+# Section 99 — web.py original tool binary guards (nikto, wpscan, auth_brute)
+# ===========================================================================
+
+class TestWebOriginalToolBinaryGuards(unittest.TestCase):
+    """nikto_scan, wordpress_scan, and auth_brute_http must gate on binary presence."""
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def _no_which(self):
+        from unittest.mock import patch
+        return patch("shutil.which", return_value=None)
+
+    # nikto_scan
+    def test_nikto_missing_binary(self):
+        from penligent_mcp.tools.web import _nikto_scan
+        with self._no_which():
+            r = self._run(_nikto_scan({"target": "http://10.10.10.1"}))
+        self.assertIn("Error", r)
+        self.assertIn("nikto", r)
+
+    def test_nikto_missing_target(self):
+        from penligent_mcp.tools.web import _nikto_scan
+        r = self._run(_nikto_scan({}))
+        self.assertIn("Error", r)
+        self.assertIn("target", r)
+
+    # wordpress_scan
+    def test_wpscan_missing_binary(self):
+        from penligent_mcp.tools.web import _wordpress_scan
+        with self._no_which():
+            r = self._run(_wordpress_scan({"target": "http://10.10.10.1"}))
+        self.assertIn("Error", r)
+        self.assertIn("wpscan", r)
+
+    def test_wpscan_missing_target(self):
+        from penligent_mcp.tools.web import _wordpress_scan
+        r = self._run(_wordpress_scan({}))
+        self.assertIn("Error", r)
+        self.assertIn("target", r)
+
+    # auth_brute_http
+    def test_auth_brute_missing_binary(self):
+        from penligent_mcp.tools.web import _auth_brute_http
+        with self._no_which():
+            r = self._run(_auth_brute_http({"target": "http://10.10.10.1"}))
+        self.assertIn("Error", r)
+        self.assertIn("hydra", r)
+
+    def test_auth_brute_missing_target(self):
+        from penligent_mcp.tools.web import _auth_brute_http
+        r = self._run(_auth_brute_http({}))
+        self.assertIn("Error", r)
+        self.assertIn("target", r)
+
+
+# ===========================================================================
+# Section 100 — auth_brute_http scheme detection and credential parsing
+# ===========================================================================
+
+class TestAuthBruteHttpScheme(unittest.TestCase):
+    """auth_brute_http must pick https-post-form for HTTPS targets, http-post-form otherwise."""
+
+    def _capture(self, args: dict):
+        """Run _auth_brute_http with hydra mocked; return (result_str, captured_cmd)."""
+        import asyncio
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.web import _auth_brute_http
+        captured = []
+
+        async def fake_sub(cmd, timeout=300):
+            captured.extend(cmd)
+            return "", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+                    result = asyncio.run(_auth_brute_http(args))
+        return result, captured
+
+    def test_https_url_uses_https_post_form(self):
+        """HTTPS targets must build 'https-post-form' hydra module."""
+        _, cmd = self._capture({"target": "https://10.10.10.1"})
+        self.assertIn("https-post-form", cmd)
+        self.assertNotIn("http-post-form", cmd)
+
+    def test_http_url_uses_http_post_form(self):
+        """HTTP targets must build 'http-post-form' hydra module."""
+        _, cmd = self._capture({"target": "http://10.10.10.1"})
+        self.assertIn("http-post-form", cmd)
+        self.assertNotIn("https-post-form", cmd)
+
+    def test_host_extracted_from_url(self):
+        """parsed.hostname must be used, not the full URL with http://."""
+        _, cmd = self._capture({"target": "http://10.10.10.1"})
+        self.assertIn("10.10.10.1", cmd)
+        self.assertNotIn("http://10.10.10.1", cmd)
+
+    def test_form_path_in_form_string(self):
+        """Custom form_path must appear in the hydra form_str argument."""
+        _, cmd = self._capture({"target": "http://10.10.10.1", "form_path": "/wp-login.php"})
+        form_arg = " ".join(cmd)
+        self.assertIn("/wp-login.php", form_arg)
+
+    def test_fail_str_in_form_string(self):
+        """Custom fail_str must appear in the hydra form_str argument."""
+        _, cmd = self._capture({"target": "http://10.10.10.1", "fail_str": "Wrong password"})
+        form_arg = " ".join(cmd)
+        self.assertIn("Wrong password", form_arg)
+
+    def test_credential_detection_from_stdout(self):
+        """Lines containing '[http' and 'login:' must be extracted as found credentials."""
+        import asyncio
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.web import _auth_brute_http
+
+        cred_line = "[22][http-post-form] host: 10.10.10.1   login: admin   password: secret"
+
+        async def fake_sub(cmd, timeout=300):
+            return cred_line + "\n", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+                    result = asyncio.run(_auth_brute_http({"target": "http://10.10.10.1"}))
+        self.assertIn("Credentials found", result)
+        self.assertIn("admin", result)
+
+    def test_no_credentials_returns_no_creds_message(self):
+        """When stdout has no credential lines, report no credentials found."""
+        import asyncio
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.web import _auth_brute_http
+
+        async def fake_sub(cmd, timeout=300):
+            return "Hydra starting...\n1 of 1 target completed\n", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+                    result = asyncio.run(_auth_brute_http({"target": "http://10.10.10.1"}))
+        self.assertIn("No credentials found", result)
+
+
+# ===========================================================================
+# Section 101 — passwords.py hydra command construction
+# ===========================================================================
+
+class TestHydraCommandConstruction(unittest.TestCase):
+    """Verify correct hydra command flags for ssh/ftp/smb/rdp/http_form tools."""
+
+    def _capture_passwords(self, handler_fn, args: dict):
+        """Run a passwords.py handler with _run mocked; return (result_list, captured_cmd)."""
+        import asyncio
+        from unittest.mock import patch
+        captured = []
+
+        async def fake_run(cmd, timeout=300):
+            captured.extend(cmd)
+            return "hydra output", "", 0
+
+        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
+            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+                result = asyncio.run(handler_fn(args))
+        return result, captured
+
+    # hydra_ssh
+    def test_hydra_ssh_cmd_contains_ssh_url(self):
+        from penligent_mcp.tools.passwords import _hydra_ssh
+        _, cmd = self._capture_passwords(_hydra_ssh, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        self.assertTrue(any("ssh://" in tok for tok in cmd))
+        self.assertIn("10.10.10.1", " ".join(cmd))
+
+    def test_hydra_ssh_default_port_22(self):
+        from penligent_mcp.tools.passwords import _hydra_ssh
+        _, cmd = self._capture_passwords(_hydra_ssh, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        self.assertIn("ssh://10.10.10.1:22", cmd)
+
+    def test_hydra_ssh_custom_port(self):
+        from penligent_mcp.tools.passwords import _hydra_ssh
+        _, cmd = self._capture_passwords(_hydra_ssh, {
+            "target": "10.10.10.1", "username": "admin", "port": 2222,
+        })
+        self.assertIn("ssh://10.10.10.1:2222", cmd)
+
+    def test_hydra_ssh_missing_username_returns_error(self):
+        from penligent_mcp.tools.passwords import _hydra_ssh
+        result = asyncio.run(_hydra_ssh({"target": "10.10.10.1"}))
+        self.assertTrue(any("Error" in item.text for item in result))
+
+    def test_hydra_ssh_username_flag(self):
+        from penligent_mcp.tools.passwords import _hydra_ssh
+        _, cmd = self._capture_passwords(_hydra_ssh, {
+            "target": "10.10.10.1", "username": "john",
+        })
+        idx = cmd.index("-l")
+        self.assertEqual(cmd[idx + 1], "john")
+
+    # hydra_ftp
+    def test_hydra_ftp_cmd_contains_ftp_url(self):
+        from penligent_mcp.tools.passwords import _hydra_ftp
+        _, cmd = self._capture_passwords(_hydra_ftp, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        self.assertIn("ftp://10.10.10.1:21", cmd)
+
+    def test_hydra_ftp_custom_port(self):
+        from penligent_mcp.tools.passwords import _hydra_ftp
+        _, cmd = self._capture_passwords(_hydra_ftp, {
+            "target": "10.10.10.1", "username": "admin", "port": 2121,
+        })
+        self.assertIn("ftp://10.10.10.1:2121", cmd)
+
+    # hydra_smb
+    def test_hydra_smb_cmd_contains_smb_url(self):
+        from penligent_mcp.tools.passwords import _hydra_smb
+        _, cmd = self._capture_passwords(_hydra_smb, {
+            "target": "10.10.10.1", "username": "administrator",
+        })
+        self.assertIn("smb://10.10.10.1", cmd)
+
+    def test_hydra_smb_uses_thread_1(self):
+        """SMB brute-force must use -t 1 to avoid lockouts."""
+        from penligent_mcp.tools.passwords import _hydra_smb
+        _, cmd = self._capture_passwords(_hydra_smb, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        idx = cmd.index("-t")
+        self.assertEqual(cmd[idx + 1], "1")
+
+    # hydra_rdp
+    def test_hydra_rdp_cmd_contains_rdp_url(self):
+        from penligent_mcp.tools.passwords import _hydra_rdp
+        _, cmd = self._capture_passwords(_hydra_rdp, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        self.assertIn("rdp://10.10.10.1:3389", cmd)
+
+    def test_hydra_rdp_custom_port(self):
+        from penligent_mcp.tools.passwords import _hydra_rdp
+        _, cmd = self._capture_passwords(_hydra_rdp, {
+            "target": "10.10.10.1", "username": "admin", "port": 3390,
+        })
+        self.assertIn("rdp://10.10.10.1:3390", cmd)
+
+    # hydra_http_form
+    def test_hydra_http_form_module_name(self):
+        from penligent_mcp.tools.passwords import _hydra_http_form
+        _, cmd = self._capture_passwords(_hydra_http_form, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        self.assertIn("http-post-form", cmd)
+
+    def test_hydra_http_form_default_form_path(self):
+        from penligent_mcp.tools.passwords import _hydra_http_form
+        _, cmd = self._capture_passwords(_hydra_http_form, {
+            "target": "10.10.10.1", "username": "admin",
+        })
+        form_str = cmd[cmd.index("http-post-form") + 1]
+        self.assertTrue(form_str.startswith("/login:"))
+
+    def test_hydra_http_form_custom_form_path(self):
+        from penligent_mcp.tools.passwords import _hydra_http_form
+        _, cmd = self._capture_passwords(_hydra_http_form, {
+            "target": "10.10.10.1", "username": "admin",
+            "form_path": "/wp-login.php",
+        })
+        form_str = cmd[cmd.index("http-post-form") + 1]
+        self.assertTrue(form_str.startswith("/wp-login.php:"))
+
+    def test_hydra_http_form_failure_string_in_form_arg(self):
+        from penligent_mcp.tools.passwords import _hydra_http_form
+        _, cmd = self._capture_passwords(_hydra_http_form, {
+            "target": "10.10.10.1", "username": "admin",
+            "failure_string": "BadLogin",
+        })
+        form_str = cmd[cmd.index("http-post-form") + 1]
+        self.assertIn("BadLogin", form_str)
+
+    def test_hydra_http_form_missing_username_returns_error(self):
+        from penligent_mcp.tools.passwords import _hydra_http_form
+        result = asyncio.run(_hydra_http_form({"target": "10.10.10.1"}))
+        self.assertTrue(any("Error" in item.text for item in result))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
