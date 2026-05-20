@@ -115,11 +115,14 @@ def _s(required: list[str] | None = None, **props) -> dict:
 
 async def _run_subprocess(cmd: list[str], timeout: int = 300) -> tuple[str, str, int]:
     """Run an external process; return (stdout, stderr, returncode)."""
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return "", f"Error: {cmd[0]} not found in PATH.", -1
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:

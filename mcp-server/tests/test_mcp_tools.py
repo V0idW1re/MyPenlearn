@@ -8375,5 +8375,65 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
         self.assertIn("target", result)
 
 
+# ===========================================================================
+# Section 98 — _helpers._run_subprocess FileNotFoundError guard
+# ===========================================================================
+
+class TestRunSubprocessFileNotFound(unittest.TestCase):
+    """_run_subprocess must return (-1, error_message) when binary not found."""
+
+    def test_missing_binary_returns_minus_one(self):
+        """If the executable does not exist, returncode must be -1."""
+        from penligent_mcp.tools._helpers import _run_subprocess
+        _, stderr, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
+        self.assertEqual(rc, -1)
+
+    def test_missing_binary_stderr_mentions_binary(self):
+        """The error message must name the missing binary."""
+        from penligent_mcp.tools._helpers import _run_subprocess
+        _, stderr, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
+        self.assertIn("/no/such/binary/xyz", stderr)
+        self.assertIn("not found", stderr)
+
+    def test_missing_binary_stdout_is_empty(self):
+        from penligent_mcp.tools._helpers import _run_subprocess
+        stdout, _, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
+        self.assertEqual(stdout, "")
+
+    def test_valid_binary_returns_zero(self):
+        """A real binary (echo) must execute and return 0."""
+        from penligent_mcp.tools._helpers import _run_subprocess
+        stdout, _, rc = asyncio.run(_run_subprocess(["echo", "hello"]))
+        self.assertEqual(rc, 0)
+        self.assertIn("hello", stdout)
+
+    def test_subdomain_enum_propagates_run_subprocess_error(self):
+        """When _run_subprocess returns -1, _subdomain_enum must surface the error string."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.recon import _subdomain_enum
+
+        async def fake_sub(cmd, timeout=120):
+            return "", f"Error: {cmd[0]} not found in PATH.", -1
+
+        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                result = asyncio.run(_subdomain_enum({"domain": "example.com"}))
+        self.assertIn("not found", result)
+
+    def test_port_scan_propagates_run_subprocess_error(self):
+        """When _run_subprocess returns -1, _port_scan must surface the error string."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.recon import _port_scan
+
+        async def fake_sub(cmd, timeout=180):
+            return "", "Error: nmap not found in PATH.", -1
+
+        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+                result = asyncio.run(_port_scan({"target": "10.0.0.1"}))
+        self.assertIn("nmap", result)
+        self.assertIn("not found", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
