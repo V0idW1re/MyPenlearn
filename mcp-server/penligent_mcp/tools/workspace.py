@@ -3,12 +3,16 @@ Workspace / file management tools.
 Manages a per-project workspace under ~/penligent/projects/<name>/workspace/.
 All paths are constrained to the workspace root (no path traversal).
 """
+import asyncio
+import base64
 import getpass
 import hashlib
 import json
 import os
+import re
 import shutil
 import time
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -16,6 +20,7 @@ from mcp.types import Tool, TextContent
 
 from .register_all import register
 from ._helpers import _ok, _s
+from ..db import get_db
 
 WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
 
@@ -131,11 +136,15 @@ async def _workspace_write(args: dict) -> list[TextContent]:
     path = args.get("path", "")
     content = args.get("content", "")
     append = args.get("append", False)
+    if not project_name or not path:
+        return _ok("Error: project_name, path, and content are required.")
     kind = args.get("kind") or _infer_kind(path)
     ws = _ws(project_name)
     target = _safe_path(ws, path)
     if not target:
         return _ok("Error: path escapes workspace root.")
+    if target.is_dir():
+        return _ok(f"Error: path '{path}' resolves to a directory, not a file.")
     target.parent.mkdir(parents=True, exist_ok=True)
     if append and target.exists():
         existing = target.read_text(errors="replace")
@@ -147,7 +156,6 @@ async def _workspace_write(args: dict) -> list[TextContent]:
 
     # Track in workspace_files DB (best-effort — file write already succeeded)
     try:
-        from ..db import get_db
         async with get_db() as db:
             row = await (await db.execute(
                 "SELECT id FROM projects WHERE name=? ORDER BY created_at DESC LIMIT 1",
@@ -187,8 +195,6 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _workspace_note(args: dict) -> list[TextContent]:
-    import asyncio
-    import time
     project_name = args.get("project_name", "")
     note = args.get("note", "")
     tag = args.get("tag", "")
@@ -196,7 +202,7 @@ async def _workspace_note(args: dict) -> list[TextContent]:
     notes_file = ws / "notes.md"
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     entry = f"\n## [{ts}]{(' [' + tag + ']') if tag else ''}\n{note}\n"
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     existing = await loop.run_in_executor(
         None,
         lambda: notes_file.read_text() if notes_file.exists() else "# Pentest Notes\n",
@@ -221,10 +227,13 @@ async def _workspace_search(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     pattern = args.get("pattern", "")
     case_sensitive = args.get("case_sensitive", False)
+    try:
+        re.compile(pattern)
+    except re.error as e:
+        return _ok(f"Error: invalid regex pattern — {e}")
     ws = _ws(project_name)
     results = []
     flags = 0 if case_sensitive else 0x02  # re.IGNORECASE = 2
-    import re
     for fpath in ws.rglob("*"):
         if fpath.is_file() and fpath.stat().st_size < 5_000_000:
             try:
@@ -260,7 +269,6 @@ async def _workspace_download(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     url = args.get("url", "")
     dest = args.get("dest", "")
-    import urllib.request
     ws = _ws(project_name)
     filename = dest or url.split("/")[-1].split("?")[0] or "download"
     target = _safe_path(ws, filename)
@@ -268,9 +276,11 @@ async def _workspace_download(args: dict) -> list[TextContent]:
         return _ok("Error: destination path escapes workspace root.")
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=60) as r:
-            data = r.read()
+        def _fetch() -> bytes:
+            req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return r.read()
+        data = await asyncio.to_thread(_fetch)
         target.write_bytes(data)
         return _ok(f"Downloaded {len(data)} bytes → {project_name}/{filename}")
     except Exception as e:
@@ -328,8 +338,8 @@ async def _scope_check(args: dict) -> list[TextContent]:
     in_scope = scope.get("in_scope", [])
     out_of_scope = scope.get("out_of_scope", [])
     # Simple substring/exact matching
-    blocked = any(target == s or target.endswith("." + s) or s in target for s in out_of_scope)
-    allowed = any(target == s or target.endswith("." + s) or s in target for s in in_scope)
+    blocked = any(target == s or target.endswith("." + s) for s in out_of_scope)
+    allowed = any(target == s or target.endswith("." + s) for s in in_scope)
     if blocked:
         return _ok(f"OUT OF SCOPE: {target} matches out-of-scope rules. DO NOT test.")
     if allowed:
@@ -382,7 +392,6 @@ async def _workspace_zip(args: dict) -> list[TextContent]:
     output_path = args.get("output_path", "")
     ws = _ws(project_name)
     if not output_path:
-        import time
         ts = time.strftime("%Y%m%d_%H%M%S")
         output_path = str(Path.home() / f"{project_name}_{ts}.zip")
     try:
@@ -579,8 +588,7 @@ async def _record_evidence_artifact(args: dict) -> list[TextContent]:
     reviewer = (args.get("reviewer") or "").strip() or None
 
     try:
-        from ..db import get_db as _get_db
-        async with _get_db() as db:
+        async with get_db() as db:
             row = await (await db.execute(
                 "SELECT id FROM risk_items WHERE id=?", (int(risk_item_id),)
             )).fetchone()
@@ -633,7 +641,6 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _save_binary_artifact(args: dict) -> list[TextContent]:
-    import base64
     project_name = (args.get("project_name") or "").strip()
     kind = (args.get("kind") or "screenshot").strip()
     filename = (args.get("filename") or "").strip()
@@ -666,18 +673,24 @@ async def _save_binary_artifact(args: dict) -> list[TextContent]:
     sha256 = hashlib.sha256(data).hexdigest()
 
     # Optionally link to a finding
+    link_note = ""
     if risk_item_id:
-        await _record_evidence_artifact({
+        link_result = await _record_evidence_artifact({
             "risk_item_id": risk_item_id,
             "kind": kind,
             "path": str(dest),
             "sha256": sha256,
         })
+        link_text = link_result[0].text if link_result else ""
+        if "Error" in link_text:
+            link_note = f"\n  Warning: could not link to risk_item_id={risk_item_id} — {link_text}"
+        else:
+            link_note = f"\n  linked to risk_item_id={risk_item_id}"
 
     return _ok(
         f"Binary artifact saved: {project_name}/{sub}/{filename}\n"
         f"  size={len(data)} bytes  sha256={sha256[:16]}…"
-        + (f"\n  linked to risk_item_id={risk_item_id}" if risk_item_id else "")
+        + link_note
     )
 
 register(Tool(

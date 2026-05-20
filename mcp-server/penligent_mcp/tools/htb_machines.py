@@ -21,6 +21,13 @@ def _token() -> str:
     return t
 
 
+def _require_token() -> str | None:
+    """Return an error string if HTB_APP_TOKEN is missing, else None."""
+    if not os.environ.get("HTB_APP_TOKEN", "").strip():
+        return "Error: HTB_APP_TOKEN env var not set. Export it before starting the MCP server."
+    return None
+
+
 def _headers() -> dict:
     return {
         "Authorization": f"Bearer {_token()}",
@@ -68,6 +75,8 @@ async def _search_paginated(endpoint: str, name_filter: str, max_pages: int = 10
 
 
 async def _htb_machines_list(args: dict) -> str:
+    if err := _require_token():
+        return err
     name_filter = (args.get("name") or "").strip().lower()
 
     if name_filter:
@@ -118,6 +127,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machines_get_active(args: dict) -> str:
+    if err := _require_token():
+        return err
     data = await _htb_get("/machine/active")
     machine = data.get("info")
     if not machine:
@@ -140,6 +151,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machines_spawn(args: dict) -> str:
+    if err := _require_token():
+        return err
     machine_id = args.get("machine_id")
     project_id = args.get("project_id")
 
@@ -224,6 +237,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machines_stop(args: dict) -> str:
+    if err := _require_token():
+        return err
     machine_id = args.get("machine_id")
     if not machine_id:
         return "Error: machine_id is required."
@@ -252,6 +267,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machines_submit_flag(args: dict) -> str:
+    if err := _require_token():
+        return err
     machine_id = args.get("machine_id")
     flag = args.get("flag")
     flag_type = args.get("flag_type", "user")  # "user" or "root"
@@ -293,6 +310,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machines_search(args: dict) -> str:
+    if err := _require_token():
+        return err
     name = (args.get("name") or "").strip().lower()
     os_filter = (args.get("os") or "").strip().lower()
     difficulty = (args.get("difficulty") or "").strip().lower()
@@ -364,6 +383,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_machine_info(args: dict) -> str:
+    if err := _require_token():
+        return err
     machine_id = args.get("machine_id")
     if not machine_id:
         return "Error: machine_id is required."
@@ -393,6 +414,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_profile(args: dict) -> str:
+    if err := _require_token():
+        return err
     data = await _htb_get("/user/info")
     user = data.get("info", data)
     lines = []
@@ -417,6 +440,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_challenges_list(args: dict) -> str:
+    if err := _require_token():
+        return err
     category = (args.get("category") or "").strip().lower()
     difficulty = (args.get("difficulty") or "").strip().lower()
     data = await _htb_get("/challenge/list")
@@ -463,6 +488,8 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _htb_activity(args: dict) -> str:
+    if err := _require_token():
+        return err
     limit = int(args.get("limit", 20))
     data = await _htb_get("/user/activity")
     activity = data.get("profile", {}).get("activity", []) if isinstance(data, dict) else []

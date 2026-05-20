@@ -11,7 +11,7 @@ import httpx
 from mcp.types import Tool, TextContent
 
 from .register_all import register
-from ._helpers import _ok, _s, _run
+from ._helpers import _ok, _s, _run, _artifact
 from ..db import get_db
 
 # ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ SENSITIVE_PATHS = [
     "/restore/",
     "/debug/",
     "/test/",
-    "api",
+    "/api",
 ]
 
 # Additional common API versioning prefixes to try each path under
@@ -439,7 +439,6 @@ async def _check_sensitive_paths(args: dict) -> list[TextContent]:
 
     # Persist artifact
     if project_id:
-        from ._helpers import _artifact
         _artifact(int(project_id), "check_sensitive_paths", result)
 
     return _ok(result)

@@ -41,12 +41,55 @@
     false_positive: "#484f58",
   };
 
+  const VERB_LABELS = {
+    passive_recon:    "Passive Recon",
+    active_recon:     "Active Recon",
+    subdomain_enum:   "Subdomain Enum",
+    port_scan:        "Port Scan",
+    dir_brute:        "Dir Brute",
+    http_probe:       "HTTP Probe",
+    tech_detect:      "Tech Detect",
+    sqli_detect:      "SQLi Detect",
+    xss_probe:        "XSS Probe",
+    ssrf_probe:       "SSRF Probe",
+    lfi_probe:        "LFI Probe",
+    auth_test:        "Auth Test",
+    session_test:     "Session Test",
+    bac_test:         "BAC Test",
+    exploit_run:      "Exploit",
+    privesc:          "Priv Esc",
+    post_exploit:     "Post Exploit",
+    lateral_move:     "Lateral Move",
+    evidence_collect: "Evidence",
+    report_generate:  "Report",
+    custom:           "Custom",
+  };
+
+  const STEP_COLOR = {
+    pending:     "#484f58",
+    in_progress: "#9fef00",
+    done:        "#3fb950",
+    failed:      "#f85149",
+    skipped:     "#30363d",
+  };
+
+  const STEP_ICON = {
+    pending:     "○",
+    in_progress: "→",
+    done:        "✓",
+    failed:      "✗",
+    skipped:     "—",
+  };
+
   let findings    = $state([]);
   let openFinding = $state(null);
   let execResults = $state([]);
   let execOpen    = $state(false);
-  let evidenceMap = $state({});  // risk_item_id -> array of artifacts
-  let unlisten;
+  let evidenceMap = $state({});
+  let plan        = $state(null);
+  let planSteps   = $state([]);
+  let pathOpen    = $state(true);
+  let unlisten, unlistenPlan;
 
   $effect(() => {
     const pid = project?.id;
@@ -54,14 +97,34 @@
     openFinding = null;
     execResults = [];
     evidenceMap = {};
+    plan = null;
+    planSteps = [];
     if (pid) load(pid);
   });
 
+  async function loadPlan(pid) {
+    try {
+      const p = await invoke("get_current_plan", { projectId: pid });
+      if (project?.id !== pid) return;
+      plan = p;
+      planSteps = p ? await invoke("get_plan_steps", { planId: p.id }) : [];
+      if (project?.id !== pid) { plan = null; planSteps = []; }
+    } catch (_) {
+      plan = null;
+      planSteps = [];
+    }
+  }
+
   async function load(pid) {
-    try { findings = await invoke("list_findings", { projectId: pid }); }
-    catch (_) { findings = []; }
-    try { execResults = await invoke("list_execution_results", { projectId: pid }); }
-    catch (_) { execResults = []; }
+    try {
+      const res = await invoke("list_findings", { projectId: pid });
+      if (project?.id === pid) findings = res;
+    } catch (_) { if (project?.id === pid) findings = []; }
+    try {
+      const res = await invoke("list_execution_results", { projectId: pid });
+      if (project?.id === pid) execResults = res;
+    } catch (_) { if (project?.id === pid) execResults = []; }
+    await loadPlan(pid);
   }
 
   async function loadEvidence(riskItemId) {
@@ -78,12 +141,22 @@
   }
 
   onMount(async () => {
+    unlistenPlan = await listen("claude://chunk", (e) => {
+      const c = e.payload;
+      if (c.kind === "tool_use" && (
+        c.tool_name === "plan_create" ||
+        c.tool_name === "plan_update_step" ||
+        c.tool_name === "plan_next_step"
+      )) {
+        setTimeout(() => { if (project?.id) loadPlan(project.id); }, 700);
+      }
+    });
     unlisten = await listen("claude://done", () => {
       if (project?.id) load(project.id);
     });
   });
 
-  onDestroy(() => { unlisten?.(); });
+  onDestroy(() => { unlisten?.(); unlistenPlan?.(); });
 </script>
 
 <div class="pl-findings">
@@ -104,6 +177,53 @@
           </span>
         {/if}
       {/each}
+    </div>
+  {/if}
+
+  {#if plan && planSteps.length > 0}
+    <div class="pl-path-section">
+      <button class="pl-path-head" onclick={() => pathOpen = !pathOpen}>
+        <span class="pl-rail-label">Attack Path</span>
+        <div class="pl-path-progress">
+          <span class="pl-path-done">{planSteps.filter(s => s.status === 'done').length}</span>
+          <span class="pl-path-sep">/</span>
+          <span class="pl-path-total">{planSteps.length}</span>
+        </div>
+        <span class="pl-path-chevron">{pathOpen ? '▴' : '▾'}</span>
+      </button>
+      {#if pathOpen}
+        <div class="pl-path-obj" title={plan.objective}>{plan.objective}</div>
+        <div class="pl-path-chain">
+          {#each planSteps as step, i (step.id)}
+            {#if i > 0}
+              <div class="pl-path-arrow">↓</div>
+            {/if}
+            <div
+              class="pl-path-step"
+              class:pl-step-live={step.status === 'in_progress'}
+              class:pl-step-done={step.status === 'done'}
+              class:pl-step-failed={step.status === 'failed'}
+              class:pl-step-skipped={step.status === 'skipped'}
+              style="border-left-color:{STEP_COLOR[step.status] ?? '#484f58'}"
+            >
+              <div class="pl-step-row">
+                <span class="pl-step-icon" style="color:{STEP_COLOR[step.status] ?? '#484f58'}">
+                  {STEP_ICON[step.status] ?? '?'}
+                </span>
+                <span class="pl-step-verb" class:pl-verb-live={step.status === 'in_progress'}>
+                  {VERB_LABELS[step.verb] ?? step.verb}
+                </span>
+                {#if step.status === 'in_progress'}
+                  <span class="pl-step-pulse"></span>
+                {/if}
+              </div>
+              {#if step.target}
+                <div class="pl-step-target">{step.target}</div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -148,19 +268,17 @@
             {#if f.impact}
               <div class="pl-finding-impact">{f.impact}</div>
             {/if}
-            {#if openFinding === f.id}
-              {@const arts = evidenceMap[f.id] || []}
-              {#if arts.length > 0}
-                <div class="pl-evidence">
-                  {#each arts as a (a.id)}
-                    <div class="pl-evidence-row" title={a.path}>
-                      <span class="pl-ev-kind">{a.kind}</span>
-                      <span class="pl-ev-path">{a.path.split("/").slice(-2).join("/")}</span>
-                      <span class="pl-ev-hash">{a.sha256.slice(0,8)}</span>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
+            {@const arts = evidenceMap[f.id] || []}
+            {#if arts.length > 0}
+              <div class="pl-evidence">
+                {#each arts as a (a.id)}
+                  <div class="pl-evidence-row" title={a.path}>
+                    <span class="pl-ev-kind">{a.kind}</span>
+                    <span class="pl-ev-path">{a.path.split("/").slice(-2).join("/")}</span>
+                    <span class="pl-ev-hash">{a.sha256.slice(0,8)}</span>
+                  </div>
+                {/each}
+              </div>
             {/if}
             <div class="pl-finding-meta">
               <span class="pl-meta-status"
@@ -575,5 +693,142 @@
     color: #484f58;
     flex-shrink: 0;
     font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  /* ── Attack Path ──────────────────────────────────────────────── */
+
+  .pl-path-section {
+    border-bottom: 1px solid #21262d;
+    flex-shrink: 0;
+  }
+
+  .pl-path-head {
+    width: 100%;
+    padding: 8px 14px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .pl-path-head:hover { background: #1c2128; }
+
+  .pl-path-progress {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    background: #21262d;
+    padding: 1px 8px;
+    border-radius: 10px;
+  }
+  .pl-path-done  { color: #3fb950; font-weight: 700; }
+  .pl-path-sep   { color: #30363d; }
+  .pl-path-total { color: #484f58; }
+
+  .pl-path-chevron {
+    font-size: 9px;
+    color: #484f58;
+    margin-left: auto;
+  }
+
+  .pl-path-obj {
+    font-size: 10px;
+    color: #6e7681;
+    padding: 0 14px 6px;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .pl-path-chain {
+    padding: 0 8px 8px;
+    max-height: 320px;
+    overflow-y: auto;
+  }
+
+  .pl-path-arrow {
+    font-size: 9px;
+    color: #30363d;
+    text-align: center;
+    padding: 0;
+    line-height: 1.4;
+    user-select: none;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  .pl-path-step {
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-left: 3px solid #484f58;
+    border-radius: 0 5px 5px 0;
+    padding: 5px 8px;
+    transition: border-left-color 0.2s, background 0.2s;
+  }
+  .pl-step-live {
+    border-left-color: #9fef00 !important;
+    background: rgba(159,239,0,0.04);
+    box-shadow: inset 0 0 12px rgba(159,239,0,0.03);
+  }
+  .pl-step-done    { opacity: 0.65; }
+  .pl-step-skipped { opacity: 0.35; }
+  .pl-step-failed  { background: rgba(248,81,73,0.04); }
+
+  .pl-step-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+  }
+
+  .pl-step-icon {
+    font-size: 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    flex-shrink: 0;
+    width: 10px;
+    text-align: center;
+    line-height: 1;
+  }
+
+  .pl-step-verb {
+    font-size: 11px;
+    font-weight: 600;
+    color: #6e7681;
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .pl-verb-live { color: #9fef00; }
+
+  .pl-step-pulse {
+    width: 5px;
+    height: 5px;
+    background: #9fef00;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: step-pulse 1.4s ease-in-out infinite;
+  }
+
+  .pl-step-target {
+    font-size: 9px;
+    color: #484f58;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-left: 15px;
+  }
+
+  @keyframes step-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.25; transform: scale(0.7); }
   }
 </style>

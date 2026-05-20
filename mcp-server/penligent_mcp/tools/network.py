@@ -1,11 +1,14 @@
 import asyncio
+import os
 import re
 import shutil
+import tempfile
+from pathlib import Path
 
 from mcp.types import Tool
 
 from .register_all import register
-from .recon import _run_subprocess, _save_artifact, _record_execution
+from ._helpers import _run_subprocess, _save_artifact, _record_execution
 
 
 async def _persist(project_id, tool_name: str, args: dict, stdout: str, stderr: str, exit_code: int):
@@ -294,7 +297,6 @@ async def _ldap_dump(args: dict) -> str:
         return "Error: username is required for ldapdomaindump."
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 120))
-    import tempfile, os
     out_dir = tempfile.mkdtemp(prefix="ldapdump_")
     cmd = [
         "ldapdomaindump", f"ldap://{target}",
@@ -308,8 +310,6 @@ async def _ldap_dump(args: dict) -> str:
     files = list(Path(out_dir).glob("*.json")) if exit_code == 0 else []
     return f"ldapdomaindump complete. Output: {out_dir}\nFiles: {[f.name for f in files]}\n{stdout or stderr}"
 
-
-from pathlib import Path
 
 register(
     Tool(
@@ -1128,4 +1128,452 @@ register(
         },
     ),
     _netbios_scan,
+)
+
+
+# ---------------------------------------------------------------------------
+# rustscan  (ultra-fast port scanner)
+# ---------------------------------------------------------------------------
+
+async def _rustscan(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    ports = (args.get("ports") or "").strip()
+    ulimit = int(args.get("ulimit", 5000))
+    batch_size = int(args.get("batch_size", 4500))
+    run_scripts = bool(args.get("run_scripts", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not target:
+        return "Error: target is required."
+    if not shutil.which("rustscan"):
+        return "Error: rustscan not found in PATH. Install from https://github.com/RustScan/RustScan"
+
+    cmd = ["rustscan", "-a", target, "--ulimit", str(ulimit), "-b", str(batch_size)]
+    if ports:
+        cmd += ["-p", ports]
+    if extra:
+        cmd += extra.split()
+    if run_scripts:
+        cmd += ["--", "-sC", "-sV"]
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "rustscan", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Rustscan completed for {target} with no open ports."
+
+
+register(
+    Tool(
+        name="rustscan",
+        description="Ultra-fast port scanning with Rustscan. Scans all 65535 ports in seconds, then passes results to Nmap for service detection. Much faster than Nmap alone for initial discovery.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP, hostname, or CIDR range"},
+                "ports": {"type": "string", "description": "Port range (e.g. '1-1000', '80,443,8080'). Default: all ports."},
+                "ulimit": {"type": "integer", "description": "File descriptor limit (default: 5000, increase for speed)"},
+                "batch_size": {"type": "integer", "description": "Concurrent socket batch size (default: 4500)"},
+                "run_scripts": {"type": "boolean", "description": "Pass results to Nmap -sC -sV for service enumeration (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra rustscan flags"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _rustscan,
+)
+
+
+# ---------------------------------------------------------------------------
+# masscan  (high-speed mass port scanner)
+# ---------------------------------------------------------------------------
+
+async def _masscan(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    ports = (args.get("ports") or "1-65535").strip()
+    rate = int(args.get("rate", 1000))
+    interface = (args.get("interface") or "").strip()
+    banners = bool(args.get("banners", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 300))
+
+    if not target:
+        return "Error: target is required."
+    if not shutil.which("masscan"):
+        return "Error: masscan not found in PATH. Install: apt install masscan"
+
+    cmd = ["masscan", target, f"-p{ports}", f"--rate={rate}"]
+    if interface:
+        cmd += ["-e", interface]
+    if banners:
+        cmd.append("--banners")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "masscan", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Masscan found no open ports on {target}."
+
+
+register(
+    Tool(
+        name="masscan",
+        description="High-speed mass port scanning with Masscan. Can scan the entire Internet in minutes. Best for wide-net scanning of large IP ranges. Requires root/sudo.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP, CIDR range, or IP list file"},
+                "ports": {"type": "string", "description": "Ports to scan (default: 1-65535)"},
+                "rate": {"type": "integer", "description": "Packets per second (default: 1000, max: ~10M on good hardware)"},
+                "interface": {"type": "string", "description": "Network interface to use"},
+                "banners": {"type": "boolean", "description": "Grab banners from open ports (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra masscan flags"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 300)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _masscan,
+)
+
+
+# ---------------------------------------------------------------------------
+# autorecon  (automated comprehensive reconnaissance)
+# ---------------------------------------------------------------------------
+
+async def _autorecon(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    output_dir = (args.get("output_dir") or "/tmp/autorecon").strip()
+    heartbeat = int(args.get("heartbeat", 60))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 600))
+
+    if not target:
+        return "Error: target is required."
+    if not shutil.which("autorecon"):
+        return "Error: autorecon not found in PATH. Install: pip install autorecon"
+
+    cmd = ["autorecon", target, "-o", output_dir, "--heartbeat", str(heartbeat)]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "autorecon", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return (stdout or stderr or f"AutoRecon completed for {target}.") + f"\nResults saved to: {output_dir}"
+
+
+register(
+    Tool(
+        name="autorecon",
+        description="Automated comprehensive multi-threaded reconnaissance with AutoRecon. Runs nmap, service enumeration, and targeted scans automatically based on discovered services.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP or hostname"},
+                "output_dir": {"type": "string", "description": "Output directory (default: /tmp/autorecon)"},
+                "heartbeat": {"type": "integer", "description": "Progress heartbeat interval in seconds (default: 60)"},
+                "additional_args": {"type": "string", "description": "Extra autorecon flags (e.g. '--single-target', '--no-port-dirs')"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 600)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _autorecon,
+)
+
+
+# ---------------------------------------------------------------------------
+# smbmap_enum  (SMB share enumeration and access testing)
+# ---------------------------------------------------------------------------
+
+async def _smbmap_enum(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    username = (args.get("username") or "").strip()
+    password = (args.get("password") or "").strip()
+    domain = (args.get("domain") or "").strip()
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 60))
+
+    if not target:
+        return "Error: target is required."
+    if not shutil.which("smbmap"):
+        return "Error: smbmap not found in PATH. Install: apt install smbmap"
+
+    cmd = ["smbmap", "-H", target]
+    if username:
+        cmd += ["-u", username]
+    if password:
+        cmd += ["-p", password]
+    if domain:
+        cmd += ["-d", domain]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "smbmap_enum", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"SMBMap found no accessible shares on {target}."
+
+
+register(
+    Tool(
+        name="smbmap_enum",
+        description="SMB share enumeration with SMBMap. Lists available shares, their permissions (READ/WRITE), and can recursively list directory contents. Supports null session and credential-based access.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP or hostname"},
+                "username": {"type": "string", "description": "SMB username (empty for null session)"},
+                "password": {"type": "string", "description": "SMB password"},
+                "domain": {"type": "string", "description": "Windows domain"},
+                "additional_args": {"type": "string", "description": "Extra smbmap flags (e.g. '-R' for recursive, '--download path' to download)"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 60)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _smbmap_enum,
+)
+
+
+# ---------------------------------------------------------------------------
+# netexec_run  (network authentication testing / post-exploitation)
+# ---------------------------------------------------------------------------
+
+async def _netexec_run(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    protocol = (args.get("protocol") or "smb").strip()
+    username = (args.get("username") or "").strip()
+    password = (args.get("password") or "").strip()
+    hash_val = (args.get("hash") or "").strip()
+    module = (args.get("module") or "").strip()
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not target:
+        return "Error: target is required."
+
+    nxc_bin = shutil.which("nxc") or shutil.which("netexec") or shutil.which("crackmapexec")
+    if not nxc_bin:
+        return "Error: nxc/netexec not found in PATH. Install: pip install netexec"
+
+    cmd = [nxc_bin, protocol, target]
+    if username:
+        cmd += ["-u", username]
+    if password:
+        cmd += ["-p", password]
+    if hash_val:
+        cmd += ["-H", hash_val]
+    if module:
+        cmd += ["-M", module]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "netexec_run", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"NetExec {protocol} completed for {target}."
+
+
+register(
+    Tool(
+        name="netexec_run",
+        description="Network authentication testing and post-exploitation with NetExec (formerly CrackMapExec). Test credentials across SMB/WinRM/MSSQL/RDP/SSH, dump SAM, run commands, and spray passwords.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP, hostname, CIDR, or file with targets"},
+                "protocol": {"type": "string", "description": "Protocol: smb, winrm, mssql, rdp, ssh, ldap (default: smb)"},
+                "username": {"type": "string", "description": "Username or file with usernames"},
+                "password": {"type": "string", "description": "Password or file with passwords"},
+                "hash": {"type": "string", "description": "NTLM hash for pass-the-hash (format: LM:NT or just NT)"},
+                "module": {"type": "string", "description": "NetExec module to run (e.g. 'lsassy', 'mimikatz', 'spider_plus')"},
+                "additional_args": {"type": "string", "description": "Extra netexec flags (e.g. '--shares', '-x cmd', '--sam')"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _netexec_run,
+)
+
+
+# ---------------------------------------------------------------------------
+# responder_capture  (LLMNR/NBT-NS/mDNS poisoning and credential capture)
+# ---------------------------------------------------------------------------
+
+async def _responder_capture(args: dict) -> str:
+    interface = (args.get("interface") or "eth0").strip()
+    analyze = bool(args.get("analyze", False))
+    wpad = bool(args.get("wpad", True))
+    duration = int(args.get("duration", 60))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+
+    if not shutil.which("responder"):
+        return "Error: responder not found in PATH. Install: apt install responder"
+
+    cmd = ["timeout", str(duration), "responder", "-I", interface]
+    if analyze:
+        cmd.append("-A")
+    if wpad:
+        cmd.append("-w")
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=duration + 15)
+    await _persist(project_id, "responder_capture", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"Responder ran for {duration}s on {interface} with no captures."
+
+
+register(
+    Tool(
+        name="responder_capture",
+        description="LLMNR/NBT-NS/mDNS poisoning and NetNTLM hash capture with Responder. Passively captures credentials from misconfigured Windows hosts. Use analyze mode (-A) for passive-only operation.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "interface": {"type": "string", "description": "Network interface to listen on (default: eth0)"},
+                "analyze": {"type": "boolean", "description": "Analyze mode only — no poisoning, just capture (default: false)"},
+                "wpad": {"type": "boolean", "description": "Enable WPAD rogue proxy (default: true)"},
+                "duration": {"type": "integer", "description": "Listen duration in seconds (default: 60)"},
+                "additional_args": {"type": "string", "description": "Extra responder flags (e.g. '-f' for fingerprint)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _responder_capture,
+)
+
+
+# ---------------------------------------------------------------------------
+# arp_scan_discover  (layer 2 host discovery)
+# ---------------------------------------------------------------------------
+
+async def _arp_scan_discover(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    interface = (args.get("interface") or "").strip()
+    local_network = bool(args.get("local_network", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 60))
+
+    if not target and not local_network:
+        return "Error: target or local_network=true is required."
+    if not shutil.which("arp-scan"):
+        return "Error: arp-scan not found in PATH. Install: apt install arp-scan"
+
+    cmd = ["arp-scan"]
+    if interface:
+        cmd += ["-I", interface]
+    if local_network:
+        cmd.append("-l")
+    elif target:
+        cmd.append(target)
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "arp_scan_discover", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or "arp-scan found no hosts."
+
+
+register(
+    Tool(
+        name="arp_scan_discover",
+        description="Layer 2 host discovery with arp-scan. Finds all live hosts on the local network segment using ARP requests. More reliable than ICMP ping on internal networks.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "target": {"type": "string", "description": "Target CIDR range or IP (e.g. 192.168.1.0/24)"},
+                "local_network": {"type": "boolean", "description": "Scan entire local network (auto-detects range, default: false)"},
+                "interface": {"type": "string", "description": "Network interface (e.g. eth0, tun0)"},
+                "additional_args": {"type": "string", "description": "Extra arp-scan flags"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 60)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _arp_scan_discover,
+)
+
+
+# ---------------------------------------------------------------------------
+# enum4linux_ng  (enhanced Windows/Samba enumeration)
+# ---------------------------------------------------------------------------
+
+async def _enum4linux_ng(args: dict) -> str:
+    target = (args.get("target") or "").strip()
+    username = (args.get("username") or "").strip()
+    password = (args.get("password") or "").strip()
+    oY = bool(args.get("yaml_output", False))
+    extra = (args.get("additional_args") or "").strip()
+    project_id = args.get("project_id")
+    timeout_s = int(args.get("timeout", 120))
+
+    if not target:
+        return "Error: target is required."
+
+    bin_path = shutil.which("enum4linux-ng") or shutil.which("enum4linux-ng.py")
+    if not bin_path:
+        return "Error: enum4linux-ng not found in PATH. Install: pip install enum4linux-ng"
+
+    cmd = [bin_path, target, "-A"]
+    if username:
+        cmd += ["-u", username]
+    if password:
+        cmd += ["-p", password]
+    if oY:
+        cmd += ["-oY", "/tmp/enum4linux-ng-output.yaml"]
+    if extra:
+        cmd += extra.split()
+
+    stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+    await _persist(project_id, "enum4linux_ng", args, stdout, stderr, exit_code)
+    if exit_code == -1:
+        return stderr
+    return stdout or stderr or f"enum4linux-ng completed for {target} with no results."
+
+
+register(
+    Tool(
+        name="enum4linux_ng",
+        description="Enhanced Windows/Samba enumeration with enum4linux-ng (modern rewrite). Enumerates users, groups, shares, password policy, OS info, and RID cycling. Better output formatting than the original.",
+        inputSchema={
+            "type": "object",
+            "required": ["target"],
+            "properties": {
+                "target": {"type": "string", "description": "Target IP or hostname"},
+                "username": {"type": "string", "description": "Username for authenticated enumeration"},
+                "password": {"type": "string", "description": "Password for authenticated enumeration"},
+                "yaml_output": {"type": "boolean", "description": "Save YAML output to /tmp/enum4linux-ng-output.yaml (default: false)"},
+                "additional_args": {"type": "string", "description": "Extra enum4linux-ng flags"},
+                "timeout": {"type": "integer", "description": "Timeout seconds (default: 120)"},
+                "project_id": {"type": "integer"},
+            },
+        },
+    ),
+    _enum4linux_ng,
 )

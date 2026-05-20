@@ -2,7 +2,7 @@
 Password cracking and credential spraying tools.
 """
 import re
-import shlex
+import tempfile
 from pathlib import Path
 
 from mcp.types import Tool
@@ -154,7 +154,6 @@ async def _john_crack(args: dict) -> list:
         return _need("john", "apt install john")
 
     # Write hash to temp file
-    import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".hash", delete=False) as tf:
         tf.write(hash_value + "\n")
         hash_file = tf.name
@@ -215,7 +214,6 @@ async def _hashcat_crack(args: dict) -> list:
     if not _chk("hashcat"):
         return _need("hashcat", "apt install hashcat")
 
-    import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".hash", delete=False) as tf:
         tf.write(hash_value + "\n")
         hash_file = tf.name
@@ -268,7 +266,6 @@ async def _hashcat_rules(args: dict) -> list:
     if not _chk("hashcat"):
         return _need("hashcat", "apt install hashcat")
 
-    import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".hash", delete=False) as tf:
         tf.write(hash_value + "\n")
         hash_file = tf.name
@@ -604,16 +601,23 @@ async def _spray_http(args: dict) -> list:
     results = []
     for user in users[:50]:  # Cap at 50 to avoid runaway
         out, err, rc = await _run(
-            ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
+            ["curl", "-s", "-w", "\n---STATUS:%{http_code}---",
              "-X", "POST", url,
              "--data-urlencode", f"{user_field}={user}",
              "--data-urlencode", f"{pass_field}={password}",
              "-L", "--connect-timeout", "5"],
             timeout=15,
         )
-        status_code = out.strip()
-        # Basic heuristic: 302 or 200 without failure string may indicate success
-        results.append(f"  {user}:{password} -> HTTP {status_code}")
+        # Parse status code from curl -w sentinel
+        m = re.search(r"---STATUS:(\d+)---", out)
+        status_code = m.group(1) if m else "???"
+        body = out[:out.rfind("---STATUS:")] if "---STATUS:" in out else out
+        # Detect success: redirect (3xx) or 200 without failure string in body
+        is_success = status_code.startswith("3") or (
+            status_code == "200" and failure_string not in body
+        )
+        tag = "[SUCCESS]" if is_success else "[failed]"
+        results.append(f"  {tag} {user}:{password} -> HTTP {status_code}")
 
     result = f"[HTTP spray against {url}]\n" + "\n".join(results)
     if project_id:
@@ -707,6 +711,8 @@ async def _crunch_wordlist(args: dict) -> list:
 
     if min_len is None or max_len is None:
         return _ok("Error: min_len and max_len are required.")
+    if int(max_len) > 8:
+        return _ok(f"Error: max_len={max_len} would produce an enormous wordlist. Use max_len ≤ 8.")
     if not _chk("crunch"):
         return _need("crunch", "apt install crunch")
 
@@ -760,23 +766,23 @@ async def _credential_check(args: dict) -> list:
 
     for service in services:
         service = service.lower().strip()
-        if service == "ssh" and _chk("ssh"):
-            out, err, rc = await _run(
-                ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
-                 "-o", "StrictHostKeyChecking=no",
-                 f"{username}@{target}", "echo OK"],
-                timeout=10,
-            )
-            results.append(f"  SSH: {'SUCCESS' if rc == 0 else 'FAILED'} (rc={rc})")
-        elif service == "ftp" and _chk("ftp"):
-            import tempfile
-            script = f"open {target}\n{username}\n{password}\nbye\n"
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".ftp", delete=False) as tf:
-                tf.write(script)
-                ftp_script = tf.name
-            out, err, rc = await _run(["ftp", "-n", "-v"], timeout=10)
-            Path(ftp_script).unlink(missing_ok=True)
-            results.append(f"  FTP: check manually (use hydra_ftp for reliable testing)")
+        if service == "ssh":
+            if _chk("sshpass"):
+                out, err, rc = await _run(
+                    ["sshpass", "-p", password,
+                     "ssh", "-o", "ConnectTimeout=5",
+                     "-o", "StrictHostKeyChecking=no",
+                     "-o", "PreferredAuthentications=password",
+                     f"{username}@{target}", "echo OK"],
+                    timeout=10,
+                )
+                results.append(f"  SSH: {'SUCCESS' if rc == 0 else 'FAILED'} (rc={rc})")
+            elif _chk("ssh"):
+                results.append("  SSH: sshpass not found — cannot test password auth. Install: apt install sshpass")
+            else:
+                results.append("  SSH: ssh not found")
+        elif service == "ftp":
+            results.append(f"  FTP: use hydra_ftp for reliable FTP credential testing")
         elif service == "smb" and (_chk("smbclient") or _chk("crackmapexec") or _chk("nxc")):
             if _chk("smbclient"):
                 out, err, rc = await _run(

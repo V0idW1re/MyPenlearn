@@ -57,9 +57,9 @@ def _build_exec_summary(project: dict, findings: list, ts_str: str) -> str:
     total = len(findings)
     crit = sum(1 for f in findings if f["severity"] == "critical")
     high = sum(1 for f in findings if f["severity"] == "high")
-    open_ = sum(1 for f in findings if f["verify_status"] == "open")
-    verified = sum(1 for f in findings if f["verify_status"] == "verified")
-    fp = sum(1 for f in findings if f["verify_status"] == "false_positive")
+    open_ = sum(1 for f in findings if f.get("verify_status") == "open")
+    verified = sum(1 for f in findings if f.get("verify_status") == "verified")
+    fp = sum(1 for f in findings if f.get("verify_status") == "false_positive")
 
     lines = [
         f"# Penligent Engagement Report",
@@ -215,7 +215,7 @@ def _build_fix_list(findings: list) -> str:
     ]
     # Sort: critical → high → medium → low → info, then verified before open
     sev_rank = {s: i for i, s in enumerate(SEVERITY_ORDER)}
-    status_rank = {"open": 0, "verified": 1, "false_positive": 2}
+    status_rank = {"verified": 0, "open": 1, "false_positive": 2}
     sorted_f = sorted(
         findings,
         key=lambda x: (

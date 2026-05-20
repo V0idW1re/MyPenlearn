@@ -1,12 +1,15 @@
 import json
+import os
 import re
 import shutil
+import tempfile
+import urllib.parse
 from pathlib import Path
 
 from mcp.types import Tool
 
 from .register_all import register
-from .recon import _run_subprocess, _save_artifact, _record_execution
+from ._helpers import _run_subprocess, _save_artifact, _record_execution
 
 
 async def _persist(project_id, tool_name: str, args: dict, stdout: str, stderr: str, exit_code: int):
@@ -742,7 +745,6 @@ async def _brute_force_test(args: dict) -> str:
         )
 
     # Write temp wordlist
-    import tempfile, os
     with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
         wl_path = f.name
         f.write("\n".join(_LOCKOUT_WORDLIST[:max_attempts]) + "\n")
@@ -885,7 +887,6 @@ async def _parsing_diff(args: dict) -> str:
 
     hits: list[str] = []
     for payload in _PARSING_DIFF_PAYLOADS:
-        import urllib.parse
         encoded = urllib.parse.quote(payload, safe="")
         sep = "&" if "?" in target else "?"
         url = f"{target}{sep}{param}={encoded}"

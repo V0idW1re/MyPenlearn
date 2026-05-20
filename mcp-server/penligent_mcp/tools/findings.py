@@ -1,4 +1,5 @@
 import json
+import math
 import time
 
 from mcp.types import Tool, TextContent
@@ -461,9 +462,9 @@ async def _export_findings_markdown(args: dict) -> list[TextContent]:
             lines.append("  ".join(meta))
         if r["description"]:
             lines.append(f"\n{r['description']}")
-        if r.get("impact"):
+        if r["impact"]:
             lines.append(f"\n**Impact:** {r['impact']}")
-        repro = r.get("repro_steps_json")
+        repro = r["repro_steps_json"]
         if repro:
             try:
                 steps = json.loads(repro)
@@ -472,7 +473,7 @@ async def _export_findings_markdown(args: dict) -> list[TextContent]:
                     lines.append(f"{i}. {s}")
             except Exception:
                 pass
-        controls = r.get("compliance_controls_json")
+        controls = r["compliance_controls_json"]
         if controls:
             try:
                 ctrl = json.loads(controls)
@@ -481,7 +482,7 @@ async def _export_findings_markdown(args: dict) -> list[TextContent]:
                     lines.append(f"- {fw}: {', '.join(items) if isinstance(items, list) else items}")
             except Exception:
                 pass
-        remediation = r.get("remediation_json")
+        remediation = r["remediation_json"]
         if remediation:
             try:
                 rem = json.loads(remediation)
@@ -520,14 +521,26 @@ async def _calculate_cvss_score(args: dict) -> list[TextContent]:
     S_vals = {"U": False, "C": True}
     CI_vals = {"N": 0.0, "L": 0.22, "H": 0.56}
 
-    av = args.get("attack_vector", "N")
-    ac = args.get("attack_complexity", "L")
-    pr = args.get("privileges_required", "N")
-    ui = args.get("user_interaction", "N")
-    scope = args.get("scope", "U")
-    conf = args.get("confidentiality", "N")
-    integ = args.get("integrity", "N")
-    avail = args.get("availability", "N")
+    av = (args.get("attack_vector") or "N").strip().upper()
+    ac = (args.get("attack_complexity") or "L").strip().upper()
+    pr = (args.get("privileges_required") or "N").strip().upper()
+    ui = (args.get("user_interaction") or "N").strip().upper()
+    scope = (args.get("scope") or "U").strip().upper()
+    conf = (args.get("confidentiality") or "N").strip().upper()
+    integ = (args.get("integrity") or "N").strip().upper()
+    avail = (args.get("availability") or "N").strip().upper()
+
+    invalid = []
+    if av not in AV: invalid.append(f"attack_vector={av!r} (valid: N/A/L/P)")
+    if ac not in AC: invalid.append(f"attack_complexity={ac!r} (valid: L/H)")
+    if pr not in PR: invalid.append(f"privileges_required={pr!r} (valid: N/L/H)")
+    if ui not in UI: invalid.append(f"user_interaction={ui!r} (valid: N/R)")
+    if scope not in S_vals: invalid.append(f"scope={scope!r} (valid: U/C)")
+    if conf not in CI_vals: invalid.append(f"confidentiality={conf!r} (valid: N/L/H)")
+    if integ not in CI_vals: invalid.append(f"integrity={integ!r} (valid: N/L/H)")
+    if avail not in CI_vals: invalid.append(f"availability={avail!r} (valid: N/L/H)")
+    if invalid:
+        return _ok("Error: invalid CVSS metric(s):\n" + "\n".join(f"  {e}" for e in invalid))
 
     try:
         scope_changed = S_vals.get(scope, False)
@@ -553,7 +566,6 @@ async def _calculate_cvss_score(args: dict) -> list[TextContent]:
         else:
             base_score = min(impact + exploitability, 10.0)
 
-        import math
         base_score = math.ceil(base_score * 10) / 10
 
         if base_score == 0:
@@ -993,7 +1005,6 @@ async def _ttp_lookup(args: dict) -> list[TextContent]:
     if not category:
         return _ok("Error: category is required.")
     try:
-        from ..db import get_db
         async with get_db() as db:
             row = await (await db.execute(
                 "SELECT category, name, detection_method, verification_payload, "

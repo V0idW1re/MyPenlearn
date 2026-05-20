@@ -2,8 +2,11 @@
 OSINT tools (15 tools).
 Most use external binaries or public APIs; fallbacks noted.
 """
+import asyncio
+import base64
 import json
 import re
+import socket
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -12,6 +15,22 @@ from mcp.types import Tool, TextContent
 
 from .register_all import register
 from ._helpers import _chk, _need, _run, _ok, _s
+
+
+async def _http_get(req_or_url, *, timeout: int = 20) -> bytes:
+    """Non-blocking HTTP GET wrapped in asyncio.to_thread."""
+    def _do() -> bytes:
+        with urllib.request.urlopen(req_or_url, timeout=timeout) as r:
+            return r.read()
+    return await asyncio.to_thread(_do)
+
+
+async def _http_get_with_status(req_or_url, *, timeout: int = 20) -> tuple[int, dict, bytes]:
+    """Non-blocking HTTP GET returning (status, headers, body)."""
+    def _do() -> tuple[int, dict, bytes]:
+        with urllib.request.urlopen(req_or_url, timeout=timeout) as r:
+            return r.status, dict(r.headers), r.read()
+    return await asyncio.to_thread(_do)
 
 # ---------------------------------------------------------------------------
 # theharvester_run
@@ -45,8 +64,7 @@ async def _wayback_urls(args: dict) -> list[TextContent]:
     limit = int(args.get("limit", 200))
     url = f"http://web.archive.org/cdx/search/cdx?url=*.{domain}/*&output=text&fl=original&collapse=urlkey&limit={limit}"
     try:
-        with urllib.request.urlopen(url, timeout=30) as r:
-            data = r.read().decode(errors="replace")
+        data = (await _http_get(url, timeout=30)).decode(errors="replace")
         lines = sorted(set(data.strip().splitlines()))
         return _ok(f"Wayback URLs for {domain} ({len(lines)} unique):\n" + "\n".join(lines[:500]))
     except Exception as e:
@@ -71,8 +89,7 @@ async def _crt_sh(args: dict) -> list[TextContent]:
     url = f"https://crt.sh/?q={urllib.parse.quote(q)}&output=json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=30) as r:
-            entries = json.loads(r.read())
+        entries = json.loads(await _http_get(req, timeout=30))
         names = sorted({e.get("name_value", "") for e in entries if e.get("name_value")})
         return _ok(f"crt.sh results for {domain} ({len(names)} unique names):\n" + "\n".join(names[:500]))
     except Exception as e:
@@ -101,8 +118,7 @@ async def _github_search(args: dict) -> list[TextContent]:
         headers_list.append(("Authorization", f"token {token}"))
     try:
         req = urllib.request.Request(url, headers=dict(headers_list))
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=20))
         items = data.get("items", [])
         lines = [f"GitHub {search_type} search: '{query}' ({data.get('total_count', '?')} total, showing {len(items)})"]
         for item in items:
@@ -137,8 +153,7 @@ async def _shodan_query(args: dict) -> list[TextContent]:
     url = f"https://api.shodan.io/shodan/host/search?key={api_key}&query={urllib.parse.quote(query)}&minify=false"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=20))
         matches = data.get("matches", [])
         total = data.get("total", 0)
         lines = [f"Shodan: '{query}' — {total} total results, showing {len(matches)}"]
@@ -173,7 +188,6 @@ async def _censys_query(args: dict) -> list[TextContent]:
     api_secret = args.get("api_secret", "")
     if not api_id or not api_secret:
         return _ok("Error: api_id and api_secret required. Register at https://search.censys.io/account/api")
-    import base64
     auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
     url = "https://search.censys.io/api/v2/hosts/search"
     body = json.dumps({"q": query, "per_page": 20}).encode()
@@ -183,8 +197,7 @@ async def _censys_query(args: dict) -> list[TextContent]:
         "User-Agent": "penligent-local/0.1",
     })
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=20))
         hits = data.get("result", {}).get("hits", [])
         lines = [f"Censys: '{query}' — {len(hits)} results"]
         for h in hits:
@@ -213,8 +226,7 @@ async def _ip_geolocation(args: dict) -> list[TextContent]:
     url = f"https://ipinfo.io/{ip}/json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=10))
         lines = [f"IP: {data.get('ip', ip)}"]
         for field in ("hostname", "city", "region", "country", "org", "timezone", "loc"):
             if data.get(field):
@@ -238,8 +250,7 @@ async def _asn_info(args: dict) -> list[TextContent]:
     url = f"https://ipinfo.io/{query}/json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=10))
         return _ok(json.dumps(data, indent=2))
     except Exception as e:
         return _ok(f"Error: {e}")
@@ -275,9 +286,8 @@ async def _cloudflare_check(args: dict) -> list[TextContent]:
             results.append("Note: real IP may be exposed via mail MX, SPF, or historical DNS.")
     else:
         # Pure Python fallback
-        import socket
         try:
-            ips = socket.gethostbyname_ex(domain)[2]
+            ips = (await asyncio.to_thread(socket.gethostbyname_ex, domain))[2]
             results.append(f"Resolved IPs: {', '.join(ips)}")
         except Exception as e:
             results.append(f"DNS error: {e}")
@@ -298,8 +308,7 @@ async def _wayback_robots(args: dict) -> list[TextContent]:
     url = f"https://web.archive.org/web/0/{domain}/robots.txt"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = r.read().decode(errors="replace")
+        data = (await _http_get(req, timeout=20)).decode(errors="replace")
         return _ok(f"robots.txt for {domain} (via Wayback Machine):\n\n{data[:3000]}")
     except Exception as e:
         return _ok(f"Error: {e}")
@@ -352,8 +361,7 @@ async def _breach_check(args: dict) -> list[TextContent]:
             "User-Agent": "penligent-local/0.1",
             "hibp-api-key": "",  # key required; will 401 without one
         })
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=15))
         lines = [f"Breaches for {email} ({len(data)} found):"]
         for b in data:
             lines.append(f"  {b.get('Name','?')} ({b.get('BreachDate','?')}) — {', '.join(b.get('DataClasses',[]))}")
@@ -383,8 +391,7 @@ async def _reverse_whois(args: dict) -> list[TextContent]:
     url = f"https://viewdns.info/reversewhois/?q={urllib.parse.quote(query)}&output=json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=20))
         domains = data.get("response", {}).get("domains", [])
         lines = [f"Reverse WHOIS for '{query}': {len(domains)} domains"]
         for d in domains[:100]:
@@ -411,8 +418,7 @@ async def _pastebin_search(args: dict) -> list[TextContent]:
     url = f"https://psbdmp.ws/api/search/{urllib.parse.quote(query)}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=20))
         items = data if isinstance(data, list) else data.get("data", [])
         lines = [f"Pastebin search for '{query}': {len(items)} results (via psbdmp.ws)"]
         for item in items[:20]:
@@ -443,8 +449,7 @@ async def _whois_history(args: dict) -> list[TextContent]:
     url = f"https://rdap.org/domain/{domain}"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read())
+        data = json.loads(await _http_get(req, timeout=15))
         lines = [f"RDAP for {domain}:"]
         for event in data.get("events", []):
             lines.append(f"  {event.get('eventAction','?')}: {event.get('eventDate','?')}")
@@ -501,9 +506,7 @@ async def _ghunt_osint(args: dict) -> list[TextContent]:
                         "Cookie": "",
                     },
                 )
-                with urllib.request.urlopen(req, timeout=10) as r:
-                    status = r.status
-                    hdrs = dict(r.headers)
+                status, hdrs, _ = await _http_get_with_status(req, timeout=10)
                 results.append(f"[{label}]")
                 results.append(f"  Status: {status}")
                 set_cookie = hdrs.get("Set-Cookie", "")
@@ -521,8 +524,7 @@ async def _ghunt_osint(args: dict) -> list[TextContent]:
         try:
             crt_url = f"https://crt.sh/?q={urllib.parse.quote(email)}&output=json"
             req = urllib.request.Request(crt_url, headers={"User-Agent": "penligent-local/0.1"})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                certs = json.loads(r.read())
+            certs = json.loads(await _http_get(req, timeout=15))
             if certs:
                 domains = sorted(set(c.get("name_value", "") for c in certs[:50]))
                 results.append(f"[Certificate Transparency] {len(certs)} certs found containing {email}:")

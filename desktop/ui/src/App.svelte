@@ -80,6 +80,11 @@
     try { vpnState = await invoke("vpn_status"); } catch (_) {}
 
     try {
+      const z = await invoke("load_config_value", { key: "ui_zoom" });
+      if (z) document.documentElement.style.zoom = parseFloat(z);
+    } catch (_) {}
+
+    try {
       const done = await invoke("load_config_value", { key: "setup_complete" });
       if (!done) wizardOpen = true;
     } catch (_) {

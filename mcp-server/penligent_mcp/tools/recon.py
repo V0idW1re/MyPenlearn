@@ -1,21 +1,17 @@
 import asyncio
-import hashlib
 import json
 import re
+import shutil
 import socket
-import time
-from pathlib import Path
 
 from mcp.types import Tool
 
 from .register_all import register
-from ..db import get_db
-
-ARTIFACTS_DIR = Path.home() / ".local" / "share" / "penligent-local" / "artifacts"
+from ._helpers import _run_subprocess, _save_artifact, _record_execution
 
 # Nmap open-port line: "80/tcp  open  http  Apache httpd 2.4.41"
 _PORT_RE = re.compile(
-    r"^(\d+)/(tcp|udp)\s+(open|filtered|closed)\s+(\S+)(?:\s+(.*))?$",
+    r"^(\d+)/(tcp|udp)\s+(open\|filtered|closed\|filtered|open|filtered|closed)\s+(\S+)(?:[ \t]+(.*))?$",
     re.MULTILINE,
 )
 
@@ -31,68 +27,6 @@ def _parse_nmap(output: str) -> list[dict]:
             "version": (m.group(5) or "").strip(),
         })
     return ports
-
-
-async def _run_subprocess(cmd: list[str], timeout: int = 300) -> tuple[str, str, int]:
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        return "", f"Process timed out after {timeout}s", -1
-    return stdout.decode(errors="replace"), stderr.decode(errors="replace"), proc.returncode
-
-
-async def _save_artifact(
-    project_id: int, tool: str, stdout: str, stderr: str
-) -> tuple[str, str, str]:
-    base = ARTIFACTS_DIR / str(project_id) / tool
-    base.mkdir(parents=True, exist_ok=True)
-    ts = int(time.time())
-    out_path = base / f"{ts}.stdout"
-    err_path = base / f"{ts}.stderr"
-    out_path.write_text(stdout)
-    err_path.write_text(stderr)
-    sha = hashlib.sha256(stdout.encode()).hexdigest()
-    return str(out_path), str(err_path), sha
-
-
-async def _record_execution(
-    project_id: int,
-    tool_name: str,
-    args: dict,
-    stdout_path: str,
-    stderr_path: str,
-    exit_code: int,
-    artifact_hash: str,
-) -> int:
-    now = int(time.time())
-    async with get_db() as db:
-        cur = await db.execute(
-            """INSERT INTO execution_results
-               (project_id, tool_name, args_json, stdout_path, stderr_path,
-                exit_code, status, started_at, ended_at, artifact_hash)
-               VALUES (?,?,?,?,?,?,?,?,?,?)""",
-            (
-                project_id,
-                tool_name,
-                json.dumps(args),
-                stdout_path,
-                stderr_path,
-                exit_code,
-                "success" if exit_code == 0 else "error",
-                now,
-                now,
-                artifact_hash,
-            ),
-        )
-        await db.commit()
-        return cur.lastrowid
 
 
 def _nmap_summary(stdout: str, target: str, label: str) -> str:
@@ -399,7 +333,7 @@ async def _dns_resolve(args: dict) -> str:
     if not hostname:
         return "Error: hostname is required."
     try:
-        results = socket.getaddrinfo(hostname, None)
+        results = await asyncio.to_thread(socket.getaddrinfo, hostname, None)
         addrs = sorted({r[4][0] for r in results})
         return f"{hostname} resolves to: {', '.join(addrs)}"
     except socket.gaierror as e:
@@ -427,7 +361,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _dns_brute(args: dict) -> str:
-    import shutil
     domain = (args.get("domain") or "").strip()
     if not domain:
         return "Error: domain is required."
@@ -513,7 +446,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _dns_enum(args: dict) -> str:
-    import shutil
     domain = (args.get("domain") or "").strip()
     if not domain:
         return "Error: domain is required."
@@ -594,7 +526,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _subdomain_brute(args: dict) -> str:
-    import shutil
     domain = (args.get("domain") or "").strip()
     if not domain:
         return "Error: domain is required."
@@ -638,7 +569,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _vhost_fuzz(args: dict) -> str:
-    import shutil
     target = (args.get("target") or "").strip()
     domain = (args.get("domain") or "").strip()
     if not target or not domain:
@@ -684,7 +614,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _dir_brute(args: dict) -> str:
-    import shutil
     target = (args.get("target") or "").strip()
     if not target:
         return "Error: target is required."
@@ -728,7 +657,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _file_brute(args: dict) -> str:
-    import shutil
     target = (args.get("target") or "").strip()
     if not target:
         return "Error: target is required."
@@ -774,7 +702,6 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _param_fuzz(args: dict) -> str:
-    import shutil
     target = (args.get("target") or "").strip()
     if not target:
         return "Error: target is required (should contain FUZZ placeholder or use wordlist)."

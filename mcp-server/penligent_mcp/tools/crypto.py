@@ -227,7 +227,10 @@ async def _hash_text(args: dict) -> list[TextContent]:
             f"sha512: {hashlib.sha512(raw).hexdigest()}",
         ]
         return _ok("\n".join(lines))
-    h = hashlib.new(algo, raw)
+    try:
+        h = hashlib.new(algo, raw)
+    except ValueError as e:
+        return _ok(f"Error: {e}")
     return _ok(f"{algo}: {h.hexdigest()}")
 
 register(Tool(
@@ -249,7 +252,10 @@ async def _hash_file(args: dict) -> list[TextContent]:
         raw = Path(path).read_bytes()
     except Exception as e:
         return _ok(f"Error reading file: {e}")
-    h = hashlib.new(algo, raw)
+    try:
+        h = hashlib.new(algo, raw)
+    except ValueError as e:
+        return _ok(f"Error: {e}")
     return _ok(f"{algo}: {h.hexdigest()}  {path}")
 
 register(Tool(

@@ -3,6 +3,7 @@ Utility / meta tools (4 tools).
 check_domain, check_ip, detect_input_type, auth_replay.
 These are lightweight helpers used by the Planner and Executor layers.
 """
+import asyncio
 import ipaddress
 import json
 import re
@@ -10,11 +11,12 @@ import socket
 import time
 import urllib.request
 import urllib.parse
+from pathlib import Path
 
 from mcp.types import Tool, TextContent
 
 from .register_all import register
-from ._helpers import _ok, _s, _run
+from ._helpers import _ok, _s, _run, _artifact
 
 
 # ---------------------------------------------------------------------------
@@ -30,23 +32,7 @@ def _classify(value: str) -> dict:
         host = parsed.hostname or ""
         return {"type": "url", "value": value, "host": host}
 
-    # CIDR
-    try:
-        net = ipaddress.ip_network(value, strict=False)
-        is_private = net.is_private
-        prefix = net.prefixlen
-        return {
-            "type": "cidr",
-            "value": value,
-            "version": net.version,
-            "private": is_private,
-            "prefix_len": prefix,
-            "large": prefix < 16,
-        }
-    except ValueError:
-        pass
-
-    # Single IP
+    # Single IP (must check before CIDR — ip_network() accepts bare IPs as /32 or /128)
     try:
         addr = ipaddress.ip_address(value)
         return {
@@ -58,6 +44,23 @@ def _classify(value: str) -> dict:
         }
     except ValueError:
         pass
+
+    # CIDR (only when "/" is present to indicate an explicit network prefix)
+    if "/" in value:
+        try:
+            net = ipaddress.ip_network(value, strict=False)
+            is_private = net.is_private
+            prefix = net.prefixlen
+            return {
+                "type": "cidr",
+                "value": value,
+                "version": net.version,
+                "private": is_private,
+                "prefix_len": prefix,
+                "large": prefix < 16,
+            }
+        except ValueError:
+            pass
 
     # Domain (simple heuristic: has a dot, no spaces, valid chars)
     domain_re = re.compile(
@@ -114,7 +117,6 @@ async def _check_domain(args: dict) -> list[TextContent]:
 
     # Scope check if project provided
     if project_name:
-        from pathlib import Path
         ws = Path.home() / "penligent" / "projects" / project_name / "workspace"
         scope_file = ws / "scope.json"
         if scope_file.exists():
@@ -122,8 +124,8 @@ async def _check_domain(args: dict) -> list[TextContent]:
                 scope = json.loads(scope_file.read_text())
                 in_scope = scope.get("in_scope", [])
                 out_scope = scope.get("out_of_scope", [])
-                blocked = any(domain == s or domain.endswith("." + s) or s in domain for s in out_scope)
-                allowed = any(domain == s or domain.endswith("." + s) or s in domain for s in in_scope)
+                blocked = any(domain == s or domain.endswith("." + s) for s in out_scope)
+                allowed = any(domain == s or domain.endswith("." + s) for s in in_scope)
                 if blocked:
                     lines.append("SCOPE: OUT OF SCOPE — do not test")
                     return _ok("\n".join(lines))
@@ -135,8 +137,9 @@ async def _check_domain(args: dict) -> list[TextContent]:
                 pass
 
     # DNS resolution
+    ips: list[str] = []
     try:
-        addrs = socket.getaddrinfo(domain, None)
+        addrs = await asyncio.to_thread(socket.getaddrinfo, domain, None)
         ips = sorted(set(addr[4][0] for addr in addrs))
         lines.append(f"DNS resolved to: {', '.join(ips)}")
         for ip in ips:
@@ -155,9 +158,10 @@ async def _check_domain(args: dict) -> list[TextContent]:
 
     # Reverse lookup
     try:
-        hostname = socket.gethostbyaddr(ips[0])[0] if ips else ""
-        if hostname and hostname != domain:
-            lines.append(f"Reverse DNS: {hostname}")
+        if ips:
+            hostname = (await asyncio.to_thread(socket.gethostbyaddr, ips[0]))[0]
+            if hostname and hostname != domain:
+                lines.append(f"Reverse DNS: {hostname}")
     except Exception:
         pass
 
@@ -205,7 +209,6 @@ async def _check_ip(args: dict) -> list[TextContent]:
 
     # Scope check
     if project_name:
-        from pathlib import Path
         ws = Path.home() / "penligent" / "projects" / project_name / "workspace"
         scope_file = ws / "scope.json"
         if scope_file.exists():
@@ -228,7 +231,7 @@ async def _check_ip(args: dict) -> list[TextContent]:
 
     # Reverse DNS
     try:
-        hostname = socket.gethostbyaddr(ip)[0]
+        hostname = (await asyncio.to_thread(socket.gethostbyaddr, ip))[0]
         lines.append(f"\nReverse DNS: {hostname}")
     except Exception:
         pass
@@ -238,8 +241,10 @@ async def _check_ip(args: dict) -> list[TextContent]:
         try:
             url = f"http://ip-api.com/json/{ip}?fields=country,regionName,city,isp,org,as"
             req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
-            with urllib.request.urlopen(req, timeout=5) as r:
-                geo = json.loads(r.read())
+            def _geo_fetch(r=req):
+                with urllib.request.urlopen(r, timeout=5) as resp:
+                    return json.loads(resp.read())
+            geo = await asyncio.to_thread(_geo_fetch)
             lines.append(f"\nGeo: {geo.get('city','?')}, {geo.get('regionName','?')}, {geo.get('country','?')}")
             lines.append(f"ISP: {geo.get('isp','?')}")
             lines.append(f"Org: {geo.get('org','?')}")
@@ -308,8 +313,7 @@ async def _auth_replay(args: dict) -> list[TextContent]:
         return _ok(f"Token replay timed out: {stderr}")
 
     # Parse status code from curl -w output
-    import re as _re
-    m = _re.search(r"status=(\d+)", stdout)
+    m = re.search(r"status=(\d+)", stdout)
     status_code = int(m.group(1)) if m else None
 
     # Split headers from body
@@ -353,7 +357,6 @@ async def _auth_replay(args: dict) -> list[TextContent]:
 
     # Persist artifact
     if project_id:
-        from ._helpers import _artifact
         _artifact(int(project_id), "auth_replay", result)
 
     return _ok(result)

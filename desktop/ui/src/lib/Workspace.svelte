@@ -6,7 +6,7 @@
 
   let { project, onSwitchToChat } = $props();
 
-  let wsTab   = $state("files");   // "files" | "notes" | "plan"
+  let wsTab   = $state("files");   // "files" | "notes" | "plan" | "attack"
   let files   = $state([]);
   let loading = $state(false);
   let error   = $state("");
@@ -28,10 +28,45 @@
   let planSteps = $state([]);
   let planLoading = $state(false);
 
-  let unlisten;
+  let unlisten, unlistenPlan;
 
-  const STEP_ICON = { pending: "○", in_progress: "→", done: "✓", skipped: "—", failed: "✗" };
-  const STEP_COLOR = { pending: "#484f58", in_progress: "#58a6ff", done: "#3fb950", skipped: "#484f58", failed: "#f85149" };
+  const STEP_ICON  = { pending: "○", in_progress: "→", done: "✓", skipped: "—", failed: "✗" };
+  const STEP_COLOR = { pending: "#484f58", in_progress: "#9fef00", done: "#3fb950", skipped: "#30363d", failed: "#f85149" };
+
+  const VERB_LABELS = {
+    passive_recon: "Passive Recon", active_recon: "Active Recon",
+    subdomain_enum: "Subdomain Enum", port_scan: "Port Scan",
+    dir_brute: "Dir Brute", http_probe: "HTTP Probe", tech_detect: "Tech Detect",
+    sqli_detect: "SQLi Detect", xss_probe: "XSS Probe", ssrf_probe: "SSRF Probe",
+    lfi_probe: "LFI Probe", auth_test: "Auth Test", session_test: "Session Test",
+    bac_test: "BAC Test", exploit_run: "Exploit", privesc: "Priv Esc",
+    post_exploit: "Post Exploit", lateral_move: "Lateral Move",
+    evidence_collect: "Evidence Collect", report_generate: "Report Generate", custom: "Custom",
+  };
+
+  const VERB_PHASE = {
+    passive_recon: "Recon", active_recon: "Recon", subdomain_enum: "Recon",
+    port_scan: "Recon", dir_brute: "Recon", http_probe: "Recon", tech_detect: "Recon",
+    sqli_detect: "Discovery", xss_probe: "Discovery", ssrf_probe: "Discovery",
+    lfi_probe: "Discovery", auth_test: "Discovery", session_test: "Discovery", bac_test: "Discovery",
+    exploit_run: "Exploit",
+    privesc: "Post-Exploit", post_exploit: "Post-Exploit",
+    lateral_move: "Post-Exploit", evidence_collect: "Post-Exploit",
+    report_generate: "Report", custom: "Custom",
+  };
+
+  const PHASE_COLOR = {
+    Recon: "#388bfd", Discovery: "#bc8cff", Exploit: "#f85149",
+    "Post-Exploit": "#fb8500", Report: "#3fb950", Custom: "#8b949e",
+  };
+
+  const IMPACT_LABEL = {
+    exploit_run:      "HOST COMPROMISE",
+    privesc:          "PRIV ESC",
+    lateral_move:     "LATERAL MOVE",
+    evidence_collect: "EVIDENCE",
+    report_generate:  "REPORT",
+  };
 
   const KIND_COLOR = {
     nda:           "#f85149",
@@ -52,6 +87,23 @@
   }
 
   function shortHash(h) { return h ? h.slice(0, 8) : "—"; }
+
+  function fmtTimestamp(ts) {
+    if (!ts) return "";
+    return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  }
+
+  function fmtDuration(startTs, endTs) {
+    const secs = Math.max(0, endTs - startTs);
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  }
+
+  function fmtElapsed(secs) {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
 
   function shortPath(p) {
     if (!p) return "—";
@@ -116,10 +168,14 @@
 
   async function loadPlan() {
     if (!project) { plan = null; planSteps = []; return; }
+    const pid = project.id;
     planLoading = true;
     try {
-      plan = await invoke("get_current_plan", { projectId: project.id });
-      planSteps = plan ? await invoke("get_plan_steps", { planId: plan.id }) : [];
+      const p = await invoke("get_current_plan", { projectId: pid });
+      if (project?.id !== pid) return;
+      plan = p;
+      planSteps = p ? await invoke("get_plan_steps", { planId: p.id }) : [];
+      if (project?.id !== pid) { plan = null; planSteps = []; }
     } catch (_) { plan = null; planSteps = []; }
     finally { planLoading = false; }
   }
@@ -146,6 +202,89 @@
     } catch (e) { error = String(e); }
   }
 
+  function buildKillChain(steps) {
+    const ROOT_W = 152, ROOT_H = 58;
+    const NODE_W = 160, NODE_H = 70;
+    const ROOT_GAP  = 52;   // gap between root right-edge and first node left-edge
+    const MIN_GAP   = 44;   // minimum gap between nodes
+    const LANE_H    = 88;   // vertical spacing between lanes
+    const PAD_X = 20, PAD_Y = 20;
+    const PX_PER_SEC = 3.5; // horizontal scale for time
+
+    const startedTimes = steps.filter(s => s.started_at).map(s => s.started_at);
+    const baseTime = startedTimes.length > 0 ? Math.min(...startedTimes) : null;
+
+    // Greedy lane assignment based on time overlap
+    const laneEnd = [];
+    const nodeInfos = steps.map(step => {
+      const startT = step.started_at ?? null;
+      const endT   = step.ended_at   ?? null;
+      let lane = 0;
+      if (startT !== null) {
+        lane = laneEnd.length;
+        for (let i = 0; i < laneEnd.length; i++) {
+          if (laneEnd[i] <= startT) { lane = i; break; }
+        }
+      }
+      laneEnd[lane] = endT ?? (startT ? startT + 60 : (laneEnd[lane] ?? 0) + 60);
+      return { step, lane, startT, endT };
+    });
+
+    // X positions: time-based with minimum spacing enforced
+    const stepStartX = PAD_X + ROOT_W + ROOT_GAP;
+    let cursor = stepStartX - NODE_W - MIN_GAP;
+    const xPos = nodeInfos.map(ni => {
+      let x;
+      if (ni.startT !== null && baseTime !== null) {
+        const tb = stepStartX + (ni.startT - baseTime) * PX_PER_SEC;
+        x = Math.max(cursor + NODE_W + MIN_GAP, tb);
+      } else {
+        x = cursor + NODE_W + MIN_GAP;
+      }
+      cursor = x;
+      return x;
+    });
+
+    const nLanes  = Math.max(...nodeInfos.map(n => n.lane), 0) + 1;
+    const totalW  = (xPos.length > 0 ? Math.max(...xPos) + NODE_W : PAD_X + ROOT_W) + PAD_X;
+    const totalH  = nLanes * LANE_H + PAD_Y * 2;
+
+    const rootY    = PAD_Y;
+    const rootMidY = rootY + ROOT_H / 2;
+    const rootRX   = PAD_X + ROOT_W;
+
+    const nodes = nodeInfos.map((ni, i) => {
+      const x = xPos[i];
+      const y = PAD_Y + ni.lane * LANE_H;
+      return {
+        ...ni, x, y,
+        midY:    y + NODE_H / 2,
+        rightX:  x + NODE_W,
+        elapsed: (ni.startT !== null && baseTime !== null) ? ni.startT - baseTime : null,
+        duration: (ni.startT && ni.endT) ? ni.endT - ni.startT : null,
+      };
+    });
+
+    // Edges
+    const edges = [];
+    if (nodes.length > 0) {
+      const x2 = nodes[0].x, y2 = nodes[0].midY;
+      const mx = (rootRX + x2) / 2;
+      edges.push({ d: `M ${rootRX},${rootMidY} C ${mx},${rootMidY} ${mx},${y2} ${x2},${y2}`, done: false, live: nodes[0].step.status === 'in_progress' });
+    }
+    for (let i = 0; i < nodes.length - 1; i++) {
+      const a = nodes[i], b = nodes[i+1];
+      const mx = (a.rightX + b.x) / 2;
+      edges.push({
+        d:    `M ${a.rightX},${a.midY} C ${mx},${a.midY} ${mx},${b.midY} ${b.x},${b.midY}`,
+        done: a.step.status === 'done',
+        live: b.step.status === 'in_progress',
+      });
+    }
+
+    return { nodes, edges, totalW, totalH, ROOT_W, ROOT_H, NODE_W, NODE_H, rootX: PAD_X, rootY, rootMidY };
+  }
+
   $effect(() => {
     if (notesTimer) { clearTimeout(notesTimer); notesTimer = null; }
     if (project) { refresh(); loadNotes(); loadPlan(); }
@@ -153,12 +292,23 @@
   });
 
   onMount(async () => {
+    unlistenPlan = await listen("claude://chunk", (e) => {
+      const c = e.payload;
+      if (c.kind === "tool_use" && (
+        c.tool_name === "plan_create" ||
+        c.tool_name === "plan_update_step" ||
+        c.tool_name === "plan_next_step"
+      )) {
+        setTimeout(() => { if (project) loadPlan(); }, 700);
+      }
+    });
     unlisten = await listen("claude://done", () => {
       if (project) loadPlan();
     });
   });
   onDestroy(() => {
     unlisten?.();
+    unlistenPlan?.();
     if (notesTimer) { clearTimeout(notesTimer); notesTimer = null; }
   });
 </script>
@@ -166,9 +316,10 @@
 <div class="pl-workspace">
   <div class="pl-ws-header">
     <div class="pl-ws-tabs">
-      <button class="pl-ws-tab" class:active={wsTab === 'files'} onclick={() => wsTab = 'files'}>Files</button>
-      <button class="pl-ws-tab" class:active={wsTab === 'notes'} onclick={() => wsTab = 'notes'}>Notes</button>
-      <button class="pl-ws-tab" class:active={wsTab === 'plan'}  onclick={() => wsTab = 'plan'}>Plan</button>
+      <button class="pl-ws-tab" class:active={wsTab === 'files'}  onclick={() => wsTab = 'files'}>Files</button>
+      <button class="pl-ws-tab" class:active={wsTab === 'notes'}  onclick={() => wsTab = 'notes'}>Notes</button>
+      <button class="pl-ws-tab" class:active={wsTab === 'plan'}   onclick={() => wsTab = 'plan'}>Plan</button>
+      <button class="pl-ws-tab pl-ws-tab-attack" class:active={wsTab === 'attack'} onclick={() => wsTab = 'attack'}>Attack Path</button>
     </div>
     {#if project && wsTab === 'files'}
       <div class="pl-ws-actions">
@@ -188,7 +339,7 @@
         {notesSaving ? "Saving…" : notesSaved ? "Saved" : "Unsaved"}
       </span>
     {/if}
-    {#if project && wsTab === 'plan'}
+    {#if project && (wsTab === 'plan' || wsTab === 'attack')}
       <button class="pl-ws-refresh" onclick={loadPlan} disabled={planLoading}>
         {planLoading ? "…" : "↻"}
       </button>
@@ -252,7 +403,7 @@
       ></textarea>
     {/if}
 
-  {:else}
+  {:else if wsTab === 'plan'}
     {#if !project}
       <div class="pl-ws-empty">Select an engagement to view the plan.</div>
     {:else if planLoading}
@@ -289,6 +440,105 @@
           {#if planSteps.length === 0}
             <div class="pl-ws-empty" style="padding:12px 0">No steps defined yet.</div>
           {/if}
+        </div>
+      </div>
+    {/if}
+
+  {:else if wsTab === 'attack'}
+    {#if !project}
+      <div class="pl-ws-empty">Select an engagement to view the attack path.</div>
+    {:else if planLoading}
+      <div class="pl-ws-empty">Loading…</div>
+    {:else if !plan || planSteps.length === 0}
+      <div class="pl-ws-empty">
+        No attack path yet.<br>The agent builds one automatically when it starts working.
+      </div>
+    {:else}
+      {@const layout = buildKillChain(planSteps)}
+      {@const doneCount = planSteps.filter(s => s.status === 'done').length}
+      {@const isRunning = planSteps.some(s => s.status === 'in_progress')}
+      <div class="ck-wrap">
+        <div class="ck-canvas" style="width:{layout.totalW}px; height:{layout.totalH}px">
+
+          <svg class="ck-svg" width={layout.totalW} height={layout.totalH}>
+            <defs>
+              <marker id="ck-arr"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="#30363d"/>
+              </marker>
+              <marker id="ck-arr-g" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="#3fb95088"/>
+              </marker>
+              <marker id="ck-arr-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+                <polygon points="0 0,8 3,0 6" fill="#388bfd"/>
+              </marker>
+            </defs>
+            {#each layout.edges as e}
+              <path d={e.d}
+                    stroke={e.done ? '#3fb95055' : e.live ? '#388bfd99' : '#21262d'}
+                    stroke-width={e.live ? 2 : 1.5}
+                    fill="none"
+                    marker-end={e.done ? 'url(#ck-arr-g)' : e.live ? 'url(#ck-arr-b)' : 'url(#ck-arr)'}/>
+            {/each}
+          </svg>
+
+          <!-- Objective / root node -->
+          <div class="ck-root"
+               style="left:{layout.rootX}px; top:{layout.rootY}px; width:{layout.ROOT_W}px; height:{layout.ROOT_H}px">
+            <div class="ck-root-label">OBJECTIVE</div>
+            <div class="ck-root-obj">{plan.objective}</div>
+            <div class="ck-root-bar-wrap">
+              <div class="ck-root-bar">
+                <div class="ck-root-fill" style="width:{Math.round(doneCount / planSteps.length * 100)}%"></div>
+              </div>
+              <span class="ck-root-count">{doneCount}/{planSteps.length}</span>
+              {#if isRunning}<span class="ck-root-live">● live</span>{/if}
+            </div>
+          </div>
+
+          <!-- Step / kill-chain nodes -->
+          {#each layout.nodes as n}
+            {@const phase = VERB_PHASE[n.step.verb] ?? 'Custom'}
+            {@const pc = PHASE_COLOR[phase] ?? '#484f58'}
+            {@const isProof = n.step.status === 'done' && (n.step.verb === 'exploit_run' || n.step.verb === 'privesc' || n.step.verb === 'auth_test')}
+            {@const impact = IMPACT_LABEL[n.step.verb]}
+            <div class="ck-node"
+                 class:ck-live={n.step.status === 'in_progress'}
+                 class:ck-done={n.step.status === 'done'}
+                 class:ck-fail={n.step.status === 'failed'}
+                 class:ck-skip={n.step.status === 'skipped'}
+                 style="left:{n.x}px; top:{n.y}px; width:{layout.NODE_W}px; height:{layout.NODE_H}px;
+                        border-left-color:{pc}">
+              <div class="ck-node-top">
+                <span class="ck-phase-pip"
+                      style="background:{pc}18; color:{pc}; border-color:{pc}44">{phase}</span>
+                <span class="ck-icon" style="color:{STEP_COLOR[n.step.status] ?? '#484f58'}">{STEP_ICON[n.step.status] ?? '?'}</span>
+                {#if n.step.status === 'in_progress'}<span class="ck-pulse"></span>{/if}
+              </div>
+              <div class="ck-verb" class:ck-verb-live={n.step.status === 'in_progress'}>
+                {VERB_LABELS[n.step.verb] ?? n.step.verb}
+              </div>
+              {#if n.step.target}
+                <div class="ck-target">{n.step.target}</div>
+              {/if}
+              <div class="ck-foot">
+                {#if n.elapsed !== null}
+                  <span class="ck-elapsed">T+{fmtElapsed(n.elapsed)}</span>
+                {/if}
+                {#if n.duration !== null}
+                  <span class="ck-dur">{n.duration}s</span>
+                {:else if n.step.status === 'in_progress'}
+                  <span class="ck-dur-live">running…</span>
+                {/if}
+                {#if isProof}
+                  <span class="ck-proof">PROOF</span>
+                {/if}
+                {#if impact && (n.step.status === 'done' || n.step.status === 'in_progress')}
+                  <span class="ck-impact">{impact}</span>
+                {/if}
+              </div>
+            </div>
+          {/each}
+
         </div>
       </div>
     {/if}
@@ -606,4 +856,237 @@
     letter-spacing: 0.04em;
     flex-shrink: 0;
   }
+
+  /* ── Kill-Chain Attack Path ──────────────────────────────────────── */
+
+  .pl-ws-tab-attack.active { color: #9fef00; background: rgba(159,239,0,0.07); }
+  .pl-ws-tab-attack:hover:not(.active) { color: rgba(159,239,0,0.6); }
+
+  .ck-wrap {
+    flex: 1;
+    overflow: auto;
+    min-height: 0;
+    padding: 4px 0;
+  }
+
+  .ck-canvas {
+    position: relative;
+    min-width: 100%;
+  }
+
+  .ck-svg {
+    position: absolute;
+    top: 0; left: 0;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* Root / Objective node */
+  .ck-root {
+    position: absolute;
+    z-index: 1;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 7px;
+    padding: 9px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow: hidden;
+    box-shadow: 0 2px 14px rgba(0,0,0,0.45);
+  }
+
+  .ck-root-label {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 7px;
+    color: #484f58;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .ck-root-obj {
+    font-size: 11px;
+    color: #e6edf3;
+    font-weight: 500;
+    line-height: 1.35;
+    flex: 1;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  .ck-root-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .ck-root-bar {
+    flex: 1;
+    height: 2px;
+    background: #21262d;
+    border-radius: 1px;
+    overflow: hidden;
+  }
+
+  .ck-root-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #238636, #3fb950);
+    border-radius: 1px;
+    transition: width 0.4s ease;
+  }
+
+  .ck-root-count {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    color: #484f58;
+    flex-shrink: 0;
+  }
+
+  .ck-root-live {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    color: #9fef00;
+    flex-shrink: 0;
+    animation: ck-blink 1.4s step-end infinite;
+  }
+
+  /* Step nodes */
+  .ck-node {
+    position: absolute;
+    z-index: 1;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-left: 3px solid #484f58;
+    border-radius: 0 6px 6px 0;
+    padding: 7px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow: hidden;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  .ck-live {
+    border-color: #9fef0030 !important;
+    border-left-color: #9fef00 !important;
+    background: rgba(159,239,0,0.04) !important;
+    box-shadow: 0 0 18px rgba(159,239,0,0.08);
+  }
+
+  .ck-done { opacity: 0.58; }
+  .ck-skip { opacity: 0.26; }
+  .ck-fail {
+    border-color: #f8514930 !important;
+    background: rgba(248,81,73,0.05) !important;
+  }
+
+  .ck-node-top {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .ck-phase-pip {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    border: 1px solid;
+    border-radius: 3px;
+    padding: 1px 4px;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  .ck-icon {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .ck-pulse {
+    width: 5px; height: 5px;
+    background: #9fef00;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: ck-pulse 1.4s ease-in-out infinite;
+  }
+
+  .ck-verb {
+    font-size: 11px;
+    font-weight: 600;
+    color: #c9d1d9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ck-verb-live { color: #9fef00; }
+
+  .ck-target {
+    font-size: 9px;
+    color: #484f58;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ck-foot {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+    margin-top: 1px;
+  }
+
+  .ck-elapsed {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8px;
+    color: #388bfd;
+  }
+
+  .ck-dur {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8px;
+    color: #30363d;
+  }
+
+  .ck-dur-live {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8px;
+    color: #9fef0066;
+  }
+
+  .ck-proof {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #3fb950;
+    border: 1px solid #3fb95055;
+    border-radius: 2px;
+    padding: 1px 4px;
+    background: rgba(63,185,80,0.08);
+  }
+
+  .ck-impact {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: #f85149;
+    text-transform: uppercase;
+  }
+
+  @keyframes ck-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50%       { opacity: 0.15; transform: scale(0.5); }
+  }
+
+  @keyframes ck-blink { 50% { opacity: 0; } }
 </style>

@@ -25,6 +25,18 @@
   let toolCount            = $state(null);
   let toolCountLoading     = $state(false);
 
+  let uiZoom = $state(1.0);
+
+  function applyZoom(z) {
+    document.documentElement.style.zoom = z;
+  }
+
+  async function saveZoom(z) {
+    uiZoom = z;
+    applyZoom(z);
+    try { await invoke("save_config_value", { key: "ui_zoom", value: String(z) }); } catch (_) {}
+  }
+
   onMount(async () => {
     try {
       const t = await invoke("load_config_value", { key: "htb_app_token" });
@@ -34,6 +46,10 @@
       const ar = await invoke("load_config_value", { key: "vpn_auto_reconnect" });
       autoReconnect = ar === "true";
       if (autoReconnect) await invoke("vpn_set_auto_reconnect", { enabled: true });
+    } catch (_) {}
+    try {
+      const z = await invoke("load_config_value", { key: "ui_zoom" });
+      if (z) uiZoom = parseFloat(z);
     } catch (_) {}
     await loadProfiles();
     fetchClaudeVersion();
@@ -251,6 +267,35 @@
         </button>
       {/if}
       {#if vpnError}<span class="pl-field-err">{vpnError}</span>{/if}
+    </div>
+  </section>
+
+  <!-- Appearance -->
+  <section class="pl-section">
+    <div class="pl-section-head">
+      <h3>Appearance</h3>
+      <span class="pl-section-sub">Display scaling</span>
+    </div>
+
+    <div class="pl-field">
+      <div class="pl-field-header">
+        <span class="pl-label">Text size</span>
+        <span class="pl-zoom-pct">{Math.round(uiZoom * 100)}%</span>
+      </div>
+      <div class="pl-zoom-row">
+        <span class="pl-zoom-hint">A</span>
+        <input
+          class="pl-zoom-slider"
+          type="range"
+          min="0.7"
+          max="1.5"
+          step="0.05"
+          value={uiZoom}
+          oninput={(e) => saveZoom(parseFloat(e.target.value))}
+        />
+        <span class="pl-zoom-hint" style="font-size:16px">A</span>
+        <button class="pl-btn" onclick={() => saveZoom(1.0)} title="Reset to default">Reset</button>
+      </div>
     </div>
   </section>
 
@@ -585,4 +630,30 @@
   }
   .pl-rt-refresh:hover:not(:disabled) { color: #58a6ff; border-color: #58a6ff; }
   .pl-rt-refresh:disabled { opacity: 0.4; cursor: default; }
+
+  .pl-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .pl-zoom-slider {
+    flex: 1;
+    accent-color: #58a6ff;
+    cursor: pointer;
+    height: 4px;
+  }
+  .pl-zoom-hint {
+    font-size: 11px;
+    color: #6e7681;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .pl-zoom-pct {
+    font-size: 11px;
+    color: #58a6ff;
+    font-weight: 600;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    margin-left: auto;
+  }
 </style>

@@ -811,6 +811,9 @@ pub fn add_workspace_file(
             .arg(&dest)
             .output()
             .map_err(|e| format!("sha256sum failed: {e}"))?;
+        if !out.status.success() {
+            return Err(format!("sha256sum exited {}", out.status));
+        }
         String::from_utf8_lossy(&out.stdout)
             .split_whitespace()
             .next()
@@ -1241,14 +1244,15 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
 
 #[tauri::command]
 pub fn count_mcp_tools() -> Result<u32, String> {
-    let mut dirs: Vec<std::path::PathBuf> = vec![
-        std::path::PathBuf::from("/usr/lib/penligent-local/mcp-server/penligent_mcp/tools"),
-    ];
+    // Check exe-relative dev path first so dev builds read the live source tree,
+    // then fall back to the installed system path.
+    let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
             dirs.push(parent.join("../../../mcp-server/penligent_mcp/tools"));
         }
     }
+    dirs.push(std::path::PathBuf::from("/usr/lib/penligent-local/mcp-server/penligent_mcp/tools"));
     for dir in &dirs {
         if !dir.exists() { continue; }
         let mut count = 0u32;

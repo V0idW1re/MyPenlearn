@@ -3,8 +3,8 @@ execute_command — general-purpose shell execution with audit trail.
 Claude must call approve_intent(SCAN_ACTIVE or RUN_EXPLOIT) BEFORE calling
 this tool for any non-passive command. Passive read-only commands are exempt.
 """
+import asyncio
 import json
-import subprocess
 import time
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from mcp.types import Tool, TextContent
 
 from .register_all import register
 from ._helpers import _ok, _s
+from ..db import get_db
 
 WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
 
@@ -24,7 +25,11 @@ _PASSIVE_PREFIXES = (
 
 def _is_passive(cmd: str) -> bool:
     c = cmd.strip().lower()
-    return any(c.startswith(p) for p in _PASSIVE_PREFIXES)
+    for p in _PASSIVE_PREFIXES:
+        base = p.rstrip()
+        if c == base or c.startswith(base + " ") or c.startswith(base + "\t"):
+            return True
+    return False
 
 
 async def _execute_command(args: dict) -> list[TextContent]:
@@ -46,20 +51,22 @@ async def _execute_command(args: dict) -> list[TextContent]:
     started = int(time.time())
     try:
         Path(cwd).mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
+        proc = await asyncio.create_subprocess_shell(
             command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
         )
-        stdout = result.stdout[:16384]
-        stderr = result.stderr[:4096]
-        exit_code = result.returncode
+        try:
+            stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return _ok(f"Command timed out after {timeout}s.\n$ {command}")
+        stdout = stdout_b.decode(errors="replace")[:16384]
+        stderr = stderr_b.decode(errors="replace")[:4096]
+        exit_code = proc.returncode
         status = "completed"
-    except subprocess.TimeoutExpired:
-        return _ok(f"Command timed out after {timeout}s.\n$ {command}")
     except Exception as e:
         return _ok(f"Execution error: {e}\n$ {command}")
 
@@ -68,7 +75,6 @@ async def _execute_command(args: dict) -> list[TextContent]:
     # Record in execution_results DB (best-effort)
     if project_id:
         try:
-            from ..db import get_db
             async with get_db() as db:
                 await db.execute(
                     """INSERT INTO execution_results
