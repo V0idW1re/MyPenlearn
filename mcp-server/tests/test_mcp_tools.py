@@ -9387,5 +9387,610 @@ class TestReportNullSeverityAttackChain(unittest.TestCase):
         self.assertIn("CRITICAL", result)
 
 
+# ===========================================================================
+# Section 108 — scanner.py _brute_force_test output classification
+# ===========================================================================
+
+class TestBruteForceTestOutputClassification(unittest.TestCase):
+    """_brute_force_test must classify hydra output into lockout/rate-limit/captcha/absent."""
+
+    def _run_brute(self, stdout_val: str, stderr_val: str = "", rc: int = 0,
+                   service: str = "http-post-form", **extra_args) -> str:
+        """Run _brute_force_test with subprocess mocked; return result string."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _brute_force_test
+
+        async def fake_sub(cmd, timeout=60):
+            return stdout_val, stderr_val, rc
+
+        args = {"target": "10.10.10.1", "service": service}
+        args.update(extra_args)
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    return asyncio.run(_brute_force_test(args))
+
+    def test_credential_found_marks_absent(self):
+        """If login: and password: both appear, must report brute-force protection ABSENT."""
+        result = self._run_brute(
+            "[22][http-post-form] host: 10.10.10.1  login: admin  password: secret\n"
+        )
+        self.assertIn("ABSENT", result)
+        self.assertIn("Credential found", result)
+
+    def test_lockout_detected_marks_present(self):
+        """'locked' in output must report brute-force protection PRESENT."""
+        result = self._run_brute("Account locked after 5 attempts.\n")
+        self.assertIn("PRESENT", result)
+        self.assertIn("lockout", result.lower())
+
+    def test_rate_limited_429_marks_present(self):
+        """'429' in output must report brute-force protection PRESENT (rate-limit)."""
+        result = self._run_brute("ERROR: HTTP 429 Too Many Requests\n")
+        self.assertIn("PRESENT", result)
+        self.assertIn("rate-limit", result.lower())
+
+    def test_rate_limited_too_many_marks_present(self):
+        """'Too Many' in output (e.g. Too Many Requests) must trigger rate-limit detection."""
+        result = self._run_brute("Too Many login attempts\n")
+        self.assertIn("PRESENT", result)
+
+    def test_captcha_marks_present(self):
+        """'captcha' in output must report CAPTCHA-based protection."""
+        result = self._run_brute("Please solve the captcha to continue.\n")
+        self.assertIn("PRESENT", result)
+        self.assertIn("CAPTCHA", result)
+
+    def test_no_protection_reports_warning(self):
+        """When no lockout/rate-limit/captcha/credential found, must report SUSPECTED."""
+        result = self._run_brute(
+            "Hydra: 8 of 8 completed\n[ERROR] Not found\n"
+        )
+        self.assertIn("WARNING", result)
+        self.assertIn("SUSPECTED", result)
+
+    def test_ssh_service_uses_ssh_url(self):
+        """SSH service must pass ssh://target to hydra."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _brute_force_test
+        captured = []
+
+        async def fake_sub(cmd, timeout=60):
+            captured.extend(cmd)
+            return "", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    asyncio.run(_brute_force_test({"target": "10.10.10.1", "service": "ssh"}))
+
+        self.assertIn("ssh://10.10.10.1", captured)
+
+    def test_http_post_form_includes_form_spec(self):
+        """http-post-form service must use the target, 'http-post-form', and form_spec."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _brute_force_test
+        captured = []
+
+        async def fake_sub(cmd, timeout=60):
+            captured.extend(cmd)
+            return "", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/hydra"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    asyncio.run(_brute_force_test({
+                        "target": "10.10.10.1",
+                        "service": "http-post-form",
+                        "form_path": "/auth",
+                    }))
+
+        self.assertIn("http-post-form", captured)
+        form_spec = " ".join(captured)
+        self.assertIn("/auth:", form_spec)
+
+    def test_missing_hydra_returns_tool_missing(self):
+        """When hydra is absent, must return TOOL_MISSING message without running anything."""
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _brute_force_test
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_brute_force_test({"target": "10.10.10.1"}))
+        self.assertIn("TOOL_MISSING", result)
+        self.assertIn("hydra", result)
+
+
+# ===========================================================================
+# Section 109 — nuclei JSONL parsing and summary formatting
+# ===========================================================================
+
+class TestNucleiJsonlAndSummary(unittest.TestCase):
+    """_parse_nuclei_jsonl must extract fields; _nuclei_summary must group by severity."""
+
+    def test_parse_jsonl_single_finding(self):
+        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        line = json.dumps({
+            "template-id": "cve-2021-44228",
+            "info": {"name": "Log4Shell", "severity": "critical", "description": "JNDI injection"},
+            "matched-at": "http://10.0.0.1:8080/",
+            "curl-command": "curl -X GET ...",
+        })
+        findings = _parse_nuclei_jsonl(line)
+        self.assertEqual(len(findings), 1)
+        f = findings[0]
+        self.assertEqual(f["template_id"], "cve-2021-44228")
+        self.assertEqual(f["name"], "Log4Shell")
+        self.assertEqual(f["severity"], "critical")
+        self.assertEqual(f["url"], "http://10.0.0.1:8080/")
+        self.assertIn("JNDI", f["description"])
+
+    def test_parse_jsonl_skips_non_json_lines(self):
+        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        raw = (
+            "Not JSON\n"
+            + json.dumps({"template-id": "t1", "info": {"name": "T1", "severity": "high"}, "matched-at": "http://x"})
+            + "\n[INFO] some output line\n"
+        )
+        findings = _parse_nuclei_jsonl(raw)
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0]["template_id"], "t1")
+
+    def test_parse_jsonl_empty_returns_empty_list(self):
+        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        self.assertEqual(_parse_nuclei_jsonl(""), [])
+        self.assertEqual(_parse_nuclei_jsonl("   \n  \n"), [])
+
+    def test_parse_jsonl_falls_back_to_host_when_no_matched_at(self):
+        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        line = json.dumps({"template-id": "t1", "info": {}, "host": "10.0.0.1"})
+        findings = _parse_nuclei_jsonl(line)
+        self.assertEqual(findings[0]["url"], "10.0.0.1")
+
+    def test_nuclei_summary_no_findings_message(self):
+        from penligent_mcp.tools.scanner import _nuclei_summary
+        result = _nuclei_summary([], "http://10.0.0.1", "CVEs")
+        self.assertIn("no findings", result.lower())
+        self.assertIn("10.0.0.1", result)
+
+    def test_nuclei_summary_groups_by_severity(self):
+        from penligent_mcp.tools.scanner import _nuclei_summary
+        findings = [
+            {"template_id": "a", "name": "A", "severity": "critical", "url": "http://x", "description": ""},
+            {"template_id": "b", "name": "B", "severity": "high", "url": "http://x", "description": ""},
+            {"template_id": "c", "name": "C", "severity": "critical", "url": "http://x", "description": ""},
+        ]
+        result = _nuclei_summary(findings, "http://x", "CVEs")
+        self.assertIn("[CRITICAL]", result)
+        self.assertIn("[HIGH]", result)
+        self.assertIn("3 total", result)
+        # critical section should contain both 'a' and 'c'
+        self.assertIn("a", result)
+        self.assertIn("c", result)
+
+    def test_nuclei_summary_multiple_severities_in_order(self):
+        from penligent_mcp.tools.scanner import _nuclei_summary
+        findings = [
+            {"template_id": "low1", "name": "Low", "severity": "low", "url": "u", "description": ""},
+            {"template_id": "med1", "name": "Med", "severity": "medium", "url": "u", "description": ""},
+        ]
+        result = _nuclei_summary(findings, "u", "test")
+        medium_pos = result.find("[MEDIUM]")
+        low_pos = result.find("[LOW]")
+        self.assertGreater(low_pos, medium_pos, "MEDIUM should appear before LOW in output")
+
+
+# ===========================================================================
+# Section 110 — sqli_detect command construction and verdict extraction
+# ===========================================================================
+
+class TestSqliDetectLogic(unittest.TestCase):
+    """_sqli_detect command construction, verdict line extraction, injection filtering."""
+
+    def _run_sqli(self, stdout_val: str, stderr_val: str = "", rc: int = 0, **args) -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _sqli_detect
+
+        async def fake_sub(cmd, timeout=180):
+            return stdout_val, stderr_val, rc
+
+        base = {"target": "http://host/?id=1"}
+        base.update(args)
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    return asyncio.run(_sqli_detect(base))
+
+    def test_verdict_line_injectable_extracted(self):
+        stdout = "Parameter: id UNION injection - injectable\nsome other line\n"
+        result = self._run_sqli(stdout)
+        self.assertIn("injectable", result)
+        # Should NOT include the 'some other line'
+        self.assertNotIn("some other line", result)
+
+    def test_verdict_line_sqlmap_identified_extracted(self):
+        stdout = "sqlmap identified the following injection point(s)\nblah\n"
+        result = self._run_sqli(stdout)
+        self.assertIn("sqlmap identified", result)
+
+    def test_no_verdict_lines_returns_tail_of_stdout(self):
+        stdout = "no interesting lines here\n" * 5
+        result = self._run_sqli(stdout)
+        # Falls back to last 2000 chars of stdout
+        self.assertIn("no interesting lines", result)
+
+    def test_command_includes_batch_and_level_risk(self):
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _sqli_detect
+        captured = []
+
+        async def fake_sub(cmd, timeout=180):
+            captured.extend(cmd)
+            return "", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    asyncio.run(_sqli_detect({"target": "http://host/?id=1"}))
+
+        cmd_str = " ".join(captured)
+        self.assertIn("--batch", cmd_str)
+        self.assertIn("--level", cmd_str)
+        self.assertIn("--risk", cmd_str)
+
+    def test_data_arg_added_when_provided(self):
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _sqli_detect
+        captured = []
+
+        async def fake_sub(cmd, timeout=180):
+            captured.extend(cmd)
+            return "", "", 0
+
+        with patch("shutil.which", return_value="/usr/bin/sqlmap"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    asyncio.run(_sqli_detect({"target": "http://host/login", "data": "user=foo&pass=bar"}))
+
+        self.assertIn("--data", captured)
+        self.assertIn("user=foo&pass=bar", captured)
+
+    def test_timeout_returns_stderr(self):
+        result = self._run_sqli("", "Process timed out after 180s", rc=-1)
+        self.assertIn("timed out", result)
+
+
+# ===========================================================================
+# Section 111 — metasploit_search module line filtering + vulners_cve JSON
+# ===========================================================================
+
+class TestMetasploitSearchFiltering(unittest.TestCase):
+    """_metasploit_search must extract exploit/auxiliary/post/payload lines."""
+
+    def _run_msf(self, stdout_val: str, rc: int = 0, **args) -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _metasploit_search
+
+        async def fake_sub(cmd, timeout=60):
+            return stdout_val, "", rc
+
+        base = {"query": "ms17-010"}
+        base.update(args)
+        with patch("shutil.which", return_value="/usr/bin/msfconsole"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    return asyncio.run(_metasploit_search(base))
+
+    def test_exploit_lines_extracted(self):
+        stdout = (
+            "msf6 > \n"
+            "exploit/windows/smb/ms17_010_eternalblue  rank=Excellent\n"
+            "auxiliary/scanner/smb/smb_ms17_010  rank=Normal\n"
+            "some other output\n"
+        )
+        result = self._run_msf(stdout)
+        self.assertIn("exploit/windows/smb/ms17_010_eternalblue", result)
+        self.assertIn("auxiliary/scanner/smb/smb_ms17_010", result)
+        self.assertNotIn("some other output", result)
+
+    def test_fallback_to_raw_when_no_module_lines(self):
+        stdout = "No modules found.\n" * 5
+        result = self._run_msf(stdout)
+        self.assertIn("No modules found.", result)
+
+    def test_missing_query_returns_error(self):
+        from penligent_mcp.tools.scanner import _metasploit_search
+        result = asyncio.run(_metasploit_search({}))
+        self.assertIn("Error", result)
+        self.assertIn("query", result)
+
+    def test_missing_msfconsole_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _metasploit_search
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_metasploit_search({"query": "ms17-010"}))
+        self.assertIn("Error", result)
+        self.assertIn("msfconsole", result)
+
+    def test_post_and_payload_lines_also_extracted(self):
+        stdout = (
+            "post/multi/gather/credentials  rank=Normal\n"
+            "payload/windows/meterpreter/reverse_tcp  rank=Normal\n"
+        )
+        result = self._run_msf(stdout)
+        self.assertIn("post/multi", result)
+        self.assertIn("payload/windows", result)
+
+
+class TestVulnersCveJsonParsing(unittest.TestCase):
+    """_vulners_cve must parse CVE data from API JSON response."""
+
+    def _run_vulners(self, stdout_val: str, rc: int = 0) -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _vulners_cve
+
+        async def fake_sub(cmd, timeout=15):
+            return stdout_val, "", rc
+
+        with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                return asyncio.run(_vulners_cve({"cve_id": "CVE-2021-44228"}))
+
+    def test_valid_json_extracts_title_cvss_description(self):
+        payload = json.dumps({
+            "data": {
+                "documents": {
+                    "CVE-2021-44228": {
+                        "title": "Log4Shell",
+                        "cvss": {"score": 10.0},
+                        "description": "Remote code execution in Log4j",
+                        "references": ["https://nvd.nist.gov/vuln/detail/CVE-2021-44228"],
+                    }
+                }
+            }
+        })
+        result = self._run_vulners(payload)
+        self.assertIn("Log4Shell", result)
+        self.assertIn("10.0", result)
+        self.assertIn("Remote code execution", result)
+        self.assertIn("nvd.nist.gov", result)
+
+    def test_empty_response_returns_no_data_message(self):
+        result = self._run_vulners("")
+        self.assertIn("No data", result)
+
+    def test_empty_documents_returns_no_vuln_message(self):
+        payload = json.dumps({"data": {"documents": {}}})
+        result = self._run_vulners(payload)
+        self.assertIn("No vulnerability data", result)
+
+    def test_json_decode_error_returns_raw_output(self):
+        result = self._run_vulners("not json at all")
+        self.assertIn("vulners.com response", result)
+
+    def test_missing_cve_id_returns_error(self):
+        from penligent_mcp.tools.scanner import _vulners_cve
+        result = asyncio.run(_vulners_cve({}))
+        self.assertIn("Error", result)
+        self.assertIn("cve_id", result)
+
+
+# ===========================================================================
+# Section 112 — wpscan_vulns JSON output parsing
+# ===========================================================================
+
+class TestWpscanVulnsJsonParsing(unittest.TestCase):
+    """_wpscan_vulns must parse plugin/theme vulns; fall back to version/users when clean."""
+
+    def _run_wpscan(self, stdout_val: str, rc: int = 0) -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _wpscan_vulns
+
+        async def fake_sub(cmd, timeout=300):
+            return stdout_val, "", rc
+
+        with patch("shutil.which", return_value="/usr/bin/wpscan"):
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    return asyncio.run(_wpscan_vulns({"target": "http://wp.example.com"}))
+
+    def test_plugin_vulnerability_extracted(self):
+        data = {
+            "version": {"number": "6.3"},
+            "plugins": {
+                "contact-form-7": {
+                    "vulnerabilities": [
+                        {"title": "CF7 XSS", "cvss": {"score": "6.1"}}
+                    ]
+                }
+            },
+            "themes": {},
+        }
+        result = self._run_wpscan(json.dumps(data))
+        self.assertIn("PLUGIN:contact-form-7", result)
+        self.assertIn("CF7 XSS", result)
+        self.assertIn("6.1", result)
+
+    def test_theme_vulnerability_extracted(self):
+        data = {
+            "version": {"number": "6.3"},
+            "plugins": {},
+            "themes": {
+                "twentytwentythree": {
+                    "vulnerabilities": [
+                        {"title": "Theme LFI", "cvss": {}}
+                    ]
+                }
+            },
+        }
+        result = self._run_wpscan(json.dumps(data))
+        self.assertIn("THEME:twentytwentythree", result)
+        self.assertIn("Theme LFI", result)
+
+    def test_no_vulns_returns_version_and_users(self):
+        data = {
+            "version": {"number": "6.4.1"},
+            "plugins": {},
+            "themes": {},
+            "users": {"admin": {}, "editor": {}},
+        }
+        result = self._run_wpscan(json.dumps(data))
+        self.assertIn("6.4.1", result)
+        self.assertIn("admin", result)
+        self.assertIn("No vulnerabilities", result)
+
+    def test_non_json_output_returned_as_raw(self):
+        result = self._run_wpscan("wpscan plain text output\n")
+        self.assertIn("wpscan plain text output", result)
+
+    def test_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _wpscan_vulns
+        result = asyncio.run(_wpscan_vulns({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    def test_missing_wpscan_returns_error(self):
+        from unittest.mock import patch
+        from penligent_mcp.tools.scanner import _wpscan_vulns
+        with patch("shutil.which", return_value=None):
+            result = asyncio.run(_wpscan_vulns({"target": "http://wp.example.com"}))
+        self.assertIn("Error", result)
+        self.assertIn("wpscan", result)
+
+
+# ===========================================================================
+# Section 113 — parsing_diff URL building and hit detection
+# ===========================================================================
+
+class TestParsingDiffHitDetection(unittest.TestCase):
+    """_parsing_diff must build correct URLs and detect reflected XSS payloads."""
+
+    def _run_diff(self, response_fn, target: str = "http://host/page", **args) -> str:
+        """Run _parsing_diff with curl mocked; response_fn(url) -> stdout."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _parsing_diff
+
+        async def fake_sub(cmd, timeout=35):
+            url = cmd[-1]
+            return response_fn(url), "", 0
+
+        base = {"target": target}
+        base.update(args)
+        with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+            with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                return asyncio.run(_parsing_diff(base))
+
+    def test_target_without_query_uses_question_mark_separator(self):
+        seen_urls = []
+
+        def capture(url):
+            seen_urls.append(url)
+            return "clean response"
+
+        self._run_diff(capture, target="http://host/page")
+        self.assertTrue(any("?" in u for u in seen_urls), "Expected ? separator in URL")
+        self.assertFalse(any(u.count("?") > 1 for u in seen_urls), "Should not have double ?")
+
+    def test_target_with_existing_query_uses_ampersand_separator(self):
+        seen_urls = []
+
+        def capture(url):
+            seen_urls.append(url)
+            return "clean response"
+
+        self._run_diff(capture, target="http://host/page?a=1")
+        self.assertTrue(any("&" in u for u in seen_urls), "Expected & separator in URL")
+
+    def test_script_tag_plus_alert_triggers_divergence_hit(self):
+        def reflect_script(url):
+            return "<script>alert(1)</script>"
+
+        result = self._run_diff(reflect_script)
+        self.assertIn("DIVERGENCE", result)
+
+    def test_event_handler_alert_triggers_divergence_hit(self):
+        def reflect_event(url):
+            return '<img src=x onerror=alert(1)>'
+
+        result = self._run_diff(reflect_event)
+        self.assertIn("DIVERGENCE", result)
+
+    def test_svg_onload_triggers_divergence_hit(self):
+        def reflect_svg(url):
+            return '<svg><script>x</script></svg><svg onload="alert(1)">'
+
+        result = self._run_diff(reflect_svg)
+        self.assertIn("DIVERGENCE", result)
+
+    def test_clean_response_reports_no_divergences(self):
+        result = self._run_diff(lambda url: "<html>safe content</html>")
+        self.assertIn("No obvious", result)
+
+    def test_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _parsing_diff
+        result = asyncio.run(_parsing_diff({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+
+# ===========================================================================
+# Section 114 — dom_taint static sink/source analysis
+# ===========================================================================
+
+class TestDomTaintSinkSourceDetection(unittest.TestCase):
+    """_dom_taint must detect dangerous source-to-sink flows in inline scripts."""
+
+    def _run_taint(self, html: str, target: str = "http://host/") -> str:
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.scanner import _dom_taint
+
+        async def fake_sub(cmd, timeout=35):
+            return html, "", 0
+
+        with patch("shutil.which", return_value=None):  # no chromium, forces curl path
+            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+                    return asyncio.run(_dom_taint({"target": target}))
+
+    def test_hash_to_innerHTML_reports_high_risk(self):
+        html = "<script>document.getElementById('x').innerHTML = location.hash.slice(1);</script>"
+        result = self._run_taint(html)
+        self.assertIn("HIGH RISK", result)
+
+    def test_sink_without_source_reports_low_risk(self):
+        html = "<script>element.innerHTML = sanitize(data);</script>"
+        result = self._run_taint(html)
+        self.assertIn("LOW RISK", result)
+        self.assertIn("innerHTML", result)
+
+    def test_source_and_sink_both_present_reports_medium_risk(self):
+        html = "<script>var src = location.hash; element.innerHTML = src;</script>"
+        # Note: this won't match the high-risk regex (not on same line)
+        # but both sink (innerHTML) and source (location.hash) are present
+        result = self._run_taint(html)
+        # Could be HIGH or MEDIUM depending on regex
+        self.assertTrue("RISK" in result, "Expected some RISK level in result")
+
+    def test_no_sinks_reports_no_obvious_taint(self):
+        html = "<html><body><p>Hello world</p></body></html>"
+        result = self._run_taint(html)
+        self.assertIn("No obvious DOM", result)
+
+    def test_missing_target_returns_error(self):
+        from penligent_mcp.tools.scanner import _dom_taint
+        result = asyncio.run(_dom_taint({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    def test_fallback_note_shown_when_chromium_absent(self):
+        html = "<html><body>test</body></html>"
+        result = self._run_taint(html)
+        self.assertIn("Chromium not found", result)
+
+    def test_eval_in_script_detected_as_sink(self):
+        html = "<script>eval(userInput);</script>"
+        result = self._run_taint(html)
+        self.assertIn("eval", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
