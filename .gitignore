@@ -1,5 +1,6 @@
 # Rust / Tauri
 desktop/target/
+!desktop/target/release/bundle/deb/*.deb
 desktop/ui/dist/
 desktop/ui/node_modules/
 
