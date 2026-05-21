@@ -12502,5 +12502,865 @@ class TestRfiProbeCallbackHost(unittest.TestCase):
         self.assertIn("127.0.0.1", first_url)
 
 
+# ===========================================================================
+# Section 131 — network.py: SMB / LDAP / FTP / SSH / DB / net tools
+# ===========================================================================
+
+class TestSmbNullSessionVerdicts(unittest.TestCase):
+    """_smb_null_session: Sharename/Disk/IPC in stdout → [VULN]."""
+
+    def _run(self, stdout, stderr="", exit_code=0):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_null_session
+
+        async def fake_run(cmd, **kw):
+            return stdout, stderr, exit_code
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_smb_null_session({"target": "192.168.1.1"}))
+
+    def test_sharename_triggers_vuln(self):
+        result = self._run("Sharename\tType\tComment\n")
+        self.assertIn("[VULN]", result)
+        self.assertIn("Null session allowed", result)
+
+    def test_disk_triggers_vuln(self):
+        result = self._run("share\tDisk\tShare comment\n")
+        self.assertIn("[VULN]", result)
+
+    def test_ipc_triggers_vuln(self):
+        result = self._run("IPC$\tIPC\tIPC Service\n")
+        self.assertIn("[VULN]", result)
+
+    def test_no_keywords_no_vuln(self):
+        result = self._run("Connection refused\n")
+        self.assertNotIn("[VULN]", result)
+
+    def test_missing_target_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_null_session
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"):
+            result = asyncio.run(_smb_null_session({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result)
+
+    def test_timeout_returns_stderr(self):
+        result = self._run("", "Process timed out after 30s", -1)
+        self.assertIn("timed out", result)
+
+
+class TestSmbEnumBinaryPreference(unittest.TestCase):
+    """_smb_enum: prefers enum4linux-ng (-A) over enum4linux (-a) fallback."""
+
+    def test_prefers_enum4linux_ng(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_enum
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "ng output", "", 0
+
+        def which_side(name):
+            return "/usr/bin/enum4linux-ng" if name == "enum4linux-ng" else None
+
+        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_smb_enum({"target": "10.0.0.1"}))
+
+        self.assertTrue(any("enum4linux-ng" in c[0] for c in captured))
+        self.assertTrue(any("-A" in c for c in captured))
+
+    def test_falls_back_to_enum4linux(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_enum
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        def which_side(name):
+            return "/usr/bin/enum4linux" if name == "enum4linux" else None
+
+        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_smb_enum({"target": "10.0.0.1"}))
+
+        self.assertTrue(any("enum4linux" in c[0] and c[0].endswith("enum4linux") for c in captured))
+        self.assertTrue(any("-a" in c for c in captured))
+
+    def test_neither_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_enum
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+            result = asyncio.run(_smb_enum({"target": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("enum4linux", result)
+
+
+class TestSmbSharesCredentials(unittest.TestCase):
+    """_smb_shares: user+pass → -U user%pass; user only → -U user; none → no -U."""
+
+    def _run(self, extra_args):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_shares
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_smb_shares({"target": "10.0.0.1", **extra_args}))
+
+        return captured[0] if captured else []
+
+    def test_username_and_password_combined_with_percent(self):
+        cmd = self._run({"username": "admin", "password": "secret"})
+        u_idx = cmd.index("-U")
+        self.assertEqual(cmd[u_idx + 1], "admin%secret")
+
+    def test_username_without_password_no_percent(self):
+        cmd = self._run({"username": "admin"})
+        u_idx = cmd.index("-U")
+        self.assertEqual(cmd[u_idx + 1], "admin")
+
+    def test_null_session_has_no_u_flag(self):
+        cmd = self._run({})
+        self.assertNotIn("-U", cmd)
+
+    def test_null_flag_always_present(self):
+        cmd = self._run({})
+        self.assertIn("-N", cmd)
+
+
+class TestSmbBruteCredsFound(unittest.TestCase):
+    """_smb_brute: lines containing 'login:' in hydra stdout → 'SMB credentials found'."""
+
+    def _run(self, stdout):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smb_brute
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/hydra"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_smb_brute({"target": "10.0.0.1"}))
+
+    def test_login_line_reports_creds_found(self):
+        out = "[445][smb] host: 10.0.0.1   login: admin   password: pass123\n"
+        result = self._run(out)
+        self.assertIn("SMB credentials found", result)
+        self.assertIn("admin", result)
+
+    def test_no_login_line_reports_not_found(self):
+        result = self._run("Hydra finished\n")
+        self.assertIn("No credentials found", result)
+
+
+class TestLdapAnonymousVerdicts(unittest.TestCase):
+    """_ldap_anonymous: 'result: 0 Success' or 'namingContexts' → [OK]."""
+
+    def _run(self, stdout):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ldap_anonymous
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_ldap_anonymous({"target": "dc.corp.local"}))
+
+    def test_result_0_success_triggers_ok(self):
+        result = self._run("result: 0 Success\n# numResponses: 1\n")
+        self.assertIn("[OK]", result)
+        self.assertIn("anonymous bind succeeded", result)
+
+    def test_naming_contexts_triggers_ok(self):
+        result = self._run("namingContexts: dc=corp,dc=local\n")
+        self.assertIn("[OK]", result)
+
+    def test_neither_keyword_neutral_result(self):
+        result = self._run("result: 1 Operations error\n")
+        self.assertNotIn("[OK]", result)
+
+    def test_missing_target_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ldap_anonymous
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
+            result = asyncio.run(_ldap_anonymous({}))
+        self.assertIn("Error", result)
+
+
+class TestLdapUsersExtraction(unittest.TestCase):
+    """_ldap_users: sAMAccountName regex extraction; auth adds -D/-w flags."""
+
+    def _run(self, stdout, extra_args=None):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ldap_users
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        base = {"target": "dc.corp.local", "base_dn": "dc=corp,dc=local"}
+        if extra_args:
+            base.update(extra_args)
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_ldap_users(base))
+
+    def test_extracts_samaccountname_users(self):
+        stdout = "dn: CN=John,DC=corp\nsAMAccountName: jdoe\nsAMAccountName: asmith\n"
+        result = self._run(stdout)
+        self.assertIn("jdoe", result)
+        self.assertIn("asmith", result)
+        self.assertIn("2", result)
+
+    def test_no_users_fallback_message(self):
+        result = self._run("# numEntries: 0\n")
+        self.assertIn("LDAP user enumeration result", result)
+
+    def test_missing_base_dn_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ldap_users
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
+            result = asyncio.run(_ldap_users({"target": "dc.corp.local"}))
+        self.assertIn("Error", result)
+
+    def test_authenticated_bind_adds_d_and_w_flags(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ldap_users
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_ldap_users({
+                "target": "dc.corp.local", "base_dn": "dc=corp,dc=local",
+                "username": "CORP\\admin", "password": "Secret1",
+            }))
+
+        cmd = captured[0]
+        self.assertIn("-D", cmd)
+        self.assertIn("CORP\\admin", cmd)
+        self.assertIn("-w", cmd)
+        self.assertIn("Secret1", cmd)
+
+
+class TestFtpAnonVerdicts(unittest.TestCase):
+    """_ftp_anon: exit_code==0 or '230' in stdout+stderr → [VULN]."""
+
+    def _run(self, stdout, stderr, exit_code):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ftp_anon
+
+        async def fake_run(cmd, **kw):
+            return stdout, stderr, exit_code
+
+        with _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_ftp_anon({"target": "ftp.example.com"}))
+
+    def test_exit_code_0_triggers_vuln(self):
+        result = self._run("drwxr-xr-x pub\n", "", 0)
+        self.assertIn("[VULN]", result)
+        self.assertIn("Anonymous FTP login allowed", result)
+
+    def test_230_in_stderr_triggers_vuln(self):
+        result = self._run("", "230 Login successful.", 1)
+        self.assertIn("[VULN]", result)
+
+    def test_230_in_stdout_triggers_vuln(self):
+        result = self._run("230 Guest login ok.", "", 1)
+        self.assertIn("[VULN]", result)
+
+    def test_connection_refused_no_vuln(self):
+        result = self._run("", "curl: (7) Failed to connect", 7)
+        self.assertNotIn("[VULN]", result)
+        self.assertIn("rc=7", result)
+
+
+class TestRpcUsersExtraction(unittest.TestCase):
+    """_rpc_users: user:[name] regex; null session adds -N flag."""
+
+    def test_extracts_users_from_enumdomusers(self):
+        from unittest.mock import patch as _patch, AsyncMock, MagicMock
+        from penligent_mcp.tools.network import _rpc_users
+
+        stdout = "user:[administrator] rid:[0x1f4]\nuser:[guest] rid:[0x1f5]\n"
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(stdout.encode(), b""))
+        mock_proc.kill = MagicMock()
+
+        async def mock_exec(*args, **kwargs):
+            return mock_proc
+
+        with _patch("penligent_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
+             _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            result = asyncio.run(_rpc_users({"target": "10.0.0.1"}))
+
+        self.assertIn("administrator", result)
+        self.assertIn("guest", result)
+        self.assertIn("Domain users", result)
+
+    def test_null_session_adds_n_flag(self):
+        from unittest.mock import patch as _patch, AsyncMock, MagicMock
+        from penligent_mcp.tools.network import _rpc_users
+
+        captured = []
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+        mock_proc.kill = MagicMock()
+
+        async def mock_exec(*args, **kwargs):
+            captured.append(args)
+            return mock_proc
+
+        with _patch("penligent_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
+             _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_rpc_users({"target": "10.0.0.1"}))
+
+        self.assertIn("-N", list(captured[0]))
+
+
+class TestSshAuditBinaryPreference(unittest.TestCase):
+    """_ssh_audit: prefers 'ssh-audit' over 'ssh_audit'; port included in cmd."""
+
+    def test_prefers_dash_binary(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ssh_audit
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which",
+                    side_effect=lambda n: "/usr/bin/ssh-audit" if n == "ssh-audit" else None), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
+
+        self.assertIn("ssh-audit", captured[0][0])
+
+    def test_falls_back_to_underscore_binary(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ssh_audit
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which",
+                    side_effect=lambda n: "/usr/bin/ssh_audit" if n == "ssh_audit" else None), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
+
+        self.assertIn("ssh_audit", captured[0][0])
+
+    def test_neither_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ssh_audit
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+            result = asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("ssh-audit", result)
+
+    def test_custom_port_in_command(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _ssh_audit
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ssh-audit"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_ssh_audit({"target": "10.0.0.1", "port": 2222}))
+
+        self.assertIn("2222", captured[0])
+
+
+class TestRedisCheckVerdicts(unittest.TestCase):
+    """_redis_check: redis_version → [ACCESSIBLE]; no redis-cli → nmap fallback."""
+
+    def test_redis_version_triggers_accessible(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _redis_check
+
+        async def fake_run(cmd, **kw):
+            return "# Server\nredis_version:7.0.5\nredis_mode:standalone\n", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/redis-cli"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            result = asyncio.run(_redis_check({"target": "10.0.0.1"}))
+
+        self.assertIn("[ACCESSIBLE]", result)
+        self.assertIn("7.0.5", result)
+
+    def test_no_redis_cli_falls_back_to_nmap(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _redis_check
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "nmap output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_redis_check({"target": "10.0.0.1"}))
+
+        self.assertTrue(any("nmap" in c[0] for c in captured))
+        self.assertTrue(any("redis-info" in " ".join(c) for c in captured))
+
+
+class TestMongodbCheckVerdicts(unittest.TestCase):
+    """_mongodb_check: 'databases' → [ACCESSIBLE]; mongosh preferred over mongo; nmap fallback."""
+
+    def test_databases_in_output_triggers_accessible(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _mongodb_check
+
+        async def fake_run(cmd, **kw):
+            return '{"databases":[{"name":"admin"}],"totalSize":1234}', "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/mongosh"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            result = asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
+
+        self.assertIn("[ACCESSIBLE]", result)
+
+    def test_prefers_mongosh_over_mongo(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _mongodb_check
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "", "", 0
+
+        def which_side(name):
+            if name in ("mongosh", "mongo"):
+                return f"/usr/bin/{name}"
+            return None
+
+        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
+
+        self.assertTrue(any("mongosh" in c[0] for c in captured))
+
+    def test_falls_back_to_mongo_client(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _mongodb_check
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which",
+                    side_effect=lambda n: "/usr/bin/mongo" if n == "mongo" else None), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
+
+        self.assertTrue(any(c[0].endswith("mongo") for c in captured))
+
+    def test_no_client_falls_back_to_nmap(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _mongodb_check
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "nmap mongodb output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
+
+        self.assertTrue(any("nmap" in c[0] for c in captured))
+
+
+class TestKerberosEnumVerdicts(unittest.TestCase):
+    """_kerberos_enum: 'VALID' lines extracted; missing domain → error."""
+
+    def _run(self, stdout, extra=None):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _kerberos_enum
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        args = {"target": "10.0.0.1", "domain": "corp.local"}
+        if extra:
+            args.update(extra)
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_kerberos_enum(args))
+
+    def test_valid_users_extracted(self):
+        out = "[+] VALID USERNAME: administrator@corp.local\n[+] VALID USERNAME: jdoe@corp.local\n"
+        result = self._run(out)
+        self.assertIn("Valid Kerberos users", result)
+        self.assertIn("administrator@corp.local", result)
+
+    def test_no_valid_users_fallback(self):
+        result = self._run("[-] Done! No usernames found.\n")
+        self.assertNotIn("Valid Kerberos users", result)
+        self.assertIn("Kerbrute result", result)
+
+    def test_missing_domain_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _kerberos_enum
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"):
+            result = asyncio.run(_kerberos_enum({"target": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("domain", result)
+
+
+class TestNfsEnumVerdicts(unittest.TestCase):
+    """_nfs_enum: 'Export list' → [NFS shares found]."""
+
+    def _run(self, stdout):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _nfs_enum
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/showmount"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_nfs_enum({"target": "10.0.0.1"}))
+
+    def test_export_list_triggers_nfs_found(self):
+        result = self._run("Export list for 10.0.0.1:\n/share *\n/data 10.0.0.0/24\n")
+        self.assertIn("[NFS shares found]", result)
+
+    def test_no_export_list_neutral_result(self):
+        result = self._run("clnt_create: RPC: Program not registered\n")
+        self.assertNotIn("[NFS shares found]", result)
+
+
+class TestSmtpOpenRelayVerdicts(unittest.TestCase):
+    """_smtp_open_relay: 'Server is an open relay' → [VULN]."""
+
+    def _run(self, stdout):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _smtp_open_relay
+
+        async def fake_run(cmd, **kw):
+            return stdout, "", 0
+
+        with _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            return asyncio.run(_smtp_open_relay({"target": "mail.example.com"}))
+
+    def test_open_relay_triggers_vuln(self):
+        result = self._run("| smtp-open-relay:\n|   Server is an open relay (2/16 tests)\n")
+        self.assertIn("[VULN]", result)
+        self.assertIn("SMTP open relay detected", result)
+
+    def test_not_open_relay_neutral(self):
+        result = self._run("| smtp-open-relay:\n|   Server is NOT an open relay\n")
+        self.assertNotIn("[VULN]", result)
+
+
+class TestNetexecBinaryPreference(unittest.TestCase):
+    """_netexec_run: nxc → netexec → crackmapexec fallback chain."""
+
+    def _run_with_which(self, which_fn):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _netexec_run
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_fn), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_netexec_run({"target": "10.0.0.1"}))
+
+        return captured[0][0] if captured else None
+
+    def test_prefers_nxc(self):
+        binary = self._run_with_which(lambda n: f"/usr/bin/{n}")
+        self.assertEqual(binary, "/usr/bin/nxc")
+
+    def test_falls_back_to_netexec(self):
+        binary = self._run_with_which(
+            lambda n: f"/usr/bin/{n}" if n in ("netexec", "crackmapexec") else None
+        )
+        self.assertEqual(binary, "/usr/bin/netexec")
+
+    def test_falls_back_to_crackmapexec(self):
+        binary = self._run_with_which(
+            lambda n: "/usr/bin/crackmapexec" if n == "crackmapexec" else None
+        )
+        self.assertEqual(binary, "/usr/bin/crackmapexec")
+
+    def test_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _netexec_run
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+            result = asyncio.run(_netexec_run({"target": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        self.assertIn("nxc", result)
+
+
+class TestRustscanFlags(unittest.TestCase):
+    """_rustscan: run_scripts appends -- -sC -sV; ports adds -p."""
+
+    def _run(self, extra_args):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _rustscan
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rustscan"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_rustscan({"target": "10.0.0.1", **extra_args}))
+
+        return captured[0] if captured else []
+
+    def test_run_scripts_appends_nmap_flags(self):
+        cmd = self._run({"run_scripts": True})
+        self.assertIn("--", cmd)
+        self.assertIn("-sC", cmd)
+        self.assertIn("-sV", cmd)
+
+    def test_no_run_scripts_no_nmap_flags(self):
+        cmd = self._run({"run_scripts": False})
+        self.assertNotIn("-sC", cmd)
+        self.assertNotIn("-sV", cmd)
+
+    def test_ports_adds_p_flag(self):
+        cmd = self._run({"ports": "80,443,8080"})
+        self.assertIn("-p", cmd)
+        self.assertIn("80,443,8080", cmd)
+
+    def test_no_ports_no_p_flag(self):
+        cmd = self._run({})
+        self.assertNotIn("-p", cmd)
+
+
+class TestMasscanFlags(unittest.TestCase):
+    """_masscan: interface adds -e; banners=True adds --banners; rate in command."""
+
+    def _run(self, extra_args):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _masscan
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/masscan"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_masscan({"target": "10.0.0.0/24", **extra_args}))
+
+        return captured[0] if captured else []
+
+    def test_interface_adds_e_flag(self):
+        cmd = self._run({"interface": "eth0"})
+        self.assertIn("-e", cmd)
+        self.assertIn("eth0", cmd)
+
+    def test_no_interface_no_e_flag(self):
+        cmd = self._run({})
+        self.assertNotIn("-e", cmd)
+
+    def test_banners_true_adds_flag(self):
+        cmd = self._run({"banners": True})
+        self.assertIn("--banners", cmd)
+
+    def test_banners_false_no_flag(self):
+        cmd = self._run({"banners": False})
+        self.assertNotIn("--banners", cmd)
+
+    def test_rate_in_command(self):
+        cmd = self._run({"rate": 5000})
+        self.assertTrue(any("5000" in str(part) for part in cmd))
+
+
+class TestResponderCaptureFlags(unittest.TestCase):
+    """_responder_capture: analyze adds -A; wpad adds -w."""
+
+    def _run(self, extra_args):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _responder_capture
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/responder"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_responder_capture({"interface": "eth0", **extra_args}))
+
+        return captured[0] if captured else []
+
+    def test_analyze_true_adds_a_flag(self):
+        cmd = self._run({"analyze": True, "wpad": False})
+        self.assertIn("-A", cmd)
+
+    def test_analyze_false_no_a_flag(self):
+        cmd = self._run({"analyze": False, "wpad": False})
+        self.assertNotIn("-A", cmd)
+
+    def test_wpad_true_adds_w_flag(self):
+        cmd = self._run({"wpad": True})
+        self.assertIn("-w", cmd)
+
+    def test_wpad_false_no_w_flag(self):
+        cmd = self._run({"wpad": False})
+        self.assertNotIn("-w", cmd)
+
+    def test_no_responder_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _responder_capture
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+            result = asyncio.run(_responder_capture({}))
+        self.assertIn("Error", result)
+        self.assertIn("responder", result)
+
+
+class TestArpScanDiscover(unittest.TestCase):
+    """_arp_scan_discover: local_network adds -l; interface adds -I; no args → error."""
+
+    def _run(self, args):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _arp_scan_discover
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_arp_scan_discover(args))
+
+        return captured[0] if captured else []
+
+    def test_local_network_true_adds_l_flag(self):
+        cmd = self._run({"local_network": True})
+        self.assertIn("-l", cmd)
+
+    def test_target_provided_no_l_flag(self):
+        cmd = self._run({"target": "192.168.1.0/24"})
+        self.assertNotIn("-l", cmd)
+        self.assertIn("192.168.1.0/24", cmd)
+
+    def test_no_target_and_no_local_network_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _arp_scan_discover
+        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"):
+            result = asyncio.run(_arp_scan_discover({}))
+        self.assertIn("Error", result)
+
+    def test_interface_adds_i_flag(self):
+        cmd = self._run({"local_network": True, "interface": "tun0"})
+        self.assertIn("-I", cmd)
+        self.assertIn("tun0", cmd)
+
+
+class TestEnum4linuxNgFlags(unittest.TestCase):
+    """_enum4linux_ng: yaml_output adds -oY; binary preference ng > ng.py; creds add -u/-p."""
+
+    def _run(self, extra_args, which_fn=None):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.network import _enum4linux_ng
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(cmd)
+            return "output", "", 0
+
+        if which_fn is None:
+            which_fn = lambda n: "/usr/bin/enum4linux-ng" if n == "enum4linux-ng" else None
+
+        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_fn), \
+             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.network._persist", return_value=None):
+            asyncio.run(_enum4linux_ng({"target": "10.0.0.1", **extra_args}))
+
+        return captured[0] if captured else []
+
+    def test_yaml_output_adds_oy_flag(self):
+        cmd = self._run({"yaml_output": True})
+        self.assertIn("-oY", cmd)
+        self.assertTrue(any("/tmp/" in str(p) for p in cmd))
+
+    def test_no_yaml_output_no_oy_flag(self):
+        cmd = self._run({"yaml_output": False})
+        self.assertNotIn("-oY", cmd)
+
+    def test_prefers_enum4linux_ng_binary(self):
+        cmd = self._run({})
+        self.assertIn("enum4linux-ng", cmd[0])
+        self.assertNotIn(".py", cmd[0])
+
+    def test_falls_back_to_py_script(self):
+        cmd = self._run(
+            {},
+            which_fn=lambda n: "/usr/bin/enum4linux-ng.py" if n == "enum4linux-ng.py" else None,
+        )
+        self.assertIn("enum4linux-ng.py", cmd[0])
+
+    def test_credentials_added_when_provided(self):
+        cmd = self._run({"username": "admin", "password": "pass"})
+        self.assertIn("-u", cmd)
+        self.assertIn("admin", cmd)
+        self.assertIn("-p", cmd)
+        self.assertIn("pass", cmd)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
