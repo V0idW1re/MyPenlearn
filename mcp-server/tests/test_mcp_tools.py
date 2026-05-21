@@ -12308,5 +12308,199 @@ class TestDeserializationCheckLangDispatch(unittest.TestCase):
         self.assertIn("Error", result)
 
 
+# ===========================================================================
+# Section 130 — web.py injection probe verdict extraction
+# ===========================================================================
+
+class TestSstiProbeVerdicts(unittest.TestCase):
+    """_ssti_probe: marks [VULN] when arithmetic output reflected, [SAFE] otherwise."""
+
+    def _run_ssti(self, response_body: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _ssti_probe
+
+        async def fake_run(cmd, **kw):
+            return response_body, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_ssti_probe({"target": "http://example.com/page"}))
+
+    def test_arithmetic_result_in_response_marks_vuln(self):
+        result = self._run_ssti("Hello 49 World")  # {{7*7}} = 49
+        self.assertIn("[VULN]", result)
+
+    def test_7777777_marks_vuln_for_jinja2(self):
+        result = self._run_ssti("output: 7777777")  # {{7*'7'}}
+        self.assertIn("[VULN]", result)
+
+    def test_no_match_marks_safe(self):
+        result = self._run_ssti("unrelated response content")
+        self.assertNotIn("[VULN]", result)
+        self.assertIn("[SAFE]", result)
+
+    def test_no_target_returns_error(self):
+        from penligent_mcp.tools.web import _ssti_probe
+        result = asyncio.run(_ssti_probe({}))
+        self.assertIn("Error", result)
+
+
+class TestLfiProbeVerdicts(unittest.TestCase):
+    """_lfi_probe: marks [VULN] on /etc/passwd content, [CHECK] on large response."""
+
+    def _run_lfi(self, response_body: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _lfi_probe
+
+        async def fake_run(cmd, **kw):
+            return response_body, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_lfi_probe({"target": "http://example.com/page", "param": "file"}))
+
+    def test_passwd_content_marks_vuln(self):
+        result = self._run_lfi("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:")
+        self.assertIn("[VULN]", result)
+
+    def test_large_response_without_passwd_marks_check(self):
+        result = self._run_lfi("A" * 200)  # > 100 bytes, no passwd
+        self.assertIn("[CHECK]", result)
+
+    def test_small_clean_response_reports_no_lfi(self):
+        result = self._run_lfi("small response")  # < 100 bytes, no indicator
+        self.assertIn("No obvious LFI", result)
+
+
+class TestCmdiProbeVerdicts(unittest.TestCase):
+    """_cmdi_probe: marks [VULN] when uid=/gid= in response."""
+
+    def _run_cmdi(self, response_body: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _cmdi_probe
+
+        async def fake_run(cmd, **kw):
+            return response_body, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_cmdi_probe({"target": "http://example.com/page", "param": "q"}))
+
+    def test_id_command_output_marks_vuln(self):
+        result = self._run_cmdi("uid=33(www-data) gid=33(www-data)")
+        self.assertIn("[VULN]", result)
+
+    def test_no_uid_gid_marks_ok(self):
+        result = self._run_cmdi("normal page content here")
+        self.assertIn("[OK]", result)
+        self.assertNotIn("[VULN]", result)
+
+
+class TestXxeProbeVerdicts(unittest.TestCase):
+    """_xxe_probe: marks [VULN] when /etc/passwd content in response."""
+
+    def _run_xxe(self, response_body: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _xxe_probe
+
+        async def fake_run(cmd, **kw):
+            return response_body, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_xxe_probe({"target": "http://example.com/xml"}))
+
+    def test_passwd_in_response_marks_vuln(self):
+        result = self._run_xxe("root:x:0:0:root:/root:/bin/bash")
+        self.assertIn("[VULN]", result)
+
+    def test_no_passwd_marks_unknown(self):
+        result = self._run_xxe("<error>XML parse error</error>")
+        self.assertIn("[?]", result)
+
+
+class TestSqliVerdictExtraction(unittest.TestCase):
+    """sqli_error/blind/union: verdict lines extracted from sqlmap output."""
+
+    def _run_sqli(self, tool_fn, stdout_output: str) -> str:
+        from unittest.mock import patch as _patch
+
+        async def fake_run(cmd, **kw):
+            return stdout_output, "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/sqlmap"), \
+             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(tool_fn({"target": "http://example.com/page?id=1"}))
+
+    def test_sqli_error_extracts_injectable_lines(self):
+        from penligent_mcp.tools.web import _sqli_error
+        sqlmap_out = (
+            "[INFO] testing connection\n"
+            "[WARNING] GET parameter 'id' does not seem to be injectable\n"
+            "Parameter: id (GET) Injectable: error-based\n"
+        )
+        result = self._run_sqli(_sqli_error, sqlmap_out)
+        self.assertIn("Injectable", result)
+
+    def test_sqli_blind_extracts_warning_lines(self):
+        from penligent_mcp.tools.web import _sqli_blind
+        sqlmap_out = "[WARNING] parameter 'id' is not injectable\n[INFO] finished\n"
+        result = self._run_sqli(_sqli_blind, sqlmap_out)
+        self.assertIn("[WARNING]", result)
+
+    def test_sqli_union_falls_back_to_last_2000_when_no_verdict(self):
+        from penligent_mcp.tools.web import _sqli_union
+        clean_out = "no relevant lines here\n" * 100
+        result = self._run_sqli(_sqli_union, clean_out)
+        # Should include truncated output since no verdict lines
+        self.assertIn("no relevant lines", result)
+
+
+class TestRfiProbeCallbackHost(unittest.TestCase):
+    """_rfi_probe: when callback_host is provided it is the first tested payload."""
+
+    def test_callback_host_prepended_as_first_payload(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _rfi_probe
+        tested_urls = []
+
+        async def fake_run(cmd, **kw):
+            # Extract URL from curl command (last arg)
+            tested_urls.append(cmd[-1])
+            return "response", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_rfi_probe({
+                "target": "http://example.com",
+                "param": "file",
+                "callback_host": "attacker.com",
+            }))
+
+        # First URL should contain attacker.com
+        first_url = tested_urls[0] if tested_urls else ""
+        self.assertIn("attacker.com", first_url)
+
+    def test_no_callback_host_first_payload_is_localhost(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _rfi_probe
+        tested_urls = []
+
+        async def fake_run(cmd, **kw):
+            tested_urls.append(cmd[-1])
+            return "response", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_rfi_probe({
+                "target": "http://example.com",
+                "param": "file",
+            }))
+
+        first_url = tested_urls[0] if tested_urls else ""
+        self.assertIn("127.0.0.1", first_url)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
