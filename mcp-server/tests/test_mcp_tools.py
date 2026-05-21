@@ -10224,5 +10224,125 @@ class TestHashCrackOnlineMd5Condition(unittest.TestCase):
         self.assertIn("hash_value", result_list[0].text)
 
 
+# ===========================================================================
+# Section 119 — osint.py cloudflare_check NS + IP range detection
+# ===========================================================================
+
+class TestCloudflareCheckDetection(unittest.TestCase):
+    """_cloudflare_check must detect cloudflare via NS records and IP ranges."""
+
+    def _run_cf(self, a_output: str = "", ns_output: str = "") -> str:
+        from unittest.mock import patch
+        from penligent_mcp.tools.osint import _cloudflare_check
+
+        async def fake_run(cmd, timeout=15):
+            if "A" in cmd:
+                return a_output, "", 0
+            if "NS" in cmd:
+                return ns_output, "", 0
+            return "", "", 0
+
+        with patch("penligent_mcp.tools.osint._chk", return_value=True):
+            with patch("penligent_mcp.tools.osint._run", side_effect=fake_run):
+                result_list = asyncio.run(_cloudflare_check({"domain": "example.com"}))
+        return result_list[0].text
+
+    def test_cloudflare_ns_detected(self):
+        result = self._run_cf(
+            a_output="104.21.15.33",
+            ns_output="dns1.cloudflare.com.\ndns2.cloudflare.com.\n",
+        )
+        self.assertIn("True", result)
+        self.assertIn("Cloudflare", result)
+
+    def test_cloudflare_ip_range_104_16_detected(self):
+        result = self._run_cf(a_output="104.16.100.50\n", ns_output="ns1.otherdns.com.\n")
+        self.assertIn("True", result)
+
+    def test_cloudflare_ip_range_172_64_detected(self):
+        result = self._run_cf(a_output="172.64.200.1\n", ns_output="ns.example.com.\n")
+        self.assertIn("True", result)
+
+    def test_non_cloudflare_ip_and_ns_returns_false(self):
+        result = self._run_cf(a_output="203.0.113.5\n", ns_output="ns1.example.com.\n")
+        self.assertIn("False", result)
+
+    def test_behind_cloudflare_note_shown_when_detected(self):
+        result = self._run_cf(
+            a_output="104.16.1.1\n",
+            ns_output="ns1.example.com.\n",
+        )
+        self.assertIn("real IP may be exposed", result)
+
+    def test_no_dig_falls_back_gracefully(self):
+        """When dig is absent, code uses socket.gethostbyname_ex fallback."""
+        from unittest.mock import patch, AsyncMock
+        from penligent_mcp.tools.osint import _cloudflare_check
+        import socket
+
+        async def fake_to_thread(fn, *args):
+            return ("example.com", [], ["203.0.113.5"])
+
+        with patch("penligent_mcp.tools.osint._chk", return_value=False):
+            with patch("asyncio.to_thread", side_effect=fake_to_thread):
+                result_list = asyncio.run(_cloudflare_check({"domain": "example.com"}))
+        result = result_list[0].text
+        self.assertIn("203.0.113.5", result)
+
+
+# ===========================================================================
+# Section 120 — osint.py breach_check HTTP error handling
+# ===========================================================================
+
+class TestBreachCheckHttpErrors(unittest.TestCase):
+    """_breach_check must handle 404 (clean) and 401 (no API key) correctly."""
+
+    def _run_breach(self, http_error_code: int = None, response_json: str = None) -> str:
+        from unittest.mock import patch
+        from penligent_mcp.tools.osint import _breach_check
+        import urllib.error
+
+        if http_error_code is not None:
+            async def fake_http_get(req, timeout=15):
+                raise urllib.error.HTTPError(
+                    url="https://haveibeenpwned.com",
+                    code=http_error_code,
+                    msg="Error",
+                    hdrs={},
+                    fp=None,
+                )
+        else:
+            async def fake_http_get(req, timeout=15):
+                return response_json.encode() if response_json else b"[]"
+
+        with patch("penligent_mcp.tools.osint._http_get", side_effect=fake_http_get):
+            result_list = asyncio.run(_breach_check({"email": "test@example.com"}))
+        return result_list[0].text
+
+    def test_404_returns_no_breaches_message(self):
+        result = self._run_breach(http_error_code=404)
+        self.assertIn("No breaches", result)
+
+    def test_401_returns_api_key_required_message(self):
+        result = self._run_breach(http_error_code=401)
+        self.assertIn("API key", result)
+        self.assertIn("haveibeenpwned", result)
+
+    def test_successful_response_lists_breach_names(self):
+        breaches = json.dumps([
+            {"Name": "Adobe", "BreachDate": "2013-10-04", "DataClasses": ["Email addresses", "Passwords"]},
+            {"Name": "LinkedIn", "BreachDate": "2012-05-05", "DataClasses": ["Email addresses"]},
+        ])
+        result = self._run_breach(response_json=breaches)
+        self.assertIn("Adobe", result)
+        self.assertIn("LinkedIn", result)
+        self.assertIn("2 found", result)
+
+    def test_empty_breach_list_returns_zero_found(self):
+        result = self._run_breach(response_json="[]")
+        # Empty list → the code will say "0 found" since data is empty
+        self.assertIn("0 found", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
