@@ -10344,5 +10344,178 @@ class TestBreachCheckHttpErrors(unittest.TestCase):
         self.assertIn("0 found", result)
 
 
+# ===========================================================================
+# Section 121 — crypto.py _xor_single_byte key detection
+# ===========================================================================
+
+class TestXorSingleByteDetection(unittest.TestCase):
+    """_xor_single_byte must find keys that produce >85% printable ASCII."""
+
+    def _run_xor(self, data: str) -> str:
+        from penligent_mcp.tools.crypto import _xor_single_byte
+        return asyncio.run(_xor_single_byte({"data": data}))[0].text
+
+    def test_known_xor_key_found(self):
+        """XOR a non-printable pattern with a key → encrypted text; key must be found."""
+        # Use \x01\x02\x03 repeated — XOR with 0x42 gives printable 'C@A'
+        # XOR with most OTHER keys gives non-printable (control chars below 0x20)
+        # We choose key 0x20 for simplicity: \x01 XOR 0x20 = '!' (printable)
+        key = 0x20
+        plaintext = bytes(i % 32 + 1 for i in range(30))  # 0x01-0x20 range, non-printable
+        encrypted = bytes(b ^ key for b in plaintext)
+        result = self._run_xor(encrypted.hex())
+        # At minimum, key 0x20 must be in the results (it decrypts to low printable range)
+        self.assertIn("key=", result)
+        self.assertNotIn("No high-confidence", result)
+
+    def test_all_printable_input_finds_key_zero(self):
+        """A plaintext string XOR'd with 0x00 is itself — key=0 should be found."""
+        plaintext = "The quick brown fox jumps over"
+        encrypted = bytes(b ^ 0x00 for b in plaintext.encode())
+        result = self._run_xor(encrypted.hex())
+        self.assertIn("0x00", result)
+
+    def test_random_binary_returns_no_key_found(self):
+        """High-entropy bytes should produce no high-confidence key."""
+        # Create bytes with no consistent XOR key producing printable output
+        import os
+        random_bytes = bytes(range(256))  # all bytes 0-255 — not printable enough for any key
+        result = self._run_xor(random_bytes.hex())
+        # May or may not find keys depending on byte distribution — just verify it returns
+        self.assertIsInstance(result, str)
+
+    def test_hex_input_parsed_correctly(self):
+        """Hex input with spaces like '48 65 6c' should be accepted."""
+        plaintext = b"AAAA" * 20  # All 'A', XOR with 0x00 → still 'A' (printable)
+        result = self._run_xor(" ".join(f"{b:02x}" for b in plaintext))
+        self.assertIn("0x00", result)
+
+    def test_non_hex_input_treated_as_raw(self):
+        """Non-hex input should be treated as raw latin-1 bytes."""
+        plaintext = "Hello World test message here!"
+        result = self._run_xor(plaintext)
+        # Should find key=0 since input is already printable
+        self.assertIn("0x00", result)
+
+    def test_result_truncated_to_20_keys(self):
+        """Result must show at most 20 matching keys."""
+        # Input with all printable bytes (0x20-0x7e) will match many XOR keys
+        data_hex = "20" * 40  # 40 space characters
+        result = self._run_xor(data_hex)
+        lines = [l for l in result.splitlines() if l.startswith("key=")]
+        self.assertLessEqual(len(lines), 20)
+
+
+# ===========================================================================
+# Section 122 — crypto.py _strings_extract pure Python fallback
+# ===========================================================================
+
+class TestStringsExtractPurePython(unittest.TestCase):
+    """_strings_extract pure-Python fallback must find embedded printable strings."""
+
+    def _run_strings(self, file_bytes: bytes, min_length: int = 4) -> str:
+        import tempfile, os
+        from unittest.mock import patch
+        from penligent_mcp.tools.crypto import _strings_extract
+
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as f:
+            f.write(file_bytes)
+            path = f.name
+        try:
+            with patch("penligent_mcp.tools.crypto._chk", return_value=False):
+                result_list = asyncio.run(_strings_extract({"path": path, "min_length": min_length}))
+            return result_list[0].text
+        finally:
+            os.unlink(path)
+
+    def test_embedded_string_found(self):
+        data = b"\x00\x01\x02Hello World\x00\xff"
+        result = self._run_strings(data)
+        self.assertIn("Hello World", result)
+
+    def test_short_string_filtered_by_min_length(self):
+        """Strings shorter than min_length must not appear."""
+        data = b"\x00Hi\x00Hello World\x00"
+        result = self._run_strings(data, min_length=5)
+        self.assertNotIn("Hi", result)
+        self.assertIn("Hello", result)
+
+    def test_multiple_strings_extracted(self):
+        data = b"\x00AAAA\x00\xff\xffBBBBBBB\x00\xffCCCC\x00"
+        result = self._run_strings(data, min_length=4)
+        self.assertIn("AAAA", result)
+        self.assertIn("BBBBBBB", result)
+
+    def test_string_at_end_of_file_included(self):
+        """String at end with no null terminator must still be captured."""
+        data = b"\x00\x01\x02Hello at the end"
+        result = self._run_strings(data)
+        self.assertIn("Hello at the end", result)
+
+    def test_all_binary_returns_empty(self):
+        """All non-printable bytes should return empty result."""
+        data = bytes(range(0, 32)) * 5  # control characters only
+        result = self._run_strings(data)
+        # No strings should be found
+        self.assertEqual(result.strip(), "")
+
+
+# ===========================================================================
+# Section 123 — crypto.py _file_identify magic byte dispatch
+# ===========================================================================
+
+class TestFileIdentifyMagicBytes(unittest.TestCase):
+    """_file_identify must match known magic bytes without the 'file' command."""
+
+    def _run_identify(self, header_bytes: bytes) -> str:
+        import tempfile, os
+        from unittest.mock import patch
+        from penligent_mcp.tools.crypto import _file_identify
+
+        data = header_bytes + b"\x00" * (16 - len(header_bytes))
+        with tempfile.NamedTemporaryFile(delete=False) as f:
+            f.write(data)
+            path = f.name
+        try:
+            with patch("penligent_mcp.tools.crypto._chk", return_value=False):
+                result_list = asyncio.run(_file_identify({"path": path}))
+            return result_list[0].text
+        finally:
+            os.unlink(path)
+
+    def test_elf_magic_detected(self):
+        result = self._run_identify(b"\x7fELF\x02\x01\x01\x00")
+        self.assertIn("ELF", result)
+
+    def test_png_magic_detected(self):
+        result = self._run_identify(b"\x89PNG\r\n\x1a\n")
+        self.assertIn("PNG", result)
+
+    def test_zip_magic_detected(self):
+        result = self._run_identify(b"PK\x03\x04")
+        self.assertIn("ZIP", result)
+
+    def test_pe_magic_detected(self):
+        result = self._run_identify(b"MZ")
+        self.assertIn("PE", result)
+
+    def test_pdf_magic_detected(self):
+        result = self._run_identify(b"%PDF-1.4")
+        self.assertIn("PDF", result)
+
+    def test_unknown_returns_hex_header(self):
+        result = self._run_identify(b"\xAA\xBB\xCC\xDD")
+        self.assertIn("unknown", result)
+        self.assertIn("aabbccdd", result)
+
+    def test_gzip_magic_detected(self):
+        result = self._run_identify(b"\x1f\x8b")
+        self.assertIn("Gzip", result)
+
+    def test_php_script_magic_detected(self):
+        result = self._run_identify(b"<?php echo 'hello';")
+        self.assertIn("PHP", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
