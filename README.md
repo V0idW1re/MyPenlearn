@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.0_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.1_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.0_amd64.deb
+sudo dpkg -i penligent-local_0.1.1_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.0_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.1_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -128,6 +128,45 @@ Then add to `~/.claude/settings.json`:
   }
 }
 ```
+
+---
+
+## Checking MCP server health
+
+The MCP server is **stdio-based** — Claude Code spawns it as a subprocess per turn, so it does not listen on any port. There is no HTTP endpoint to curl.
+
+### From the app
+
+The status bar at the bottom of the window shows a live dot:
+
+| Dot | Meaning |
+|---|---|
+| Green — `MCP · 280 tools` | Server is healthy, tool count confirmed |
+| Yellow (pulsing) | Health check in progress (runs every 15 s) |
+| Red — `MCP · error` | Import failed — hover the dot to see the error |
+
+### From a terminal
+
+**Check Claude Code sees the server:**
+```bash
+claude mcp list
+```
+
+**Check inside an interactive Claude Code session:**
+```
+/mcp
+```
+
+**Check the Python import (same probe the status dot uses):**
+```bash
+/usr/lib/penligent-local/mcp-server/.venv/bin/python -c "import penligent_mcp; print('ok')"
+```
+
+**Check if the process is alive during an active agent turn:**
+```bash
+pgrep -a -f penligent_mcp
+```
+Prints the PID and command if running; nothing if no turn is in progress (that is normal).
 
 ---
 
