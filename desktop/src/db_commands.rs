@@ -1287,3 +1287,54 @@ pub fn get_claude_version() -> Result<String, String> {
     }
     Ok(s)
 }
+
+#[derive(Debug, Serialize)]
+pub struct McpHealthStatus {
+    pub ok: bool,
+    pub tool_count: u32,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn mcp_health_check() -> McpHealthStatus {
+    // Prefer installed path; fall back to dev-build path relative to the exe.
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/lib/penligent-local/mcp-server/.venv/bin/python"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("../../../mcp-server/.venv/bin/python"));
+        }
+    }
+
+    let python = match candidates.into_iter().find(|p| p.exists()) {
+        Some(p) => p,
+        None => return McpHealthStatus {
+            ok: false,
+            tool_count: 0,
+            error: Some("venv not found".into()),
+        },
+    };
+
+    let out = std::process::Command::new(&python)
+        .args(["-c", "import penligent_mcp; print('ok')"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output();
+
+    match out {
+        Ok(o) if o.status.success() => {
+            let tool_count = count_mcp_tools().unwrap_or(0);
+            McpHealthStatus { ok: true, tool_count, error: None }
+        }
+        Ok(o) => {
+            let msg = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            McpHealthStatus { ok: false, tool_count: 0, error: Some(msg) }
+        }
+        Err(e) => McpHealthStatus {
+            ok: false,
+            tool_count: 0,
+            error: Some(e.to_string()),
+        },
+    }
+}

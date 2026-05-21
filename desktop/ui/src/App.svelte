@@ -23,6 +23,8 @@
   let pendingApproval = $state(null);
   let approvalPollTimer = null;
   let activeDbSessionId = $state(null);
+  let mcpStatus  = $state({ state: "checking", tool_count: 0, error: null });
+  let mcpPollTimer = null;
 
   // First-run wizard state
   let wizardOpen  = $state(false);
@@ -32,6 +34,20 @@
   let wzSudoersDone = $state(false);
   let wzSudoersErr  = $state("");
   let wzBusy = $state(false);
+
+  async function pollMcpHealth() {
+    mcpStatus = { ...mcpStatus, state: "checking" };
+    try {
+      const result = await invoke("mcp_health_check");
+      mcpStatus = {
+        state: result.ok ? "ok" : "error",
+        tool_count: result.tool_count ?? 0,
+        error: result.error ?? null,
+      };
+    } catch (e) {
+      mcpStatus = { state: "error", tool_count: 0, error: String(e) };
+    }
+  }
 
   async function pollApprovals() {
     if (!activeProject) return;
@@ -79,6 +95,9 @@
 
     try { vpnState = await invoke("vpn_status"); } catch (_) {}
 
+    pollMcpHealth();
+    mcpPollTimer = setInterval(pollMcpHealth, 15000);
+
     try {
       const z = await invoke("load_config_value", { key: "ui_zoom" });
       if (z) document.documentElement.style.zoom = parseFloat(z);
@@ -94,7 +113,10 @@
     // Poll for approvals every 5 seconds when a project is active
     approvalPollTimer = setInterval(() => { if (activeProject) pollApprovals(); }, 5000);
 
-    return () => { if (approvalPollTimer) clearInterval(approvalPollTimer); };
+    return () => {
+      if (approvalPollTimer) clearInterval(approvalPollTimer);
+      if (mcpPollTimer) clearInterval(mcpPollTimer);
+    };
   });
 
   async function applyContext(project, workDir, resumeId, dbSessionId) {
@@ -233,7 +255,7 @@
     <Settings {vpnState} />
   </div>
 
-  <StatusBar {vpnState} {currentTool} {tokenCount} />
+  <StatusBar {vpnState} {currentTool} {tokenCount} {mcpStatus} />
 
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />

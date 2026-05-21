@@ -1,11 +1,17 @@
 <script>
-  let { vpnState, currentTool, tokenCount } = $props();
+  let { vpnState, currentTool, tokenCount, mcpStatus } = $props();
 
   const DOT_COLOR = {
     connected:    "#3fb950",
     connecting:   "#febc2e",
     disconnected: "#484f58",
     error:        "#f85149",
+  };
+
+  const MCP_DOT = {
+    ok:       "#3fb950",
+    checking: "#febc2e",
+    error:    "#f85149",
   };
 
   function vpnText(s) {
@@ -21,12 +27,28 @@
     if (!n || n < 100) return null;
     return (n / 1000).toFixed(1) + "k";
   }
+
+  function mcpLabel(s) {
+    if (!s || s.state === "checking") return "MCP · …";
+    if (s.state === "ok") return s.tool_count ? `MCP · ${s.tool_count} tools` : "MCP · ok";
+    return "MCP · error";
+  }
+
+  function mcpDotColor(s) {
+    if (!s || s.state === "checking") return MCP_DOT.checking;
+    return s.state === "ok" ? MCP_DOT.ok : MCP_DOT.error;
+  }
 </script>
 
 <div class="pl-statusbar">
   <div class="pl-status-item">
     <span class="pl-dot" style="background:{DOT_COLOR[vpnState?.status] ?? '#484f58'}"></span>
     <span>{vpnText(vpnState ?? { status: "disconnected" })}</span>
+  </div>
+
+  <div class="pl-status-item" title={mcpStatus?.error ?? ""}>
+    <span class="pl-dot" class:pulse={mcpStatus?.state === "checking"} style="background:{mcpDotColor(mcpStatus)}"></span>
+    <span>{mcpLabel(mcpStatus)}</span>
   </div>
 
   {#if currentTool}
