@@ -12,6 +12,7 @@ Covers:
   8. DB module loads cleanly (no import-time errors)
 """
 import asyncio
+import base64
 import inspect
 import json
 import os
@@ -11515,6 +11516,615 @@ class TestExploitPayloadGeneration(unittest.TestCase):
             result = asyncio.run(_chisel_tunnel({"lhost": "10.0.0.1", "tunnel_type": "badtype"}))
         self.assertIn("Error", result)
         self.assertIn("tunnel_type", result)
+
+
+# ===========================================================================
+# Section 127 — utils.py classify, ip_in_network, auth_replay interpretation
+# ===========================================================================
+
+class TestClassifyFunction(unittest.TestCase):
+    """_classify must correctly identify IPs, CIDRs, URLs, domains, unknowns."""
+
+    def setUp(self):
+        from penligent_mcp.tools.utils import _classify
+        self._classify = _classify
+
+    def test_http_url_classified_as_url(self):
+        r = self._classify("http://example.com/path")
+        self.assertEqual(r["type"], "url")
+
+    def test_https_url_classified_as_url(self):
+        r = self._classify("https://api.target.com/v1/users")
+        self.assertEqual(r["type"], "url")
+        self.assertEqual(r["host"], "api.target.com")
+
+    def test_url_host_extracted_correctly(self):
+        r = self._classify("http://10.0.0.1:8080/admin")
+        self.assertEqual(r["type"], "url")
+        self.assertEqual(r["host"], "10.0.0.1")
+
+    def test_ipv4_classified_as_ip(self):
+        r = self._classify("192.168.1.1")
+        self.assertEqual(r["type"], "ip")
+        self.assertEqual(r["version"], 4)
+
+    def test_private_ipv4_marked_private(self):
+        r = self._classify("10.0.0.1")
+        self.assertTrue(r["private"])
+
+    def test_public_ipv4_not_private(self):
+        r = self._classify("8.8.8.8")
+        self.assertFalse(r["private"])
+
+    def test_loopback_marked(self):
+        r = self._classify("127.0.0.1")
+        self.assertTrue(r["loopback"])
+
+    def test_ipv6_classified_as_ip_version_6(self):
+        r = self._classify("::1")
+        self.assertEqual(r["type"], "ip")
+        self.assertEqual(r["version"], 6)
+
+    def test_cidr_classified_as_cidr(self):
+        r = self._classify("10.0.0.0/24")
+        self.assertEqual(r["type"], "cidr")
+
+    def test_cidr_large_flag_for_small_prefix(self):
+        r = self._classify("10.0.0.0/8")
+        self.assertTrue(r["large"])
+
+    def test_cidr_large_false_for_slash24(self):
+        r = self._classify("10.0.0.0/24")
+        self.assertFalse(r["large"])
+
+    def test_cidr_boundary_slash16_not_large(self):
+        r = self._classify("10.0.0.0/16")
+        self.assertFalse(r["large"])
+
+    def test_cidr_slash15_is_large(self):
+        r = self._classify("10.0.0.0/15")
+        self.assertTrue(r["large"])
+
+    def test_domain_classified_as_domain(self):
+        r = self._classify("example.com")
+        self.assertEqual(r["type"], "domain")
+
+    def test_subdomain_classified_as_domain(self):
+        r = self._classify("api.target.example.com")
+        self.assertEqual(r["type"], "domain")
+
+    def test_unknown_returns_unknown(self):
+        r = self._classify("not a valid input!")
+        self.assertEqual(r["type"], "unknown")
+
+    def test_bare_string_no_dot_is_unknown(self):
+        r = self._classify("localhost")
+        self.assertEqual(r["type"], "unknown")
+
+    def test_ip_does_not_match_cidr_path(self):
+        """A bare IPv4 must be typed as 'ip', not 'cidr'."""
+        r = self._classify("192.168.0.1")
+        self.assertEqual(r["type"], "ip")
+        self.assertNotEqual(r["type"], "cidr")
+
+
+class TestIpInNetwork(unittest.TestCase):
+    """_ip_in_network helper: True when IP is inside the CIDR, False otherwise."""
+
+    def setUp(self):
+        from penligent_mcp.tools.utils import _ip_in_network
+        self._fn = _ip_in_network
+
+    def test_ip_in_network_true(self):
+        self.assertTrue(self._fn("10.0.0.5", "10.0.0.0/24"))
+
+    def test_ip_not_in_network_false(self):
+        self.assertFalse(self._fn("10.0.1.1", "10.0.0.0/24"))
+
+    def test_exact_network_address(self):
+        self.assertTrue(self._fn("192.168.1.0", "192.168.1.0/24"))
+
+    def test_broadcast_address_in_network(self):
+        self.assertTrue(self._fn("192.168.1.255", "192.168.1.0/24"))
+
+    def test_invalid_cidr_returns_false(self):
+        self.assertFalse(self._fn("10.0.0.1", "not_a_cidr"))
+
+    def test_invalid_ip_returns_false(self):
+        self.assertFalse(self._fn("not_an_ip", "10.0.0.0/8"))
+
+
+class TestAuthReplayInterpretation(unittest.TestCase):
+    """_auth_replay must interpret HTTP status codes correctly."""
+
+    def _replay(self, status_code: int, body: str = "", headers: str = "") -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.utils import _auth_replay
+
+        curl_output = (
+            f"HTTP/1.1 {status_code}\r\n"
+            + (f"Location: https://redirect.example.com\r\n" if 300 <= status_code < 400 else "")
+            + f"\r\n"
+            + (body or "response body here")
+            + f"\n--- status={status_code} size=100 time=0.1s ---"
+        )
+
+        async def fake_run(cmd, **kw):
+            return curl_output, "", 0
+
+        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.utils._artifact", return_value="/tmp/fake"):
+            result_list = asyncio.run(_auth_replay({
+                "endpoint": "https://api.example.com/profile",
+                "token": "testtoken123",
+            }))
+        return result_list[0].text
+
+    def test_200_reports_token_accepted(self):
+        result = self._replay(200)
+        self.assertIn("ACCEPTED", result)
+
+    def test_401_reports_token_rejected(self):
+        result = self._replay(401)
+        self.assertIn("REJECTED", result)
+
+    def test_403_reports_vertical_escalation_hint(self):
+        result = self._replay(403)
+        self.assertIn("403", result)
+        self.assertIn("vertical", result.lower())
+
+    def test_302_reports_redirect(self):
+        result = self._replay(302)
+        self.assertIn("Redirect", result)
+
+    def test_timeout_returns_timed_out_message(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.utils import _auth_replay
+
+        async def fake_run_timeout(cmd, **kw):
+            return "", "timeout", -1
+
+        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run_timeout):
+            result_list = asyncio.run(_auth_replay({
+                "endpoint": "https://api.example.com/",
+                "token": "tok",
+            }))
+        self.assertIn("timed out", result_list[0].text.lower())
+
+    def test_missing_endpoint_returns_error(self):
+        from penligent_mcp.tools.utils import _auth_replay
+        result_list = asyncio.run(_auth_replay({"token": "tok"}))
+        self.assertIn("Error", result_list[0].text)
+
+    def test_missing_token_returns_error(self):
+        from penligent_mcp.tools.utils import _auth_replay
+        result_list = asyncio.run(_auth_replay({"endpoint": "https://api.example.com/"}))
+        self.assertIn("Error", result_list[0].text)
+
+    def test_post_with_body_includes_content_type(self):
+        """POST with body must add Content-Type: application/json to the curl cmd."""
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.utils import _auth_replay
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "HTTP/1.1 200\r\n\r\nbody\n--- status=200 size=4 time=0.1s ---", "", 0
+
+        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.utils._artifact", return_value="/tmp/fake"):
+            asyncio.run(_auth_replay({
+                "endpoint": "https://api.example.com/",
+                "token": "tok",
+                "method": "POST",
+                "body": '{"admin": true}',
+            }))
+
+        cmd = captured[0]
+        # Content-Type header should appear somewhere in cmd
+        cmd_str = " ".join(cmd)
+        self.assertIn("Content-Type: application/json", cmd_str)
+        self.assertIn("POST", cmd)
+
+
+# ===========================================================================
+# Section 128 — web.py header parsing, JWT logic, and response analysis
+# ===========================================================================
+
+class TestJwtDecode(unittest.TestCase):
+    """_jwt_decode: pure-Python JWT header/payload parsing."""
+
+    def _make_jwt(self, header: dict, payload: dict, sig: str = "fakesig") -> str:
+        def b64(d):
+            return base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").decode()
+        return f"{b64(header)}.{b64(payload)}.{sig}"
+
+    def setUp(self):
+        from penligent_mcp.tools.web import _jwt_decode
+        self._decode = _jwt_decode
+
+    def test_invalid_token_format_returns_error(self):
+        result = asyncio.run(self._decode({"token": "onlytwoparts.hm"}))
+        self.assertIn("Error", result)
+        self.assertIn("3 parts", result)
+
+    def test_empty_token_returns_error(self):
+        result = asyncio.run(self._decode({}))
+        self.assertIn("Error", result)
+
+    def test_alg_none_triggers_vuln_warning(self):
+        tok = self._make_jwt({"alg": "none", "typ": "JWT"}, {"sub": "admin"})
+        result = asyncio.run(self._decode({"token": tok}))
+        self.assertIn("VULN", result)
+        self.assertIn("none", result.lower())
+
+    def test_hs256_triggers_crack_note(self):
+        tok = self._make_jwt({"alg": "HS256", "typ": "JWT"}, {"sub": "user"})
+        result = asyncio.run(self._decode({"token": tok}))
+        self.assertIn("HS256", result)
+        self.assertIn("jwt_crack", result)
+
+    def test_payload_claims_decoded(self):
+        tok = self._make_jwt({"alg": "RS256"}, {"sub": "1234567890", "name": "John"})
+        result = asyncio.run(self._decode({"token": tok}))
+        self.assertIn("1234567890", result)
+        self.assertIn("John", result)
+
+    def test_header_alg_decoded(self):
+        tok = self._make_jwt({"alg": "RS256", "typ": "JWT"}, {"iss": "test"})
+        result = asyncio.run(self._decode({"token": tok}))
+        self.assertIn("RS256", result)
+
+
+class TestJwtCrackPythonFallback(unittest.TestCase):
+    """_jwt_crack Python fallback: correctly cracks or reports not found."""
+
+    def _make_signed_jwt(self, secret: str) -> str:
+        import hmac as _hmac
+        header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(b'{"sub":"1"}').rstrip(b"=").decode()
+        hp = f"{header}.{payload}".encode()
+        sig_bytes = _hmac.new(secret.encode(), hp, "sha256").digest()
+        sig = base64.urlsafe_b64encode(sig_bytes).rstrip(b"=").decode()
+        return f"{header}.{payload}.{sig}"
+
+    def test_correct_secret_in_wordlist_found(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _jwt_crack
+        import tempfile, os as _os
+        token = self._make_signed_jwt("supersecret")
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as wf:
+            wf.write(b"wrongpass\nsupersecret\nanother\n")
+            wl_path = wf.name
+        try:
+            with _patch("shutil.which", return_value=None):  # no hashcat
+                result = asyncio.run(_jwt_crack({"token": token, "wordlist": wl_path}))
+        finally:
+            _os.unlink(wl_path)
+        self.assertIn("supersecret", result)
+        self.assertIn("found", result.lower())
+
+    def test_wrong_secrets_returns_not_found(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _jwt_crack
+        import tempfile, os as _os
+        token = self._make_signed_jwt("correctsecret")
+        with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as wf:
+            wf.write(b"wrong1\nwrong2\n")
+            wl_path = wf.name
+        try:
+            with _patch("shutil.which", return_value=None):
+                result = asyncio.run(_jwt_crack({"token": token, "wordlist": wl_path}))
+        finally:
+            _os.unlink(wl_path)
+        self.assertIn("not found", result.lower())
+
+    def test_missing_wordlist_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _jwt_crack
+        token = self._make_signed_jwt("secret")
+        with _patch("shutil.which", return_value=None):
+            result = asyncio.run(_jwt_crack({
+                "token": token,
+                "wordlist": "/tmp/definitely_does_not_exist_wl.txt",
+            }))
+        self.assertIn("Error", result)
+        self.assertIn("wordlist", result.lower())
+
+
+class TestSecurityHeadersParsing(unittest.TestCase):
+    """_security_headers: header presence/absence detection."""
+
+    def _run_headers(self, curl_response: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _security_headers
+
+        async def fake_run(cmd, **kw):
+            return curl_response, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_security_headers({"target": "https://example.com"}))
+
+    def test_present_header_marked_present(self):
+        result = self._run_headers(
+            "HTTP/1.1 200 OK\r\nStrict-Transport-Security: max-age=31536000\r\n\r\n"
+        )
+        self.assertIn("[PRESENT]", result)
+        self.assertIn("Strict-Transport-Security", result)
+
+    def test_missing_header_marked_missing(self):
+        result = self._run_headers("HTTP/1.1 200 OK\r\n\r\n")
+        self.assertIn("[MISSING]", result)
+        self.assertIn("Content-Security-Policy", result)
+
+    def test_multiple_headers_all_reported(self):
+        hdrs = (
+            "HTTP/1.1 200 OK\r\n"
+            "Strict-Transport-Security: max-age=31536000\r\n"
+            "X-Frame-Options: DENY\r\n"
+            "\r\n"
+        )
+        result = self._run_headers(hdrs)
+        self.assertIn("[PRESENT]", result)
+        # At least one missing header since not all are set
+        self.assertIn("[MISSING]", result)
+
+    def test_no_target_returns_error(self):
+        from penligent_mcp.tools.web import _security_headers
+        result = asyncio.run(_security_headers({}))
+        self.assertIn("Error", result)
+
+
+class TestCorsCheckParsing(unittest.TestCase):
+    """_cors_check: ACAO header detection and potential issue flagging."""
+
+    def _run_cors(self, curl_response: str, origin: str = "https://evil.com") -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _cors_check
+
+        async def fake_run(cmd, **kw):
+            return curl_response, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_cors_check({"target": "https://api.example.com", "origin": origin}))
+
+    def test_origin_reflected_flags_issue(self):
+        result = self._run_cors(
+            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: https://evil.com\r\n\r\n"
+        )
+        self.assertIn("POTENTIAL ISSUE", result)
+
+    def test_wildcard_acao_flags_issue(self):
+        result = self._run_cors("HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\n\r\n")
+        self.assertIn("POTENTIAL ISSUE", result)
+
+    def test_acao_not_set_reported(self):
+        result = self._run_cors("HTTP/1.1 200 OK\r\n\r\n")
+        self.assertIn("NOT SET", result)
+
+    def test_unrelated_acao_value_no_issue(self):
+        result = self._run_cors(
+            "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: https://trusted.example.com\r\n\r\n"
+        )
+        self.assertNotIn("POTENTIAL ISSUE", result)
+
+
+class TestClickjackCheckParsing(unittest.TestCase):
+    """_clickjack_check: XFO and CSP frame-ancestors detection."""
+
+    def _run_clickjack(self, curl_response: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _clickjack_check
+
+        async def fake_run(cmd, **kw):
+            return curl_response, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_clickjack_check({"target": "https://example.com"}))
+
+    def test_xfo_present_marks_protected(self):
+        result = self._run_clickjack("HTTP/1.1 200\r\nX-Frame-Options: DENY\r\n\r\n")
+        self.assertIn("PROTECTED", result)
+        self.assertNotIn("POTENTIALLY VULNERABLE", result)
+
+    def test_no_xfo_no_csp_marks_vulnerable(self):
+        result = self._run_clickjack("HTTP/1.1 200\r\n\r\n")
+        self.assertIn("POTENTIALLY VULNERABLE", result)
+
+    def test_csp_with_frame_ancestors_marks_protected(self):
+        result = self._run_clickjack(
+            "HTTP/1.1 200\r\nContent-Security-Policy: frame-ancestors 'self'\r\n\r\n"
+        )
+        self.assertIn("PRESENT [PROTECTED]", result)
+        self.assertNotIn("POTENTIALLY VULNERABLE", result)
+
+    def test_csp_without_frame_ancestors_not_protected(self):
+        result = self._run_clickjack(
+            "HTTP/1.1 200\r\nContent-Security-Policy: default-src 'self'\r\n\r\n"
+        )
+        self.assertIn("NOT SET in CSP", result)
+
+
+class TestCspCheckWeaknessDetection(unittest.TestCase):
+    """_csp_check: weakness detection in parsed CSP header."""
+
+    def _run_csp(self, curl_response: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _csp_check
+
+        async def fake_run(cmd, **kw):
+            return curl_response, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_csp_check({"target": "https://example.com"}))
+
+    def test_missing_csp_reports_missing(self):
+        result = self._run_csp("HTTP/1.1 200\r\n\r\n")
+        self.assertIn("MISSING", result)
+
+    def test_unsafe_inline_flagged_as_weak(self):
+        result = self._run_csp(
+            "HTTP/1.1 200\r\nContent-Security-Policy: script-src 'unsafe-inline' 'self'\r\n\r\n"
+        )
+        self.assertIn("[WEAK]", result)
+        self.assertIn("unsafe-inline", result)
+
+    def test_unsafe_eval_flagged_as_weak(self):
+        result = self._run_csp(
+            "HTTP/1.1 200\r\nContent-Security-Policy: script-src 'unsafe-eval' 'self'\r\n\r\n"
+        )
+        self.assertIn("[WEAK]", result)
+        self.assertIn("unsafe-eval", result)
+
+    def test_wildcard_script_src_flagged(self):
+        result = self._run_csp(
+            "HTTP/1.1 200\r\nContent-Security-Policy: script-src *\r\n\r\n"
+        )
+        self.assertIn("[WEAK]", result)
+
+    def test_strict_csp_reports_ok(self):
+        result = self._run_csp(
+            "HTTP/1.1 200\r\nContent-Security-Policy: script-src 'self' 'nonce-abc123'\r\n\r\n"
+        )
+        self.assertIn("[OK]", result)
+
+
+class TestAuthBruteHttpSchemeParsing(unittest.TestCase):
+    """_auth_brute_http: https target uses https-post-form, http uses http-post-form."""
+
+    def _run_brute(self, target: str) -> list:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _auth_brute_http
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/hydra"), \
+             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_auth_brute_http({"target": target}))
+        return captured[0] if captured else []
+
+    def test_https_target_uses_https_post_form(self):
+        cmd = self._run_brute("https://example.com")
+        self.assertIn("https-post-form", cmd)
+
+    def test_http_target_uses_http_post_form(self):
+        cmd = self._run_brute("http://example.com")
+        self.assertIn("http-post-form", cmd)
+
+
+class TestRateLimitCheck429Detection(unittest.TestCase):
+    """_rate_limit_check: 429 responses trigger PROTECTED label."""
+
+    def test_429_responses_mark_protected(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _rate_limit_check
+
+        async def fake_run(cmd, **kw):
+            return "429", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            result = asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 5}))
+        self.assertIn("PROTECTED", result)
+        self.assertIn("429", result)
+
+    def test_no_429_responses_notes_no_enforcement(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _rate_limit_check
+
+        async def fake_run(cmd, **kw):
+            return "200", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            result = asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 5}))
+        self.assertIn("No 429", result)
+
+    def test_requests_capped_at_100(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _rate_limit_check
+        call_count = []
+
+        async def fake_run(cmd, **kw):
+            call_count.append(1)
+            return "200", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 999}))
+        self.assertLessEqual(len(call_count), 100)
+
+
+class TestGraphqlProbeIntrospection(unittest.TestCase):
+    """_graphql_probe: introspection detection from response content."""
+
+    def test_schema_in_response_marks_vuln(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _graphql_probe
+
+        async def fake_run(cmd, **kw):
+            return '{"data":{"__schema":{"queryType":{"name":"Query"}}}}', "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            result = asyncio.run(_graphql_probe({"target": "http://example.com"}))
+        self.assertIn("VULN", result)
+        self.assertIn("Introspection ENABLED", result)
+
+    def test_errors_in_response_marks_exists(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _graphql_probe
+
+        async def fake_run(cmd, **kw):
+            return '{"errors":[{"message":"not allowed"}]}', "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            result = asyncio.run(_graphql_probe({"target": "http://example.com"}))
+        self.assertIn("EXISTS", result)
+
+    def test_api_fuzz_appends_fuzz_when_absent(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _api_fuzz
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/ffuf"), \
+             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_api_fuzz({"target": "http://example.com/api"}))
+
+        url_in_cmd = next((a for a in captured[0] if "FUZZ" in a), None)
+        self.assertIsNotNone(url_in_cmd)
+        self.assertIn("FUZZ", url_in_cmd)
+
+    def test_api_fuzz_keeps_existing_fuzz_placeholder(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _api_fuzz
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/ffuf"), \
+             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            asyncio.run(_api_fuzz({"target": "http://example.com/FUZZ/endpoint"}))
+
+        url_in_cmd = next((a for a in captured[0] if "FUZZ" in a), None)
+        self.assertEqual(url_in_cmd, "http://example.com/FUZZ/endpoint")
 
 
 if __name__ == "__main__":
