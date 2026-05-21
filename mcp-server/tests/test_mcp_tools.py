@@ -10517,5 +10517,1005 @@ class TestFileIdentifyMagicBytes(unittest.TestCase):
         self.assertIn("PHP", result)
 
 
+# ===========================================================================
+# Section 124 — cloud.py command-building logic
+# ===========================================================================
+
+class TestCloudLogicAndModeSelection(unittest.TestCase):
+    """Cloud tools: argument guards, mode selection, command building."""
+
+    from unittest.mock import patch
+
+    # -----------------------------------------------------------------------
+    # kube_hunter — mode selection
+    # -----------------------------------------------------------------------
+
+    def _run_kube_hunter(self, args: dict) -> list:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _kube_hunter
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/kube-hunter"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_kube_hunter(args))
+        return captured[0] if captured else []
+
+    def test_kube_hunter_target_uses_remote_flag(self):
+        cmd = self._run_kube_hunter({"target": "10.0.0.1"})
+        self.assertIn("--remote", cmd)
+        self.assertIn("10.0.0.1", cmd)
+        self.assertNotIn("--pod", cmd)
+        self.assertNotIn("--cidr", cmd)
+
+    def test_kube_hunter_cidr_uses_cidr_flag(self):
+        cmd = self._run_kube_hunter({"cidr": "10.0.0.0/24"})
+        self.assertIn("--cidr", cmd)
+        self.assertIn("10.0.0.0/24", cmd)
+        self.assertNotIn("--remote", cmd)
+        self.assertNotIn("--pod", cmd)
+
+    def test_kube_hunter_no_target_no_cidr_uses_pod(self):
+        cmd = self._run_kube_hunter({})
+        self.assertIn("--pod", cmd)
+        self.assertNotIn("--remote", cmd)
+        self.assertNotIn("--cidr", cmd)
+
+    def test_kube_hunter_target_takes_priority_over_cidr(self):
+        cmd = self._run_kube_hunter({"target": "10.0.0.1", "cidr": "10.0.0.0/24"})
+        self.assertIn("--remote", cmd)
+        self.assertNotIn("--cidr", cmd)
+
+    def test_kube_hunter_active_flag_added_when_true(self):
+        cmd = self._run_kube_hunter({"active": True})
+        self.assertIn("--active", cmd)
+
+    def test_kube_hunter_active_flag_absent_by_default(self):
+        cmd = self._run_kube_hunter({})
+        self.assertNotIn("--active", cmd)
+
+    def test_kube_hunter_missing_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _kube_hunter
+        with _patch("shutil.which", return_value=None):
+            result = asyncio.run(_kube_hunter({}))
+        self.assertIn("not found", result.lower())
+
+    # -----------------------------------------------------------------------
+    # cloudmapper_analyze — account guard
+    # -----------------------------------------------------------------------
+
+    def test_cloudmapper_no_account_non_webserver_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        with _patch("shutil.which", return_value="/usr/bin/cloudmapper"):
+            result = asyncio.run(_cloudmapper_analyze({"action": "collect"}))
+        self.assertIn("Error", result)
+        self.assertIn("account", result.lower())
+
+    def test_cloudmapper_webserver_action_no_account_allowed(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "running webserver", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/cloudmapper"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            result = asyncio.run(_cloudmapper_analyze({"action": "webserver"}))
+        self.assertNotIn("Error", result)
+        self.assertTrue(len(captured) == 1)
+
+    def test_cloudmapper_account_included_in_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "done", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/cloudmapper"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_cloudmapper_analyze({"action": "collect", "account": "my-account"}))
+        self.assertIn("--account", captured[0])
+        self.assertIn("my-account", captured[0])
+
+    # -----------------------------------------------------------------------
+    # scout_suite — profile only for aws
+    # -----------------------------------------------------------------------
+
+    def _run_scout_suite(self, args: dict) -> list:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _scout_suite
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "done", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/scout"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_scout_suite(args))
+        return captured[0] if captured else []
+
+    def test_scout_suite_profile_included_for_aws(self):
+        cmd = self._run_scout_suite({"provider": "aws", "profile": "myprofile"})
+        self.assertIn("--profile", cmd)
+        self.assertIn("myprofile", cmd)
+
+    def test_scout_suite_profile_excluded_for_gcp(self):
+        cmd = self._run_scout_suite({"provider": "gcp", "profile": "myprofile"})
+        self.assertNotIn("--profile", cmd)
+
+    def test_scout_suite_profile_excluded_for_azure(self):
+        cmd = self._run_scout_suite({"provider": "azure", "profile": "myprofile"})
+        self.assertNotIn("--profile", cmd)
+
+    def test_scout_suite_report_dir_in_cmd(self):
+        cmd = self._run_scout_suite({"report_dir": "/tmp/myreport"})
+        self.assertIn("--report-dir", cmd)
+        self.assertIn("/tmp/myreport", cmd)
+
+    # -----------------------------------------------------------------------
+    # trivy_scan — required arg guard
+    # -----------------------------------------------------------------------
+
+    def test_trivy_no_target_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _trivy_scan
+        with _patch("shutil.which", return_value="/usr/bin/trivy"):
+            result = asyncio.run(_trivy_scan({}))
+        self.assertIn("Error", result)
+        self.assertIn("target", result.lower())
+
+    def test_trivy_scan_type_and_target_in_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _trivy_scan
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/trivy"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_trivy_scan({"target": "ubuntu:20.04", "scan_type": "image"}))
+        self.assertIn("image", captured[0])
+        self.assertIn("ubuntu:20.04", captured[0])
+
+    def test_trivy_severity_filter_in_cmd_when_provided(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _trivy_scan
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/trivy"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_trivy_scan({"target": "nginx:latest", "severity": "CRITICAL,HIGH"}))
+        self.assertIn("--severity", captured[0])
+        self.assertIn("CRITICAL,HIGH", captured[0])
+
+    # -----------------------------------------------------------------------
+    # clair_scan — required arg guard
+    # -----------------------------------------------------------------------
+
+    def test_clair_no_image_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _clair_scan
+        with _patch("shutil.which", return_value="/usr/bin/clairctl"):
+            result = asyncio.run(_clair_scan({}))
+        self.assertIn("Error", result)
+        self.assertIn("image", result.lower())
+
+    def test_clair_image_in_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _clair_scan
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/clairctl"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+            asyncio.run(_clair_scan({"image": "ubuntu:20.04"}))
+        self.assertIn("ubuntu:20.04", captured[0])
+        self.assertIn("analyze", captured[0])
+
+    # -----------------------------------------------------------------------
+    # pacu_exploit — required args + command file content
+    # -----------------------------------------------------------------------
+
+    def test_pacu_no_modules_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _pacu_exploit
+        with _patch("shutil.which", return_value="/usr/bin/pacu"):
+            result = asyncio.run(_pacu_exploit({}))
+        self.assertIn("Error", result)
+        self.assertIn("modules", result.lower())
+
+    def test_pacu_command_file_contains_set_session_and_exit(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _pacu_exploit
+        import os as _os
+        captured_cmd = []
+        deleted_paths = []
+
+        async def fake_run(cmd, **kw):
+            captured_cmd.append(list(cmd))
+            return "done", "", 0
+
+        def fake_unlink(path):
+            deleted_paths.append(path)  # record but don't delete
+
+        with _patch("shutil.which", return_value="/usr/bin/pacu"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penligent_mcp.tools.cloud.os.unlink", side_effect=fake_unlink):
+            asyncio.run(_pacu_exploit({
+                "session_name": "test_session",
+                "modules": "mod1,mod2",
+            }))
+
+        # Extract temp file path from "bash -c 'pacu < /tmp/tmpXXX.txt'"
+        bash_arg = captured_cmd[0][2]
+        cmd_file = bash_arg.split("pacu < ")[1]
+        try:
+            content = Path(cmd_file).read_text()
+        finally:
+            try:
+                _os.unlink(cmd_file)
+            except OSError:
+                pass
+
+        self.assertIn("set_session test_session", content)
+        self.assertIn("run mod1", content)
+        self.assertIn("run mod2", content)
+        self.assertTrue(content.strip().endswith("exit"))
+
+    def test_pacu_regions_included_when_provided(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _pacu_exploit
+        import os as _os
+        captured_cmd = []
+
+        async def fake_run(cmd, **kw):
+            captured_cmd.append(list(cmd))
+            return "done", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/pacu"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penligent_mcp.tools.cloud.os.unlink", return_value=None):
+            asyncio.run(_pacu_exploit({
+                "session_name": "sess",
+                "modules": "iam__enum_permissions",
+                "regions": "us-east-1,us-west-2",
+            }))
+
+        bash_arg = captured_cmd[0][2]
+        cmd_file = bash_arg.split("pacu < ")[1]
+        try:
+            content = Path(cmd_file).read_text()
+        except OSError:
+            content = ""
+        finally:
+            try:
+                _os.unlink(cmd_file)
+            except OSError:
+                pass
+
+        self.assertIn("set_regions us-east-1,us-west-2", content)
+
+    def test_pacu_no_regions_skips_set_regions(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.cloud import _pacu_exploit
+        import os as _os
+        captured_cmd = []
+
+        async def fake_run(cmd, **kw):
+            captured_cmd.append(list(cmd))
+            return "done", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/pacu"), \
+             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penligent_mcp.tools.cloud.os.unlink", return_value=None):
+            asyncio.run(_pacu_exploit({
+                "session_name": "sess",
+                "modules": "iam__enum_permissions",
+            }))
+
+        bash_arg = captured_cmd[0][2]
+        cmd_file = bash_arg.split("pacu < ")[1]
+        try:
+            content = Path(cmd_file).read_text()
+        except OSError:
+            content = ""
+        finally:
+            try:
+                _os.unlink(cmd_file)
+            except OSError:
+                pass
+
+        self.assertNotIn("set_regions", content)
+
+
+# ===========================================================================
+# Section 125 — binary.py command-building and arg-guard logic
+# ===========================================================================
+
+class TestBinaryToolLogic(unittest.TestCase):
+    """Binary analysis tools: argument guards, mode dispatch, command building."""
+
+    # -----------------------------------------------------------------------
+    # _steghide_analyze — action validation + command dispatch
+    # -----------------------------------------------------------------------
+
+    def _run_steghide(self, args: dict) -> tuple:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _steghide_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "done", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/steghide"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            result = asyncio.run(_steghide_analyze(args))
+        return result, captured[0] if captured else []
+
+    def test_steghide_invalid_action_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _steghide_analyze
+        with _patch("shutil.which", return_value="/usr/bin/steghide"):
+            result = asyncio.run(_steghide_analyze({"cover_file": "img.jpg", "action": "badaction"}))
+        self.assertIn("Error", result)
+        self.assertIn("action", result.lower())
+
+    def test_steghide_embed_without_embed_file_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _steghide_analyze
+        with _patch("shutil.which", return_value="/usr/bin/steghide"):
+            result = asyncio.run(_steghide_analyze({"cover_file": "img.jpg", "action": "embed"}))
+        self.assertIn("Error", result)
+        self.assertIn("embed_file", result.lower())
+
+    def test_steghide_no_cover_file_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _steghide_analyze
+        with _patch("shutil.which", return_value="/usr/bin/steghide"):
+            result = asyncio.run(_steghide_analyze({}))
+        self.assertIn("Error", result)
+
+    def test_steghide_extract_uses_extract_subcommand(self):
+        _, cmd = self._run_steghide({"cover_file": "img.jpg", "action": "extract"})
+        self.assertEqual(cmd[0], "steghide")
+        self.assertEqual(cmd[1], "extract")
+        self.assertIn("-sf", cmd)
+        self.assertIn("img.jpg", cmd)
+
+    def test_steghide_info_uses_info_subcommand(self):
+        _, cmd = self._run_steghide({"cover_file": "img.jpg", "action": "info"})
+        self.assertEqual(cmd[1], "info")
+        self.assertIn("img.jpg", cmd)
+
+    def test_steghide_embed_uses_embed_subcommand(self):
+        _, cmd = self._run_steghide({
+            "cover_file": "img.jpg",
+            "action": "embed",
+            "embed_file": "secret.txt",
+        })
+        self.assertEqual(cmd[1], "embed")
+        self.assertIn("-cf", cmd)
+        self.assertIn("-ef", cmd)
+        self.assertIn("secret.txt", cmd)
+
+    # -----------------------------------------------------------------------
+    # _objdump_analyze — disassemble vs headers flag
+    # -----------------------------------------------------------------------
+
+    def _run_objdump(self, args: dict) -> list:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _objdump_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/objdump"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_objdump_analyze(args))
+        return captured[0] if captured else []
+
+    def test_objdump_disassemble_true_uses_d_flag(self):
+        cmd = self._run_objdump({"binary": "/bin/ls", "disassemble": True})
+        self.assertIn("-d", cmd)
+        self.assertNotIn("-x", cmd)
+
+    def test_objdump_disassemble_false_uses_x_flag(self):
+        cmd = self._run_objdump({"binary": "/bin/ls", "disassemble": False})
+        self.assertIn("-x", cmd)
+        self.assertNotIn("-d", cmd)
+
+    def test_objdump_section_filter_in_cmd(self):
+        cmd = self._run_objdump({"binary": "/bin/ls", "section": ".text"})
+        self.assertIn("-j", cmd)
+        self.assertIn(".text", cmd)
+
+    def test_objdump_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _objdump_analyze
+        with _patch("shutil.which", return_value="/usr/bin/objdump"):
+            result = asyncio.run(_objdump_analyze({}))
+        self.assertIn("Error", result)
+
+    # -----------------------------------------------------------------------
+    # _gdb_analyze — dual input guard + temp file writing
+    # -----------------------------------------------------------------------
+
+    def test_gdb_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _gdb_analyze
+        with _patch("shutil.which", return_value="/usr/bin/gdb"):
+            result = asyncio.run(_gdb_analyze({}))
+        self.assertIn("Error", result)
+
+    def test_gdb_no_commands_no_script_file_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _gdb_analyze
+        with _patch("shutil.which", return_value="/usr/bin/gdb"):
+            result = asyncio.run(_gdb_analyze({"binary": "/bin/ls"}))
+        self.assertIn("Error", result)
+        self.assertIn("commands", result.lower())
+
+    def test_gdb_commands_written_to_temp_file(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _gdb_analyze
+        import os as _os
+        captured_cmd = []
+        temp_content = []
+
+        async def fake_run(cmd, **kw):
+            # Script file is cmd[-2]; read before it gets deleted
+            script_path = cmd[-2]
+            try:
+                temp_content.append(Path(script_path).read_text())
+            except OSError:
+                pass
+            captured_cmd.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/gdb"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_gdb_analyze({
+                "binary": "/bin/ls",
+                "commands": "info functions\ndisas main",
+            }))
+
+        self.assertTrue(len(temp_content) > 0, "Script file was not read")
+        self.assertIn("info functions", temp_content[0])
+        self.assertIn("disas main", temp_content[0])
+        # Verify -batch and -x flags are in cmd
+        self.assertIn("-batch", captured_cmd[0])
+        self.assertIn("-x", captured_cmd[0])
+
+    def test_gdb_script_file_used_directly(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _gdb_analyze
+        captured_cmd = []
+
+        async def fake_run(cmd, **kw):
+            captured_cmd.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/gdb"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_gdb_analyze({
+                "binary": "/bin/ls",
+                "script_file": "/tmp/my_script.gdb",
+            }))
+
+        self.assertIn("/tmp/my_script.gdb", captured_cmd[0])
+
+    # -----------------------------------------------------------------------
+    # _volatility3_analyze — fallback binary probe
+    # -----------------------------------------------------------------------
+
+    def test_volatility3_uses_vol_if_available(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _volatility3_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        def which_vol_first(name):
+            return "/usr/bin/vol" if name == "vol" else None
+
+        with _patch("shutil.which", side_effect=which_vol_first), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.pslist"}))
+
+        self.assertEqual(captured[0][0], "/usr/bin/vol")
+
+    def test_volatility3_falls_back_to_vol_py(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _volatility3_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        def which_vol_py(name):
+            if name == "vol":
+                return None
+            if name == "vol.py":
+                return "/usr/local/bin/vol.py"
+            return None
+
+        with _patch("shutil.which", side_effect=which_vol_py), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "linux.bash"}))
+
+        self.assertEqual(captured[0][0], "/usr/local/bin/vol.py")
+
+    def test_volatility3_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _volatility3_analyze
+        with _patch("shutil.which", return_value=None):
+            result = asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.pslist"}))
+        self.assertIn("not found", result.lower())
+
+    def test_volatility3_plugin_in_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _volatility3_analyze
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/vol"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.netscan"}))
+
+        self.assertIn("windows.netscan", captured[0])
+        self.assertIn("/tmp/mem.raw", captured[0])
+
+    # -----------------------------------------------------------------------
+    # _ropgadget_search — output truncation logic (pure Python)
+    # -----------------------------------------------------------------------
+
+    def test_ropgadget_more_than_20_lines_shows_tail_and_count(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _ropgadget_search
+        long_output = "\n".join(f"0x{i:08x}: pop r{i % 16}; ret" for i in range(25))
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return long_output, "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/ROPgadget"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            result = asyncio.run(_ropgadget_search({"binary": "/bin/ls"}))
+
+        self.assertIn("Total gadgets:", result)
+        self.assertIn("Sample/tail output", result)
+
+    def test_ropgadget_20_or_fewer_lines_shows_full_output(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _ropgadget_search
+        short_output = "\n".join(f"0x{i:08x}: pop rdi; ret" for i in range(5))
+
+        async def fake_run(cmd, **kw):
+            return short_output, "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/ROPgadget"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            result = asyncio.run(_ropgadget_search({"binary": "/bin/ls"}))
+
+        # All 5 lines present (no truncation); total count reflects all lines
+        self.assertIn("0x00000000", result)
+        self.assertIn("0x00000004", result)
+        self.assertIn("Total gadgets: ~5", result)
+
+    # -----------------------------------------------------------------------
+    # _exiftool_extract — format flag dispatch
+    # -----------------------------------------------------------------------
+
+    def _run_exiftool(self, args: dict) -> list:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _exiftool_extract
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/exiftool"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_exiftool_extract(args))
+        return captured[0] if captured else []
+
+    def test_exiftool_json_format_adds_json_flag(self):
+        cmd = self._run_exiftool({"file_path": "photo.jpg", "output_format": "json"})
+        self.assertIn("-json", cmd)
+
+    def test_exiftool_xml_format_adds_xml_flag(self):
+        cmd = self._run_exiftool({"file_path": "photo.jpg", "output_format": "xml"})
+        self.assertIn("-xml", cmd)
+
+    def test_exiftool_invalid_format_adds_no_flag(self):
+        cmd = self._run_exiftool({"file_path": "photo.jpg", "output_format": "text"})
+        self.assertNotIn("-text", cmd)
+
+    def test_exiftool_no_file_path_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _exiftool_extract
+        with _patch("shutil.which", return_value="/usr/bin/exiftool"):
+            result = asyncio.run(_exiftool_extract({}))
+        self.assertIn("Error", result)
+
+    # -----------------------------------------------------------------------
+    # _hashpump_attack — all-required guard
+    # -----------------------------------------------------------------------
+
+    def test_hashpump_missing_any_field_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _hashpump_attack
+        with _patch("shutil.which", return_value="/usr/bin/hashpump"):
+            # Missing append_data
+            result = asyncio.run(_hashpump_attack({
+                "signature": "abc123",
+                "data": "original",
+                "key_length": 16,
+            }))
+        self.assertIn("Error", result)
+        self.assertIn("required", result.lower())
+
+    def test_hashpump_all_args_in_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.binary import _hashpump_attack
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/hashpump"), \
+             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+            asyncio.run(_hashpump_attack({
+                "signature": "deadbeef",
+                "data": "payload",
+                "key_length": 8,
+                "append_data": "admin",
+            }))
+
+        self.assertIn("-s", captured[0])
+        self.assertIn("deadbeef", captured[0])
+        self.assertIn("-d", captured[0])
+        self.assertIn("payload", captured[0])
+        self.assertIn("-k", captured[0])
+        self.assertIn("-a", captured[0])
+        self.assertIn("admin", captured[0])
+
+    # -----------------------------------------------------------------------
+    # _pwntools_run — script_content required guard
+    # -----------------------------------------------------------------------
+
+    def test_pwntools_no_script_content_returns_error(self):
+        from penligent_mcp.tools.binary import _pwntools_run
+        result = asyncio.run(_pwntools_run({}))
+        self.assertIn("Error", result)
+        self.assertIn("script_content", result.lower())
+
+
+# ===========================================================================
+# Section 126 — exploit.py pure-Python payload generation and logic
+# ===========================================================================
+
+class TestExploitPayloadGeneration(unittest.TestCase):
+    """Exploit module: payload generation, lookups, tunnel commands — no subprocess."""
+
+    # -----------------------------------------------------------------------
+    # _reverse_shell
+    # -----------------------------------------------------------------------
+
+    def test_reverse_shell_requires_lhost(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({}))
+        self.assertIn("Error", result)
+        self.assertIn("lhost", result.lower())
+
+    def test_reverse_shell_all_types_returned_by_default(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1"}))
+        for shell_type in ("BASH", "PYTHON3", "PHP", "NC", "PERL", "RUBY", "POWERSHELL"):
+            self.assertIn(f"[{shell_type}]", result)
+
+    def test_reverse_shell_single_type_returns_only_that_shell(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 9001, "shell_type": "bash"}))
+        self.assertIn("bash", result.lower())
+        self.assertNotIn("[PYTHON3]", result)
+        self.assertNotIn("[PHP]", result)
+
+    def test_reverse_shell_lhost_embedded_in_payload(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "192.168.1.99", "lport": 4444}))
+        self.assertIn("192.168.1.99", result)
+        self.assertIn("4444", result)
+
+    def test_reverse_shell_custom_port_in_payload(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 7777}))
+        self.assertIn("7777", result)
+
+    def test_reverse_shell_listener_hint_included(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 4444}))
+        self.assertIn("nc -lvnp 4444", result)
+
+    def test_reverse_shell_unknown_type_falls_through_to_all(self):
+        from penligent_mcp.tools.exploit import _reverse_shell
+        result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "shell_type": "nonexistent"}))
+        # Unknown type → falls through to all
+        self.assertIn("[BASH]", result)
+
+    # -----------------------------------------------------------------------
+    # _bind_shell
+    # -----------------------------------------------------------------------
+
+    def test_bind_shell_all_types_returned_by_default(self):
+        from penligent_mcp.tools.exploit import _bind_shell
+        result = asyncio.run(_bind_shell({}))
+        for shell_type in ("NC", "PYTHON3", "PHP", "PERL", "POWERSHELL"):
+            self.assertIn(f"[{shell_type}]", result)
+
+    def test_bind_shell_single_type_includes_connect_command(self):
+        from penligent_mcp.tools.exploit import _bind_shell
+        result = asyncio.run(_bind_shell({"lport": 5555, "shell_type": "nc", "rhost": "10.0.0.2"}))
+        self.assertIn("nc 10.0.0.2 5555", result)
+        self.assertNotIn("[PYTHON3]", result)
+
+    def test_bind_shell_default_port_is_4444(self):
+        from penligent_mcp.tools.exploit import _bind_shell
+        result = asyncio.run(_bind_shell({}))
+        self.assertIn("4444", result)
+
+    # -----------------------------------------------------------------------
+    # _payload_php_webshell
+    # -----------------------------------------------------------------------
+
+    def test_php_webshell_standard_uses_system_cmd(self):
+        from penligent_mcp.tools.exploit import _payload_php_webshell
+        result = asyncio.run(_payload_php_webshell({"shell_type": "standard"}))
+        self.assertIn("system(", result)
+        self.assertIn("cmd", result)
+
+    def test_php_webshell_b64_uses_eval_base64(self):
+        from penligent_mcp.tools.exploit import _payload_php_webshell
+        result = asyncio.run(_payload_php_webshell({"shell_type": "b64"}))
+        self.assertIn("eval(base64_decode", result)
+
+    def test_php_webshell_password_protection_injected(self):
+        from penligent_mcp.tools.exploit import _payload_php_webshell
+        result = asyncio.run(_payload_php_webshell({"shell_type": "standard", "password": "s3cr3t"}))
+        self.assertIn("s3cr3t", result)
+        self.assertIn("die()", result)
+
+    def test_php_webshell_unknown_type_returns_all(self):
+        from penligent_mcp.tools.exploit import _payload_php_webshell
+        result = asyncio.run(_payload_php_webshell({"shell_type": "bogus"}))
+        # Falls through to listing all shells
+        self.assertIn("[STANDARD]", result)
+        self.assertIn("[B64]", result)
+
+    # -----------------------------------------------------------------------
+    # _gtfobins_lookup — offline fallback
+    # -----------------------------------------------------------------------
+
+    def _gtfobins_offline(self, binary: str, function_filter: str = "") -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _gtfobins_lookup
+
+        async def fake_run(cmd, **kw):
+            return "", "connection refused", 1  # simulate offline
+
+        with _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            return asyncio.run(_gtfobins_lookup({"binary": binary, "function": function_filter}))
+
+    def test_gtfobins_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _gtfobins_lookup
+        with _patch("penligent_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_gtfobins_lookup({}))
+        self.assertIn("Error", result)
+
+    def test_gtfobins_known_binary_offline(self):
+        result = self._gtfobins_offline("vim")
+        self.assertIn("vim", result.lower())
+        self.assertIn("shell", result.lower())
+
+    def test_gtfobins_unknown_binary_offline_says_not_in_database(self):
+        result = self._gtfobins_offline("totallyunknowntool")
+        self.assertIn("not in GTFOBins", result)
+
+    def test_gtfobins_function_filter_applied_offline(self):
+        result = self._gtfobins_offline("python3", "sudo")
+        self.assertIn("sudo", result.lower())
+        # "file-read" should be filtered out (present normally but filtered here)
+        self.assertNotIn("file-write", result.lower())
+
+    def test_gtfobins_payloads_included_for_known_binary(self):
+        result = self._gtfobins_offline("bash")
+        self.assertIn("bash -p", result)
+
+    # -----------------------------------------------------------------------
+    # _lolbas_lookup — offline fallback
+    # -----------------------------------------------------------------------
+
+    def _lolbas_offline(self, binary: str, function_filter: str = "") -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _lolbas_lookup
+
+        async def fake_run(cmd, **kw):
+            return "", "connection refused", 1
+
+        with _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            return asyncio.run(_lolbas_lookup({"binary": binary, "function": function_filter}))
+
+    def test_lolbas_no_binary_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _lolbas_lookup
+        with _patch("penligent_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_lolbas_lookup({}))
+        self.assertIn("Error", result)
+
+    def test_lolbas_certutil_offline(self):
+        result = self._lolbas_offline("certutil")
+        self.assertIn("certutil", result.lower())
+        self.assertIn("Download", result)
+        self.assertIn("certutil -urlcache", result)
+
+    def test_lolbas_unknown_binary_offline(self):
+        result = self._lolbas_offline("unknowntool123")
+        self.assertIn("not in LOLBAS", result)
+
+    def test_lolbas_function_filter_applied_offline(self):
+        result = self._lolbas_offline("certutil", "Download")
+        self.assertIn("Download", result)
+
+    # -----------------------------------------------------------------------
+    # _php_filter_chain — offline (no tool)
+    # -----------------------------------------------------------------------
+
+    def test_php_filter_chain_contains_command(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _php_filter_chain
+        with _patch("shutil.which", return_value=None), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_php_filter_chain({"command": "whoami"}))
+        self.assertIn("php://filter/", result)
+        self.assertIn("whoami", result)
+
+    def test_php_filter_chain_default_command_is_id(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _php_filter_chain
+        with _patch("shutil.which", return_value=None), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_php_filter_chain({}))
+        self.assertIn("id", result)
+
+    # -----------------------------------------------------------------------
+    # _impacket_psexec — required args
+    # -----------------------------------------------------------------------
+
+    def test_psexec_requires_target_and_username(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        with _patch("shutil.which", return_value="/usr/bin/impacket-psexec"):
+            result = asyncio.run(_impacket_psexec({"target": "10.0.0.1"}))
+        self.assertIn("Error", result)
+        result2 = asyncio.run(_impacket_psexec({"username": "admin"}))
+        self.assertIn("Error", result2)
+
+    def test_psexec_nt_hash_adds_hashes_flag(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _impacket_psexec
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "output", "", 0
+
+        with _patch("shutil.which", return_value="/usr/bin/impacket-psexec"), \
+             _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            asyncio.run(_impacket_psexec({
+                "target": "10.0.0.1",
+                "username": "admin",
+                "nt_hash": "aad3b435b51404eeaad3b435b51404ee",
+            }))
+        self.assertIn("-hashes", captured[0])
+
+    # -----------------------------------------------------------------------
+    # _chisel_tunnel — tunnel type dispatch
+    # -----------------------------------------------------------------------
+
+    def test_chisel_requires_lhost(self):
+        from penligent_mcp.tools.exploit import _chisel_tunnel
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "penligent_mcp.tools.exploit._persist", return_value=None
+        ):
+            result = asyncio.run(_chisel_tunnel({}))
+        self.assertIn("Error", result)
+
+    def test_chisel_socks5_produces_r_socks_in_client_cmd(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_chisel_tunnel({"lhost": "10.0.0.1", "tunnel_type": "socks5", "local_port": 1080}))
+        self.assertIn("R:1080:socks", result)
+
+    def test_chisel_forward_produces_remote_host_port(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_chisel_tunnel({
+                "lhost": "10.0.0.1",
+                "tunnel_type": "forward",
+                "local_port": 8888,
+                "remote_host": "192.168.1.5",
+                "remote_port": 3306,
+            }))
+        self.assertIn("R:8888:192.168.1.5:3306", result)
+
+    def test_chisel_unknown_tunnel_type_returns_error(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+            result = asyncio.run(_chisel_tunnel({"lhost": "10.0.0.1", "tunnel_type": "badtype"}))
+        self.assertIn("Error", result)
+        self.assertIn("tunnel_type", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
