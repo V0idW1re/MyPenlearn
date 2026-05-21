@@ -12127,5 +12127,186 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
         self.assertEqual(url_in_cmd, "http://example.com/FUZZ/endpoint")
 
 
+# ===========================================================================
+# Section 129 — web.py http_probe parsing, csp_audit, deserialization_check
+# ===========================================================================
+
+class TestHttpProbeParsing(unittest.TestCase):
+    """_http_probe: extracts status, server, title, content-type from curl output."""
+
+    def _run_probe(self, curl_output: str) -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _http_probe
+
+        async def fake_run(cmd, **kw):
+            return curl_output, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_http_probe({"target": "http://example.com"}))
+
+    def test_status_code_extracted(self):
+        result = self._run_probe("HTTP/1.1 200 OK\r\nServer: nginx\r\n\r\n<html></html>")
+        self.assertIn("Status: 200 OK", result)
+
+    def test_server_header_extracted(self):
+        result = self._run_probe("HTTP/1.1 200 OK\r\nServer: Apache/2.4.52\r\n\r\n")
+        self.assertIn("Server: Apache/2.4.52", result)
+
+    def test_title_extracted_from_html(self):
+        result = self._run_probe(
+            "HTTP/1.1 200 OK\r\n\r\n<html><head><title>Admin Panel</title></head></html>"
+        )
+        self.assertIn("Title: Admin Panel", result)
+
+    def test_content_type_extracted(self):
+        result = self._run_probe(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/html; charset=utf-8\r\n\r\n"
+        )
+        self.assertIn("Content-Type: text/html; charset=utf-8", result)
+
+    def test_no_target_returns_error(self):
+        from penligent_mcp.tools.web import _http_probe
+        result = asyncio.run(_http_probe({}))
+        self.assertIn("Error", result)
+
+    def test_missing_headers_silently_omitted(self):
+        result = self._run_probe("HTTP/1.1 404 Not Found\r\n\r\n")
+        self.assertNotIn("Server:", result)
+        self.assertNotIn("Title:", result)
+
+    def test_status_401_extracted(self):
+        result = self._run_probe("HTTP/2 401 Unauthorized\r\n\r\n")
+        self.assertIn("401", result)
+
+
+class TestCspAuditAnalysis(unittest.TestCase):
+    """_csp_audit: comprehensive CSP header analysis."""
+
+    def _run_audit(self, headers: str, body: str = "") -> str:
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _csp_audit
+
+        response = f"HTTP/1.1 200 OK\r\n{headers}\r\n\r\n{body}"
+
+        async def fake_run(cmd, **kw):
+            return response, "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            return asyncio.run(_csp_audit({"target": "https://example.com"}))
+
+    def test_missing_csp_reports_missing(self):
+        result = self._run_audit("X-Frame-Options: DENY")
+        self.assertIn("MISSING", result)
+        self.assertIn("Content-Security-Policy", result)
+
+    def test_unsafe_inline_reports_issue(self):
+        result = self._run_audit(
+            "Content-Security-Policy: script-src 'unsafe-inline' 'self'"
+        )
+        self.assertIn("ISSUE", result)
+        self.assertIn("unsafe-inline", result)
+
+    def test_unsafe_eval_reports_issue(self):
+        result = self._run_audit(
+            "Content-Security-Policy: script-src 'unsafe-eval' 'self'"
+        )
+        self.assertIn("ISSUE", result)
+        self.assertIn("unsafe-eval", result)
+
+    def test_nonce_detected_and_action_required(self):
+        result = self._run_audit(
+            "Content-Security-Policy: script-src 'nonce-abc123' 'self'"
+        )
+        self.assertIn("NONCE DETECTED", result)
+        self.assertIn("ACTION REQUIRED", result)
+
+    def test_wildcard_source_reported(self):
+        result = self._run_audit(
+            "Content-Security-Policy: script-src 'self' *.cdn.example.com"
+        )
+        self.assertIn("Wildcard", result)
+
+    def test_missing_frame_ancestors_directive_reported(self):
+        result = self._run_audit(
+            "Content-Security-Policy: script-src 'self'"
+        )
+        self.assertIn("frame-ancestors", result)
+        self.assertIn("MISSING directive", result)
+
+    def test_missing_xfo_reported(self):
+        result = self._run_audit(
+            "Content-Security-Policy: default-src 'self'; frame-ancestors 'self'"
+        )
+        self.assertIn("X-Frame-Options", result)
+
+    def test_xfo_present_reported(self):
+        result = self._run_audit(
+            "Content-Security-Policy: default-src 'self'\r\nX-Frame-Options: DENY"
+        )
+        self.assertIn("X-Frame-Options: DENY", result)
+
+    def test_sri_missing_on_external_scripts_reported(self):
+        body = '<script src="https://cdn.example.com/app.js"></script>'
+        result = self._run_audit(
+            "Content-Security-Policy: default-src 'self'",
+            body=body,
+        )
+        self.assertIn("SRI MISSING", result)
+
+    def test_sri_present_not_reported(self):
+        body = '<script src="https://cdn.example.com/app.js" integrity="sha384-abc" crossorigin="anonymous"></script>'
+        result = self._run_audit(
+            "Content-Security-Policy: default-src 'self'",
+            body=body,
+        )
+        self.assertNotIn("SRI MISSING", result)
+
+    def test_no_target_returns_error(self):
+        from penligent_mcp.tools.web import _csp_audit
+        result = asyncio.run(_csp_audit({}))
+        self.assertIn("Error", result)
+
+
+class TestDeserializationCheckLangDispatch(unittest.TestCase):
+    """_deserialization_check: lang dispatch and error for unsupported lang."""
+
+    def test_php_lang_sends_php_payloads(self):
+        from unittest.mock import patch as _patch
+        from penligent_mcp.tools.web import _deserialization_check
+        captured = []
+
+        async def fake_run(cmd, **kw):
+            captured.append(list(cmd))
+            return "response", "", 0
+
+        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penligent_mcp.tools.web._persist", return_value=None):
+            result = asyncio.run(_deserialization_check({
+                "target": "http://example.com",
+                "lang": "php",
+            }))
+
+        self.assertIn("php", result.lower())
+        # Should have sent curl requests with PHP payloads
+        all_args = [a for cmd in captured for a in cmd]
+        self.assertTrue(any("O:8:" in a for a in all_args))
+
+    def test_unsupported_lang_returns_error(self):
+        from penligent_mcp.tools.web import _deserialization_check
+        result = asyncio.run(_deserialization_check({
+            "target": "http://example.com",
+            "lang": "ruby",
+        }))
+        self.assertIn("Error", result)
+        self.assertIn("unsupported", result.lower())
+
+    def test_no_target_returns_error(self):
+        from penligent_mcp.tools.web import _deserialization_check
+        result = asyncio.run(_deserialization_check({}))
+        self.assertIn("Error", result)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
