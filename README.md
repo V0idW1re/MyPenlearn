@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.3_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.4_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.3_amd64.deb
+sudo dpkg -i penligent-local_0.1.4_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.3_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.4_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,18 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.3 (current)
+### v0.1.4 (current)
+
+**Features:**
+
+- **Command palette + keyboard shortcuts.** `Ctrl+K` opens a fuzzy-search palette covering tab navigation, chat focus, VPN reconnect/disconnect, MCP re-check, clear-chat, and the keyboard help dialog itself. Power-user shortcuts: `Ctrl+1/2/3` jumps between Chat / Workspace / Settings, `Ctrl+,` opens Settings, `Ctrl+J` focuses the chat input, `?` shows the cheat sheet, `Esc` closes any modal. Every shortcut is also exposed as a command in the palette so nothing has to be memorised.
+- **Real per-turn / session token telemetry in the status bar.** Replaces an earlier `cost × 200000` approximation with actual `usage` data parsed from Claude Code's stream-json `result.usage` event. Status bar now shows `turn 1.9k · cache 1.8k · $0.0034 · session 12.4k · $0.18`. Cache-read tokens are highlighted in green — a visible cost-saving signal whenever the trimmed system prompt is server-side cached.
+
+**Performance:**
+
+- **Windowed message rendering.** Long sessions used to keep every message mounted; agentic turns produce multiple tool_use panels each, so the DOM grew unbounded and layout cost climbed visibly. Now only the last 100 messages are mounted by default — older ones stay in `messages[]` (persisted, hash-chained, still searchable by the agent via `workspace_search`). A dashed-border `↑ Load 50 earlier messages` button at the top of the chat expands the window on demand, with scroll position preserved.
+
+### v0.1.3
 
 **Features:**
 
