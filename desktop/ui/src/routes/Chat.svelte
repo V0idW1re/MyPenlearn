@@ -13,6 +13,20 @@
   };
 
   let messages     = $state([]);
+  // Windowed rendering: keep the last `windowSize` messages mounted. Older
+  // ones live in `messages[]` but are not in the DOM. The user can click
+  // "Load earlier" to expand the window upward. Keeps DOM weight bounded on
+  // long sessions (browsers start to lag past ~5k DOM nodes; chat tool_use
+  // panels add up fast).
+  const VIEW_INITIAL   = 100;   // last N messages rendered by default
+  const VIEW_INCREMENT = 50;    // additional messages revealed per "Load earlier" click
+  let windowSize = $state(VIEW_INITIAL);
+  let visibleMessages = $derived(
+    messages.length <= windowSize
+      ? messages
+      : messages.slice(messages.length - windowSize)
+  );
+  let hiddenCount = $derived(Math.max(0, messages.length - windowSize));
   // `pendingParts` is the reactive view used by the template. We back it with
   // `pendingPartsRaw` (plain mutable array) and re-publish via requestAnimationFrame
   // so a burst of N text chunks coalesces into a single template re-render per frame
@@ -54,6 +68,7 @@
     const pid = project?.id;
     resetPending();
     sending = false;
+    windowSize = VIEW_INITIAL;
     if (pid) loadHistory(pid);
     else messages = [];
   });
@@ -67,7 +82,22 @@
         try { return [{ role: r.role, parts: JSON.parse(r.content) }]; }
         catch (_) { return []; }
       });
+      // Jump to bottom so the user sees the latest message, not the top of the window.
+      await tick();
+      if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
     } catch (_) { messages = []; }
+  }
+
+  async function loadEarlier() {
+    // Preserve scroll position: capture scrollHeight before the window grows,
+    // then add the delta back to scrollTop so on-screen content stays put.
+    const before = scrollEl?.scrollHeight ?? 0;
+    windowSize = Math.min(messages.length, windowSize + VIEW_INCREMENT);
+    await tick();
+    if (scrollEl) {
+      const after = scrollEl.scrollHeight;
+      scrollEl.scrollTop += (after - before);
+    }
   }
 
   async function persistMessage(role, parts) {
@@ -327,7 +357,13 @@
 
     <div class="pl-chat-body">
       <div class="pl-messages" bind:this={scrollEl} use:codeCopy onscroll={onScroll}>
-        {#each messages as msg}
+        {#if hiddenCount > 0}
+          <button class="pl-load-earlier" onclick={loadEarlier}>
+            ↑ Load {Math.min(VIEW_INCREMENT, hiddenCount)} earlier {hiddenCount === 1 ? 'message' : 'messages'}
+            <span class="pl-load-earlier-meta">({hiddenCount} hidden of {messages.length})</span>
+          </button>
+        {/if}
+        {#each visibleMessages as msg}
           {#if msg.role === "user"}
             {#each msg.parts as part}
               {#if part.kind === "text"}
@@ -801,6 +837,34 @@
     transition: background 0.1s, color 0.1s;
   }
   .pl-scroll-btn:hover { background: #30363d; color: #e6edf3; }
+
+  /* ── Load-earlier button (windowed rendering) ─────────────────── */
+
+  .pl-load-earlier {
+    display: block;
+    width: calc(100% - 32px);
+    margin: 12px 16px 8px;
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px dashed #30363d;
+    border-radius: 6px;
+    color: #8b949e;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.1s, color 0.1s, border-color 0.1s;
+  }
+  .pl-load-earlier:hover {
+    background: #161b22;
+    border-color: #484f58;
+    color: #c9d1d9;
+  }
+  .pl-load-earlier-meta {
+    color: #484f58;
+    font-size: 11px;
+    margin-left: 6px;
+  }
 
   /* ── Input ───────────────────────────────────────────────────── */
 
