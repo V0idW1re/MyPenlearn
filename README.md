@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.2_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.3_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.2_amd64.deb
+sudo dpkg -i penligent-local_0.1.3_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.2_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.3_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,15 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.2 (current)
+### v0.1.3 (current)
+
+**Features:**
+
+- **Wiki bootstrap — methodology pages now ship in the .deb.** A fresh install used to give an empty second-brain: `wiki_query('evidence-first')`, `wiki_query('compliance-mappings')`, etc. would return nothing on day one. The bundle now includes 12 baseline methodology pages under `penligent_mcp/data/methodology/`, and the wiki tools copy any missing seed into the user's wiki on first use. Idempotent — never overwrites existing user edits.
+
+Seeded pages: `evidence-first`, `compliance-mappings`, `waf-bypass`, `web-engagement-startup`, `osint-pre-engagement`, `auth-session-testing`, `broken-access-control`, `cloud-attack-surface`, `llm-attack-surface`, `document-parser-exploits`, `detection-blind-spots`, `pentest-engagement`.
+
+### v0.1.2
 
 **Performance:**
 

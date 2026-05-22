@@ -24,12 +24,48 @@ LOG_FILE = WIKI_DIR / "log.md"
 MANIFEST_FILE = WIKI_DIR / "manifest.json"
 SCHEMA_FILE = WIKI_DIR / "SCHEMA.md"
 
+# Package-shipped seed wiki content. `data/methodology/*.md` is bundled with the
+# .deb and copied into the user's wiki on first use. Existing user files are
+# never overwritten — bootstrap is purely additive.
+SEED_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
 _RAW_SUFFIXES = {".md", ".txt", ".rst"}
+_seeded = False  # process-local flag; bootstrap runs once per turn
+
+
+def _seed_methodology() -> int:
+    """
+    Copy any methodology page that ships with the .deb into the user's wiki
+    if it does not yet exist locally. Returns the count of files copied.
+    Idempotent: skips files that already exist (preserves user edits).
+    """
+    seed_dir = SEED_DATA_DIR / "methodology"
+    if not seed_dir.is_dir():
+        return 0
+    target_dir = PAGES_DIR / "methodology"
+    target_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for src in seed_dir.glob("*.md"):
+        dst = target_dir / src.name
+        if dst.exists():
+            continue
+        try:
+            dst.write_text(src.read_text())
+            copied += 1
+        except Exception:
+            # Best-effort: a single bad file should not break the wiki.
+            continue
+    return copied
 
 
 def _ensure_dirs() -> None:
+    global _seeded
     for d in (RAW_DIR, PAGES_DIR, WIKI_DIR):
         d.mkdir(parents=True, exist_ok=True)
+    # Lazy one-shot seed of methodology pages on first wiki tool call this turn.
+    if not _seeded:
+        _seeded = True
+        _seed_methodology()
 
 
 def _load_manifest() -> dict:
@@ -129,6 +165,7 @@ async def _wiki_read_raw(args: dict) -> list[TextContent]:
     if not raw_path:
         return _ok("[wiki_read_raw] path is required")
 
+    _ensure_dirs()
     # Accept relative (to wiki/ or raw/) or absolute
     candidates = [
         WIKI_DIR / raw_path,
@@ -175,6 +212,7 @@ async def _wiki_read_page(args: dict) -> list[TextContent]:
     if not page_path:
         return _ok("[wiki_read_page] page_path is required")
 
+    _ensure_dirs()
     candidates = [
         PAGES_DIR / page_path,
         WIKI_DIR / page_path,
@@ -311,6 +349,7 @@ async def _wiki_query(args: dict) -> list[TextContent]:
     if not keywords:
         return _ok("[wiki_query] keywords is required")
 
+    _ensure_dirs()  # also runs methodology bootstrap on first call
     if not PAGES_DIR.exists():
         return _ok("[wiki_query] No wiki pages exist yet. Drop files into wiki/raw/ and run wiki_ingest_all.")
 
