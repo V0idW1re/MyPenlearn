@@ -287,7 +287,7 @@ async def _open_redirect_check(args: dict) -> str:
         for payload in payloads[:3]:
             test_url = f"{target}?{param.strip()}={payload}"
             cmd = ["curl", "-sI", "-m", "10", "--max-redirs", "0", test_url]
-            stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+            stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
             loc = re.search(r"(?i)^[Ll]ocation:\s*(.+)", stdout, re.MULTILINE)
             if loc and "evil.com" in loc.group(1):
                 results.append(f"  [VULN] param={param} payload={payload} → {loc.group(1).strip()}")
@@ -584,7 +584,7 @@ async def _ssrf_probe(args: dict) -> str:
     for payload in payloads:
         test_url = f"{target}?{param}={payload}"
         cmd = ["curl", "-sL", "-m", "8", "-w", "\\n%{http_code}", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         code_m = re.search(r"\n(\d{3})$", stdout)
         code = code_m.group(1) if code_m else "?"
         body_len = len(stdout)
@@ -641,7 +641,7 @@ async def _ssti_probe(args: dict) -> str:
         else:
             test_url = f"{target}{encoded}"
         cmd = ["curl", "-sL", "-m", "10", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if expected in stdout:
             results.append(f"  [VULN] payload={payload!r} → response contains '{expected}' (SSTI confirmed)")
         else:
@@ -693,7 +693,7 @@ async def _lfi_probe(args: dict) -> str:
     for payload in payloads:
         test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "root:" in stdout or "daemon:" in stdout:
             results.append(f"  [VULN] {payload!r} → /etc/passwd content in response!")
         elif len(stdout) > 100:
@@ -746,7 +746,7 @@ async def _rfi_probe(args: dict) -> str:
     for payload in payloads:
         test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", "-w", "\\nHTTP_CODE:%{http_code}", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         results.append(f"  payload={payload!r} → rc={rc} response_len={len(stdout)}")
     summary = f"RFI probe for {target} (param={param}):\n" + "\n".join(results)
     await _persist(project_id, "rfi_probe", args, summary, "", 0)
@@ -800,7 +800,7 @@ async def _xxe_probe(args: dict) -> str:
             "-H", "Content-Type: application/xml",
             "-d", payload, target,
         ]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "root:" in stdout or "daemon:" in stdout:
             results.append(f"  [VULN] {name} → /etc/passwd content in response!")
         else:
@@ -856,7 +856,7 @@ async def _cmdi_probe(args: dict) -> str:
             test_url = f"{target}{urllib.parse.quote(payload)}"
         start = time.time()
         cmd = ["curl", "-sL", "-m", "12", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         elapsed = time.time() - start
         if "uid=" in stdout and "gid=" in stdout:
             results.append(f"  [VULN] {payload!r} → id command output in response!")
@@ -912,7 +912,7 @@ async def _path_traversal(args: dict) -> str:
     for payload in payloads:
         test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", test_url]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "root:" in stdout or "[extensions]" in stdout:
             results.append(f"  [VULN] {payload!r} → file content in response!")
         else:
@@ -1027,7 +1027,7 @@ async def _idor_check(args: dict) -> str:
         if cookies:
             cmd += ["-H", f"Cookie: {cookies}"]
         cmd.append(test_url)
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         code_m = re.search(r"HTTP_CODE:(\d+)$", stdout)
         code = code_m.group(1) if code_m else "?"
         body = stdout[:200].replace("\n", " ")
@@ -1276,7 +1276,7 @@ async def _rate_limit_check(args: dict) -> str:
     for _ in range(n):
         async def fetch():
             cmd = ["curl", "-sI", "-m", "5", "-w", "%{http_code}", "-o", "/dev/null", target]
-            out, err, rc = await _run_subprocess(cmd, timeout=10)
+            out, err, rc = await _run_subprocess(cmd, timeout=timeout_s)
             return out.strip()
         tasks.append(asyncio.create_task(fetch()))
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1341,7 +1341,7 @@ async def _graphql_probe(args: dict) -> str:
         ]
         if cookies:
             cmd += ["-H", f"Cookie: {cookies}"]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "__schema" in stdout or "queryType" in stdout:
             results.append(f"  [VULN] {url} → Introspection ENABLED! Schema exposed.")
         elif "errors" in stdout.lower() or rc == 0:
@@ -1742,7 +1742,7 @@ async def _prototype_pollution(args: dict) -> str:
             "-H", "Content-Type: application/json",
             "-d", payload, target,
         ]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "polluted" in stdout:
             results.append(f"  [VULN] payload={payload[:50]!r} → 'polluted' reflected in response!")
         else:
@@ -1751,7 +1751,7 @@ async def _prototype_pollution(args: dict) -> str:
     get_payloads = ["?__proto__[polluted]=yes", "?constructor[prototype][polluted]=yes"]
     for gp in get_payloads:
         cmd = ["curl", "-sL", "-m", "10", f"{target}{gp}"]
-        stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+        stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "polluted" in stdout:
             results.append(f"  [VULN] GET {gp!r} → 'polluted' in response!")
     summary = f"Prototype pollution test for {target}:\n" + "\n".join(results)
@@ -1799,7 +1799,7 @@ async def _deserialization_check(args: dict) -> str:
             )
         # Generate a payload with a sleep gadget
         cmd = ["java", "-jar", ysoserial, "CommonsCollections1", "sleep 5"]
-        stdout_b, stderr_b, rc = await _run_subprocess(cmd, timeout=30)
+        stdout_b, stderr_b, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if rc != 0:
             return f"ysoserial error: {stderr_b[:500]}"
         return f"ysoserial CommonsCollections1 payload generated ({len(stdout_b)} bytes). Send as POST body."
@@ -1814,7 +1814,7 @@ async def _deserialization_check(args: dict) -> str:
                 "curl", "-sL", "-m", "10", "-X", "POST",
                 "-d", f"data={payload}", target,
             ]
-            stdout, stderr, rc = await _run_subprocess(cmd, timeout=15)
+            stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
             results.append(f"  payload={payload!r} → rc={rc} len={len(stdout)}")
             if "Unserialize" in stdout or "unserialize" in stdout or "Error" in stdout:
                 results.append(f"    [NOTE] Deserialization-related response content")
