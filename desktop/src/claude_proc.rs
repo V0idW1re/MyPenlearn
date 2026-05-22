@@ -172,12 +172,30 @@ struct ContentBlock {
 // Session state  (shared across Tauri commands)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct ClaudeState {
     pub session_id: Option<String>,
     pub project_id: Option<i64>,
     pub work_dir: Option<PathBuf>,
     pub db_session_id: Option<i64>,
+    // `halt_tx` is set while a Claude turn is in flight. When MCP health flips
+    // to error the frontend invokes `claude_halt` which takes() this sender
+    // and fires it; run_turn's `select!` sees the halt signal, breaks out of
+    // the line-reading loop, and `kill_on_drop(true)` SIGTERMs the subprocess
+    // as the Child handle goes out of scope.
+    pub halt_tx: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+impl std::fmt::Debug for ClaudeState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClaudeState")
+            .field("session_id", &self.session_id)
+            .field("project_id", &self.project_id)
+            .field("work_dir", &self.work_dir)
+            .field("db_session_id", &self.db_session_id)
+            .field("halt_tx", &self.halt_tx.is_some())
+            .finish()
+    }
 }
 
 pub type SharedClaudeState = Arc<Mutex<ClaudeState>>;
@@ -236,6 +254,16 @@ pub async fn run_turn(
     let mut new_session_id: Option<String> = None;
     let mut assistant_text_buf = String::new();
 
+    // Halt channel: install the sender into ClaudeState so the `claude_halt`
+    // Tauri command can fire it from anywhere. Use a fused future so the
+    // select! arm is well-behaved even after the sender is dropped at the end.
+    let (halt_tx, mut halt_rx) = tokio::sync::oneshot::channel::<()>();
+    {
+        let mut s = state.lock().unwrap();
+        s.halt_tx = Some(halt_tx);
+    }
+    let mut halted = false;
+
     // Persist the user message (best-effort)
     {
         let s = state.lock().unwrap();
@@ -258,7 +286,22 @@ pub async fn run_turn(
         }
     }
 
-    while let Ok(Some(line)) = lines.next_line().await {
+    loop {
+        let line = tokio::select! {
+            biased;
+            // Halt arm — fires when frontend invokes claude_halt (e.g. MCP went red).
+            _ = &mut halt_rx => {
+                halted = true;
+                break;
+            }
+            // Normal arm — read next line of stream-json from Claude Code.
+            line_res = lines.next_line() => {
+                match line_res {
+                    Ok(Some(l)) => l,
+                    _ => break,  // EOF or read error
+                }
+            }
+        };
         let line = line.trim().to_string();
         if line.is_empty() {
             continue;
@@ -370,6 +413,22 @@ pub async fn run_turn(
         }
     }
 
+    // Clear halt sender from state so the next turn installs a fresh one.
+    {
+        let mut s = state.lock().unwrap();
+        s.halt_tx = None;
+    }
+
+    // If halted, kill the Claude subprocess immediately (kill_on_drop will
+    // do this when child goes out of scope, but emitting a halt-event here
+    // ensures the frontend knows the turn is over before persistence runs).
+    if halted {
+        let _ = child.start_kill();
+        let _ = app.emit("claude://halted", serde_json::json!({
+            "reason": "user_halt",
+        }));
+    }
+
     // Wait for the process to exit
     let _ = child.wait().await;
 
@@ -448,6 +507,26 @@ pub fn claude_get_session(
     state: tauri::State<'_, SharedClaudeState>,
 ) -> Option<String> {
     state.lock().unwrap().session_id.clone()
+}
+
+/// Halt the in-flight Claude turn if any. Returns true if a turn was running
+/// and got the halt signal; false if nothing was running. The frontend calls
+/// this when the MCP-health poll flips to error so the agent doesn't keep
+/// firing tool calls into a dead server.
+#[tauri::command]
+pub fn claude_halt(
+    state: tauri::State<'_, SharedClaudeState>,
+) -> bool {
+    let tx_opt = {
+        let mut s = state.lock().unwrap();
+        s.halt_tx.take()
+    };
+    if let Some(tx) = tx_opt {
+        let _ = tx.send(());
+        true
+    } else {
+        false
+    }
 }
 
 #[tauri::command]

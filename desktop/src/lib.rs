@@ -23,6 +23,7 @@ pub fn run() {
             claude_proc::claude_set_context,
             claude_proc::claude_get_session,
             claude_proc::claude_clear_session,
+            claude_proc::claude_halt,
             vpn::vpn_connect,
             vpn::vpn_disconnect,
             vpn::vpn_status,

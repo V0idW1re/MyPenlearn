@@ -36,6 +36,49 @@
   let paletteOpen = $state(false);
   let helpOpen    = $state(false);
 
+  // MCP-down detection. When the periodic health check flips from ok → error
+  // we halt the in-flight Claude turn (no point letting the agent fire tool
+  // calls into a dead server) and surface a blocking modal so the user can
+  // see what happened without having to notice the status-bar dot.
+  let mcpPrevState = $state(null);
+  let mcpDownModalOpen = $state(false);
+  let mcpHaltedTurn    = $state(false);
+  let mcpRechecking    = $state(false);
+
+  $effect(() => {
+    const cur = mcpStatus?.state;
+    if (cur === "ok") {
+      // Recovery — auto-dismiss the modal so the user can keep working.
+      if (mcpDownModalOpen) {
+        mcpDownModalOpen = false;
+        mcpHaltedTurn = false;
+      }
+      mcpPrevState = "ok";
+    } else if (cur === "error") {
+      if (mcpPrevState === "ok") {
+        // Fresh transition from healthy → broken. Halt any in-flight turn.
+        invoke("claude_halt").then(halted => {
+          mcpHaltedTurn = !!halted;
+        }).catch(e => console.error("claude_halt failed:", e));
+        mcpDownModalOpen = true;
+      } else if (mcpPrevState === null) {
+        // First poll after launch showed error — surface the modal but don't
+        // claim we "halted" anything (nothing was running).
+        mcpDownModalOpen = true;
+      }
+      mcpPrevState = "error";
+    } else {
+      // "checking" — leave prev state alone, modal stays open or closed as-is.
+    }
+  });
+
+  async function mcpRecheck() {
+    if (mcpRechecking) return;
+    mcpRechecking = true;
+    await pollMcpHealth();
+    mcpRechecking = false;
+  }
+
   // Focus the chat input from anywhere
   function focusChatInput() {
     activeTab = "chat";
@@ -384,6 +427,33 @@
 
   <CommandPalette bind:open={paletteOpen} commands={paletteCommands} />
   <ShortcutHelp   bind:open={helpOpen} />
+
+  {#if mcpDownModalOpen}
+    <div class="pl-mcp-down-backdrop" role="presentation">
+      <div class="pl-mcp-down-modal" role="dialog" aria-modal="true" aria-label="MCP server offline">
+        <div class="pl-mcp-down-icon">⚠</div>
+        <h3 class="pl-mcp-down-title">MCP server is offline</h3>
+        <p class="pl-mcp-down-msg">
+          The Penligent MCP server is not responding. The agent has no tools while it's down.
+        </p>
+        {#if mcpHaltedTurn}
+          <p class="pl-mcp-down-halt">The running agent turn was halted to prevent failed tool calls.</p>
+        {/if}
+        {#if mcpStatus?.error}
+          <pre class="pl-mcp-down-err">{mcpStatus.error}</pre>
+        {/if}
+        <p class="pl-mcp-down-actions-hint">
+          Try the MCP debug recipe from the README, then click <strong>Recheck now</strong>. If that fails, restart Penligent.
+        </p>
+        <div class="pl-mcp-down-actions">
+          <button class="pl-mcp-down-btn-secondary" onclick={() => mcpDownModalOpen = false}>Dismiss</button>
+          <button class="pl-mcp-down-btn-primary" onclick={mcpRecheck} disabled={mcpRechecking}>
+            {mcpRechecking ? "Checking…" : "Recheck now"}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 
   {#if resumableSession}
     <div class="pl-resume-banner">
@@ -896,4 +966,96 @@
     white-space: pre-wrap;
     word-break: break-word;
   }
+
+  /* ── MCP-down modal ──────────────────────────────────────── */
+
+  .pl-mcp-down-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.65);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1100;  /* above command palette / help */
+  }
+  .pl-mcp-down-modal {
+    width: 460px; max-width: 90vw;
+    background: #0d1117;
+    border: 1px solid #5d1f1f;
+    border-radius: 8px;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.6);
+    padding: 18px 22px 14px;
+  }
+  .pl-mcp-down-icon {
+    color: #f85149;
+    font-size: 24px;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .pl-mcp-down-title {
+    color: #f85149;
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 8px;
+  }
+  .pl-mcp-down-msg {
+    color: #c9d1d9;
+    font-size: 13px;
+    margin: 4px 0;
+    line-height: 1.5;
+  }
+  .pl-mcp-down-halt {
+    color: #f0b132;
+    font-size: 12px;
+    margin: 8px 0;
+    background: #261b07;
+    border: 1px solid #4d390a;
+    border-radius: 4px;
+    padding: 6px 10px;
+  }
+  .pl-mcp-down-err {
+    background: #1c0a0a;
+    border: 1px solid #5d1f1f;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: #ff7b72;
+    margin: 8px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 140px;
+    overflow-y: auto;
+  }
+  .pl-mcp-down-actions-hint {
+    color: #8b949e;
+    font-size: 11px;
+    margin: 10px 0 12px;
+    line-height: 1.5;
+  }
+  .pl-mcp-down-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+  .pl-mcp-down-btn-secondary {
+    background: transparent;
+    border: 1px solid #30363d;
+    color: #8b949e;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .pl-mcp-down-btn-secondary:hover { color: #c9d1d9; border-color: #484f58; }
+  .pl-mcp-down-btn-primary {
+    background: #1f6feb;
+    border: none;
+    color: #fff;
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 12px; font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .pl-mcp-down-btn-primary:hover:not(:disabled) { background: #388bfd; }
+  .pl-mcp-down-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
