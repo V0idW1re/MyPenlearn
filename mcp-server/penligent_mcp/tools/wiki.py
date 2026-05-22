@@ -5,6 +5,7 @@ Raw sources are immutable; Claude owns the pages/ layer.
 """
 import hashlib
 import json
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -13,6 +14,7 @@ from mcp.types import Tool, TextContent
 
 from .register_all import register
 from ._helpers import _ok, _s
+from ._cache import cached, invalidate as cache_invalidate
 
 WIKI_DIR = Path.home() / ".local" / "share" / "penligent-local" / "wiki"
 RAW_DIR = WIKI_DIR / "raw"
@@ -59,6 +61,7 @@ def _all_raw_files() -> list[Path]:
 # wiki_status
 # ---------------------------------------------------------------------------
 
+@cached("wiki", ttl=30)
 async def _wiki_status(_args: dict) -> list[TextContent]:
     _ensure_dirs()
     manifest = _load_manifest()
@@ -120,6 +123,7 @@ register(
 # wiki_read_raw
 # ---------------------------------------------------------------------------
 
+@cached("wiki")
 async def _wiki_read_raw(args: dict) -> list[TextContent]:
     raw_path = args.get("path", "").strip()
     if not raw_path:
@@ -165,6 +169,7 @@ register(
 # wiki_read_page
 # ---------------------------------------------------------------------------
 
+@cached("wiki")
 async def _wiki_read_page(args: dict) -> list[TextContent]:
     page_path = args.get("page_path", "").strip()
     if not page_path:
@@ -208,6 +213,7 @@ async def _wiki_write_page(args: dict) -> list[TextContent]:
         return _ok("[wiki_write_page] page_path is required")
     if not content:
         return _ok("[wiki_write_page] content is required")
+    cache_invalidate("wiki")
 
     target = PAGES_DIR / page_path
     # Safety: must stay inside pages/
@@ -250,6 +256,7 @@ async def _wiki_mark_ingested(args: dict) -> list[TextContent]:
     pages_created = args.get("pages_created", [])
     if not raw_path:
         return _ok("[wiki_mark_ingested] raw_path is required")
+    cache_invalidate("wiki")
 
     candidates = [WIKI_DIR / raw_path, RAW_DIR / raw_path, Path(raw_path)]
     target = next((p for p in candidates if p.exists() and p.is_file()), None)
@@ -297,6 +304,7 @@ register(
 # wiki_query
 # ---------------------------------------------------------------------------
 
+@cached("wiki")
 async def _wiki_query(args: dict) -> list[TextContent]:
     keywords = args.get("keywords", "").strip()
     top_k = int(args.get("top_k", 8))
@@ -375,6 +383,7 @@ register(
 # wiki_ingest_all
 # ---------------------------------------------------------------------------
 
+@cached("wiki", ttl=15)
 async def _wiki_ingest_all(_args: dict) -> list[TextContent]:
     """Return a manifest of all pending/stale files for Claude to process one by one."""
     _ensure_dirs()
@@ -438,7 +447,7 @@ async def _wiki_log(args: dict) -> list[TextContent]:
     entry = args.get("entry", "").strip()
     if not entry:
         return _ok("[wiki_log] entry is required")
-
+    cache_invalidate("wiki")
     _ensure_dirs()
     today = date.today().isoformat()
     if not entry.startswith("## ["):
@@ -474,6 +483,7 @@ register(
 # wiki_lint
 # ---------------------------------------------------------------------------
 
+@cached("wiki", ttl=30)
 async def _wiki_lint(_args: dict) -> list[TextContent]:
     _ensure_dirs()
     manifest = _load_manifest()
@@ -482,7 +492,6 @@ async def _wiki_lint(_args: dict) -> list[TextContent]:
     # 1. Pages in index.md that don't exist on disk
     if INDEX_FILE.exists():
         index_text = INDEX_FILE.read_text()
-        import re
         linked = re.findall(r'\[.*?\]\((pages/[^\)]+)\)', index_text)
         for link in linked:
             target = WIKI_DIR / link
@@ -524,7 +533,6 @@ async def _wiki_lint(_args: dict) -> list[TextContent]:
     # 5. Pages with no outbound cross-links
     no_links = []
     if PAGES_DIR.exists():
-        import re
         for md in PAGES_DIR.rglob("*.md"):
             content = md.read_text(errors="replace")
             if not re.search(r'\[\[.+?\]\]', content):

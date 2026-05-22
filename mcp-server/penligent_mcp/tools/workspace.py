@@ -20,6 +20,7 @@ from mcp.types import Tool, TextContent
 
 from .register_all import register
 from ._helpers import _ok, _s
+from ._cache import cached, invalidate as cache_invalidate
 from ..db import get_db
 
 WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
@@ -48,6 +49,7 @@ def _safe_path(workspace: Path, relative: str) -> Path | None:
 # workspace_ls
 # ---------------------------------------------------------------------------
 
+@cached("workspace", ttl=15)
 async def _workspace_ls(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     sub = args.get("path", ".")
@@ -80,6 +82,7 @@ register(Tool(
 # workspace_read
 # ---------------------------------------------------------------------------
 
+@cached("workspace", ttl=30)
 async def _workspace_read(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     path = args.get("path", "")
@@ -132,6 +135,7 @@ def _infer_kind(path: str) -> str:
 
 
 async def _workspace_write(args: dict) -> list[TextContent]:
+    cache_invalidate("workspace")
     project_name = args.get("project_name", "")
     path = args.get("path", "")
     content = args.get("content", "")
@@ -195,6 +199,7 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _workspace_note(args: dict) -> list[TextContent]:
+    cache_invalidate("workspace")
     project_name = args.get("project_name", "")
     note = args.get("note", "")
     tag = args.get("tag", "")
@@ -223,6 +228,7 @@ register(Tool(
 # workspace_search
 # ---------------------------------------------------------------------------
 
+@cached("workspace", ttl=15)
 async def _workspace_search(args: dict) -> list[TextContent]:
     project_name = args.get("project_name", "")
     pattern = args.get("pattern", "")
@@ -266,6 +272,7 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _workspace_download(args: dict) -> list[TextContent]:
+    cache_invalidate("workspace")
     project_name = args.get("project_name", "")
     url = args.get("url", "")
     dest = args.get("dest", "")
@@ -562,6 +569,7 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _record_evidence_artifact(args: dict) -> list[TextContent]:
+    cache_invalidate("workspace")
     risk_item_id = args.get("risk_item_id")
     kind = (args.get("kind") or "").strip()
     path = (args.get("path") or "").strip()
@@ -641,6 +649,7 @@ register(Tool(
 # ---------------------------------------------------------------------------
 
 async def _save_binary_artifact(args: dict) -> list[TextContent]:
+    cache_invalidate("workspace")
     project_name = (args.get("project_name") or "").strip()
     kind = (args.get("kind") or "screenshot").strip()
     filename = (args.get("filename") or "").strip()
