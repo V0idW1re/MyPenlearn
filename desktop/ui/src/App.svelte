@@ -65,6 +65,7 @@
     { id: "vpn-connect",  label: "VPN: Reconnect last profile", keywords: "vpn connect reconnect openvpn", action: () => invoke("vpn_reconnect").catch(console.error) },
     { id: "vpn-disconnect", label: "VPN: Disconnect", keywords: "vpn disconnect off stop", action: () => invoke("vpn_disconnect").catch(() => {}) },
     { id: "mcp-recheck",  label: "MCP: Re-run health check", keywords: "mcp health check tools refresh", action: () => pollMcpHealth() },
+    { id: "rerun-wizard", label: "Re-run first-run setup wizard", keywords: "wizard setup onboarding htb vpn token first-run", action: wzReopen },
   ]);
 
   // Global keyboard shortcuts. Skip when typing in an input/textarea unless
@@ -97,14 +98,31 @@
     }
   }
 
-  // First-run wizard state
+  // First-run wizard state. Steps 0..4 (welcome → htb → sudoers → vpn → summary).
+  // Step indicator only shows steps 1..3 since 0 is intro and 4 is review.
   let wizardOpen  = $state(false);
-  let wizardStep  = $state(1);
+  let wizardStep  = $state(0);
   let wzHtbToken  = $state("");
+  let wzHtbShow   = $state(false);
   let wzOvpnPath  = $state("");
   let wzSudoersDone = $state(false);
   let wzSudoersErr  = $state("");
   let wzBusy = $state(false);
+
+  function wzReset() {
+    wizardStep = 0;
+    wzHtbToken = "";
+    wzHtbShow = false;
+    wzOvpnPath = "";
+    wzSudoersDone = false;
+    wzSudoersErr = "";
+    wzBusy = false;
+  }
+
+  function wzReopen() {
+    wzReset();
+    wizardOpen = true;
+  }
 
   async function pollMcpHealth() {
     mcpStatus = { ...mcpStatus, state: "checking" };
@@ -277,22 +295,40 @@
     if (path) wzOvpnPath = path;
   }
 
+  let wzFinishErr = $state("");
+
   async function wzFinish() {
     wzBusy = true;
+    wzFinishErr = "";
+    const errors = [];
     try {
       if (wzHtbToken.trim()) {
-        await invoke("save_config_value", { key: "htb_app_token", value: wzHtbToken.trim() });
-        await invoke("save_config_value", { key: "htb_mcp_token", value: wzHtbToken.trim() });
-        await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() }).catch(() => {});
+        try {
+          await invoke("save_config_value", { key: "htb_app_token", value: wzHtbToken.trim() });
+          await invoke("save_config_value", { key: "htb_mcp_token", value: wzHtbToken.trim() });
+          await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() }).catch(e => errors.push(`HTB MCP register: ${e}`));
+        } catch (e) {
+          errors.push(`HTB token save: ${e}`);
+        }
       }
       if (wzOvpnPath) {
-        const name = wzOvpnPath.split("/").pop().replace(".ovpn", "");
-        await invoke("save_vpn_profile", { name, ovpnPath: wzOvpnPath, kind: "" }).catch(() => {});
+        try {
+          const name = wzOvpnPath.split("/").pop().replace(".ovpn", "");
+          await invoke("save_vpn_profile", { name, ovpnPath: wzOvpnPath, kind: "" });
+        } catch (e) {
+          errors.push(`VPN profile save: ${e}`);
+        }
       }
       await invoke("save_config_value", { key: "setup_complete", value: "1" });
-    } catch (_) {}
-    wizardOpen = false;
+    } catch (e) {
+      errors.push(`setup_complete flag: ${e}`);
+    }
     wzBusy = false;
+    if (errors.length) {
+      wzFinishErr = errors.join("\n");
+      return;  // keep wizard open so the user can see what failed
+    }
+    wizardOpen = false;
   }
 </script>
 
@@ -380,48 +416,106 @@
     <div class="pl-wizard-backdrop">
       <div class="pl-wizard">
         <div class="pl-wiz-header">
-          <span class="pl-wiz-title">Welcome to Penligent Local</span>
-          <div class="pl-wiz-steps">
-            {#each [1,2,3] as s}
-              <span class="pl-wiz-dot" class:active={s === wizardStep} class:done={s < wizardStep}></span>
-            {/each}
-          </div>
+          <span class="pl-wiz-title">
+            {#if wizardStep === 0}Welcome to Penligent Local
+            {:else if wizardStep === 4}Setup complete
+            {:else}Setup — step {wizardStep} of 3{/if}
+          </span>
+          {#if wizardStep >= 1 && wizardStep <= 3}
+            <div class="pl-wiz-steps">
+              {#each [1,2,3] as s}
+                <span class="pl-wiz-dot" class:active={s === wizardStep} class:done={s < wizardStep}></span>
+              {/each}
+            </div>
+          {/if}
         </div>
 
         <div class="pl-wiz-body">
-          {#if wizardStep === 1}
-            <p class="pl-wiz-label">HTB API Token</p>
+          {#if wizardStep === 0}
+            <p class="pl-wiz-welcome-lead">A self-hosted, autonomous penetration testing agent running entirely on your machine.</p>
+            <ul class="pl-wiz-welcome-bullets">
+              <li><b>Step 1 — HTB API Token</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;authenticates HTB API calls</li>
+              <li><b>Step 2 — OpenVPN privilege</b> &nbsp;<span class="pl-wiz-meta">(recommended)</span> &nbsp;passwordless VPN start/stop</li>
+              <li><b>Step 3 — Default VPN profile</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;your <code>.ovpn</code> file</li>
+            </ul>
+            <p class="pl-wiz-hint">Every step is skippable. You can re-run this wizard anytime from <kbd>Ctrl+K</kbd> → "Re-run first-run setup".</p>
+
+          {:else if wizardStep === 1}
+            <p class="pl-wiz-label">HTB API Token <span class="pl-wiz-meta">(optional)</span></p>
             <p class="pl-wiz-hint">HTB profile → Settings → API → create app token. Used for REST API calls and MCP server authentication.</p>
-            <input class="pl-wiz-input" type="password" placeholder="eyJ0eXAi…" bind:value={wzHtbToken} />
+            <div class="pl-wiz-row">
+              <input
+                class="pl-wiz-input"
+                type={wzHtbShow ? "text" : "password"}
+                placeholder="eyJ0eXAi…"
+                bind:value={wzHtbToken}
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button class="pl-wiz-eye" onclick={() => wzHtbShow = !wzHtbShow} type="button" title={wzHtbShow ? "Hide" : "Show"}>
+                {wzHtbShow ? "Hide" : "Show"}
+              </button>
+            </div>
+
           {:else if wizardStep === 2}
-            <p class="pl-wiz-label">OpenVPN privilege</p>
-            <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted.</p>
+            <p class="pl-wiz-label">OpenVPN privilege <span class="pl-wiz-meta">(recommended)</span></p>
+            <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted; the rule lives in <code>/etc/sudoers.d/penligent-openvpn</code>.</p>
             {#if wzSudoersDone}
               <span class="pl-wiz-ok">&#10003; Installed</span>
             {:else}
               <button class="pl-wiz-action-btn" onclick={wzInstallSudoers} disabled={wzBusy}>
                 {wzBusy ? "Installing…" : "Install sudoers rule"}
               </button>
-              {#if wzSudoersErr}<span class="pl-wiz-err">{wzSudoersErr}</span>{/if}
+              {#if wzSudoersErr}
+                <pre class="pl-wiz-err-block">{wzSudoersErr}</pre>
+              {/if}
             {/if}
+
           {:else if wizardStep === 3}
-            <p class="pl-wiz-label">Default VPN profile</p>
-            <p class="pl-wiz-hint">Select your HTB .ovpn file. You can add more profiles in Settings later.</p>
+            <p class="pl-wiz-label">Default VPN profile <span class="pl-wiz-meta">(optional)</span></p>
+            <p class="pl-wiz-hint">Select or paste the path to your HTB <code>.ovpn</code> file. You can add more profiles in Settings later.</p>
             <div class="pl-wiz-row">
-              <input class="pl-wiz-input" value={wzOvpnPath} placeholder="~/Downloads/lab.ovpn" readonly />
-              <button class="pl-wiz-browse" onclick={wzBrowseOvpn}>Browse</button>
+              <input class="pl-wiz-input" bind:value={wzOvpnPath} placeholder="~/Downloads/lab.ovpn" spellcheck="false" />
+              <button class="pl-wiz-browse" onclick={wzBrowseOvpn} type="button">Browse</button>
             </div>
+
+          {:else if wizardStep === 4}
+            <p class="pl-wiz-welcome-lead">Ready to launch. Here's what will be saved:</p>
+            <div class="pl-wiz-summary">
+              <div class="pl-wiz-sum-row">
+                <span class="pl-wiz-sum-icon">{wzHtbToken.trim() ? "✓" : "—"}</span>
+                <span class="pl-wiz-sum-label">HTB API Token</span>
+                <span class="pl-wiz-sum-val">{wzHtbToken.trim() ? `••••${wzHtbToken.trim().slice(-6)}` : "skipped"}</span>
+              </div>
+              <div class="pl-wiz-sum-row">
+                <span class="pl-wiz-sum-icon">{wzSudoersDone ? "✓" : "—"}</span>
+                <span class="pl-wiz-sum-label">OpenVPN sudoers</span>
+                <span class="pl-wiz-sum-val">{wzSudoersDone ? "installed" : "skipped"}</span>
+              </div>
+              <div class="pl-wiz-sum-row">
+                <span class="pl-wiz-sum-icon">{wzOvpnPath ? "✓" : "—"}</span>
+                <span class="pl-wiz-sum-label">Default VPN profile</span>
+                <span class="pl-wiz-sum-val">{wzOvpnPath || "skipped"}</span>
+              </div>
+            </div>
+            {#if wzFinishErr}
+              <pre class="pl-wiz-err-block">{wzFinishErr}</pre>
+            {/if}
           {/if}
         </div>
 
         <div class="pl-wiz-actions">
-          {#if wizardStep < 3}
-            <button class="pl-wiz-skip" onclick={() => wizardStep++} disabled={wzBusy}>Skip</button>
-            <button class="pl-wiz-next" onclick={() => wizardStep++} disabled={wzBusy}>Next →</button>
+          {#if wizardStep === 0}
+            <button class="pl-wiz-skip" onclick={() => { wizardStep = 4; }}>Skip all</button>
+            <button class="pl-wiz-next" onclick={() => wizardStep++}>Get started →</button>
+          {:else if wizardStep >= 1 && wizardStep <= 3}
+            <button class="pl-wiz-back" onclick={() => wizardStep--} disabled={wzBusy} type="button">← Back</button>
+            <button class="pl-wiz-skip" onclick={() => wizardStep++} disabled={wzBusy} type="button">Skip</button>
+            <button class="pl-wiz-next" onclick={() => wizardStep++} disabled={wzBusy} type="button">Next →</button>
           {:else}
-            <button class="pl-wiz-skip" onclick={wzFinish} disabled={wzBusy}>Skip</button>
-            <button class="pl-wiz-next" onclick={wzFinish} disabled={wzBusy}>
-              {wzBusy ? "Saving…" : "Finish"}
+            <button class="pl-wiz-back" onclick={() => wizardStep = 3} disabled={wzBusy} type="button">← Back</button>
+            <button class="pl-wiz-next" onclick={wzFinish} disabled={wzBusy} type="button">
+              {wzBusy ? "Saving…" : "Finish setup"}
             </button>
           {/if}
         </div>
@@ -708,4 +802,98 @@
   }
   .pl-wiz-next:hover:not(:disabled) { background: #388bfd; }
   .pl-wiz-next:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── new polish ──────────────────────────────────────────── */
+
+  .pl-wiz-back {
+    background: transparent; border: 1px solid #30363d;
+    color: #8b949e; padding: 6px 12px;
+    border-radius: 6px; cursor: pointer;
+    font-size: 12px; font-family: inherit;
+    margin-right: auto;
+  }
+  .pl-wiz-back:hover:not(:disabled) { color: #c9d1d9; border-color: #484f58; }
+  .pl-wiz-back:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .pl-wiz-eye {
+    background: #161b22; border: 1px solid #30363d;
+    color: #8b949e; padding: 7px 10px;
+    border-radius: 6px; cursor: pointer;
+    font-size: 11px; font-family: inherit;
+    min-width: 50px;
+  }
+  .pl-wiz-eye:hover { background: #21262d; color: #c9d1d9; }
+
+  .pl-wiz-welcome-lead {
+    font-size: 13px;
+    color: #c9d1d9;
+    line-height: 1.5;
+    margin-bottom: 4px;
+  }
+  .pl-wiz-welcome-bullets {
+    list-style: none;
+    padding-left: 0;
+    margin: 4px 0;
+    font-size: 12px;
+    color: #c9d1d9;
+    line-height: 1.8;
+  }
+  .pl-wiz-welcome-bullets li { padding-left: 0; }
+  .pl-wiz-welcome-bullets code,
+  .pl-wiz-hint code {
+    background: #161b22; padding: 1px 5px;
+    border-radius: 3px; font-size: 11px;
+    color: #c9d1d9;
+  }
+  .pl-wiz-hint kbd {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    background: #161b22;
+    border: 1px solid #21262d;
+    color: #8b949e;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 10px;
+  }
+  .pl-wiz-meta {
+    color: #6e7681;
+    font-weight: 400;
+    font-size: 11px;
+  }
+
+  .pl-wiz-summary {
+    background: #010409;
+    border: 1px solid #21262d;
+    border-radius: 6px;
+    padding: 4px 0;
+  }
+  .pl-wiz-sum-row {
+    display: grid;
+    grid-template-columns: 28px 1fr 2fr;
+    align-items: center;
+    padding: 7px 14px;
+    font-size: 12px;
+    border-bottom: 1px solid #161b22;
+  }
+  .pl-wiz-sum-row:last-child { border-bottom: 0; }
+  .pl-wiz-sum-icon {
+    color: #3fb950;
+    font-weight: 600;
+  }
+  .pl-wiz-sum-row:has(.pl-wiz-sum-icon:empty),
+  .pl-wiz-sum-row .pl-wiz-sum-icon:not(:empty) { /* no-op, keeps selector valid */ }
+  .pl-wiz-sum-label { color: #8b949e; }
+  .pl-wiz-sum-val   { color: #c9d1d9; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; }
+
+  .pl-wiz-err-block {
+    background: #1c0a0a;
+    border: 1px solid #5d1f1f;
+    border-radius: 4px;
+    padding: 8px 10px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: #ff7b72;
+    margin: 8px 0 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
 </style>
