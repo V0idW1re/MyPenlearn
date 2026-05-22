@@ -11,6 +11,8 @@
   import Settings from "./lib/Settings.svelte";
   import ApprovalModal from "./lib/ApprovalModal.svelte";
   import Workspace from "./lib/Workspace.svelte";
+  import CommandPalette from "./lib/CommandPalette.svelte";
+  import ShortcutHelp from "./lib/ShortcutHelp.svelte";
 
   let activeProject = $state(null);
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
@@ -29,6 +31,71 @@
   let activeDbSessionId = $state(null);
   let mcpStatus  = $state({ state: "checking", tool_count: 0, error: null });
   let mcpPollTimer = null;
+
+  // Command palette + shortcuts help
+  let paletteOpen = $state(false);
+  let helpOpen    = $state(false);
+
+  // Focus the chat input from anywhere
+  function focusChatInput() {
+    activeTab = "chat";
+    // wait one tick for the chat panel to be visible, then focus the textarea
+    requestAnimationFrame(() => {
+      const ta = document.querySelector(".pl-input");
+      ta?.focus();
+    });
+  }
+
+  // Commands exposed to the palette + shortcuts. Each `action` mutates app
+  // state directly — no event bus needed.
+  let paletteCommands = $derived([
+    { id: "tab-chat",     label: "Go to Chat",      hotkey: "Ctrl+1", keywords: "chat tab message", action: () => activeTab = "chat" },
+    { id: "tab-work",     label: "Go to Workspace", hotkey: "Ctrl+2", keywords: "workspace files tab", action: () => activeTab = "workspace" },
+    { id: "tab-settings", label: "Go to Settings",  hotkey: "Ctrl+3", keywords: "settings preferences config tab", action: () => activeTab = "settings" },
+    { id: "focus-input",  label: "Focus chat input", hotkey: "Ctrl+J", keywords: "focus input message type", action: focusChatInput },
+    { id: "help",         label: "Show keyboard shortcuts", hotkey: "?", keywords: "help shortcuts keys", action: () => helpOpen = true },
+    ...(activeProject ? [
+      { id: "clear-chat",   label: `Clear chat for "${activeProject.name}"`, keywords: "clear reset chat", action: () => {
+        invoke("clear_messages", { projectId: activeProject.id }).catch(() => {});
+        invoke("claude_clear_session").catch(() => {});
+        // Force a project re-select to reload (empty) history
+        const p = activeProject; activeProject = null; setTimeout(() => activeProject = p, 0);
+      } },
+    ] : []),
+    { id: "vpn-connect",  label: "VPN: Reconnect last profile", keywords: "vpn connect reconnect openvpn", action: () => invoke("vpn_reconnect").catch(console.error) },
+    { id: "vpn-disconnect", label: "VPN: Disconnect", keywords: "vpn disconnect off stop", action: () => invoke("vpn_disconnect").catch(() => {}) },
+    { id: "mcp-recheck",  label: "MCP: Re-run health check", keywords: "mcp health check tools refresh", action: () => pollMcpHealth() },
+  ]);
+
+  // Global keyboard shortcuts. Skip when typing in an input/textarea unless
+  // the binding is explicitly modifier-based (Ctrl+X, etc.) — that way `?`
+  // and bare-letter shortcuts never clobber typing.
+  function onGlobalKey(e) {
+    // If a modal is already open and consumes Escape, that's handled locally.
+    const isMod = e.ctrlKey || e.metaKey;
+    const target = e.target;
+    const inField = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+
+    // Ctrl+K — palette (always)
+    if (isMod && (e.key === "k" || e.key === "K")) {
+      e.preventDefault(); paletteOpen = !paletteOpen; return;
+    }
+    // Ctrl+, — Settings
+    if (isMod && e.key === ",") { e.preventDefault(); activeTab = "settings"; return; }
+    // Ctrl+J — focus chat input
+    if (isMod && (e.key === "j" || e.key === "J")) { e.preventDefault(); focusChatInput(); return; }
+    // Ctrl+1/2/3 — tabs
+    if (isMod && e.key === "1") { e.preventDefault(); activeTab = "chat"; return; }
+    if (isMod && e.key === "2") { e.preventDefault(); activeTab = "workspace"; return; }
+    if (isMod && e.key === "3") { e.preventDefault(); activeTab = "settings"; return; }
+    // ? — help (only when not typing)
+    if (!inField && !isMod && e.key === "?") { e.preventDefault(); helpOpen = true; return; }
+    // Esc — close palette / help (modal-local Esc handlers are fine too; this is a fallback)
+    if (e.key === "Escape") {
+      if (paletteOpen) { paletteOpen = false; return; }
+      if (helpOpen)    { helpOpen    = false; return; }
+    }
+  }
 
   // First-run wizard state
   let wizardOpen  = $state(false);
@@ -229,6 +296,8 @@
   }
 </script>
 
+<svelte:window onkeydown={onGlobalKey} />
+
 <div class="pl-app">
   <div class="pl-titlebar">
     <div class="pl-traffic">
@@ -276,6 +345,9 @@
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />
   {/if}
+
+  <CommandPalette bind:open={paletteOpen} commands={paletteCommands} />
+  <ShortcutHelp   bind:open={helpOpen} />
 
   {#if resumableSession}
     <div class="pl-resume-banner">
