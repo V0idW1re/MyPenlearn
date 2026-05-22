@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.6_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.7_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.6_amd64.deb
+sudo dpkg -i penligent-local_0.1.7_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.6_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.7_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,23 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.6 (current)
+### v0.1.7 (current)
+
+**Bug fixes (web.py audit, second pass):**
+
+Nine more bugs fixed across eight probe functions. Test suite now at 1,477 passed (390 subtests), up one from v0.1.6 thanks to a new php://filter source-disclosure detection.
+
+- **`graphql_probe` critical false-positive fixed.** `rc == 0` matched every successful curl call (including 404 responses), so every probed endpoint reported `[EXISTS]`. Now reads the actual HTTP status code via curl `-w` and only marks `[EXISTS]` on 200/400 with a GraphQL `errors[]` body shape. `[VULN]` requires `"__schema"` or `"queryType"` in body (quoted to avoid bare-substring matches).
+- **`file_upload_check` honours the documented `timeout` arg.** Was parsed and ignored — both `curl -m` and the asyncio.wait_for were hardcoded. Also captures the HTTP status code and flags 2xx responses containing `success` / `uploaded` / `filename` / URL-field signals as `[LIKELY ACCEPTED]`. Added inline note that this tool tests upload acceptance, not file executability.
+- **`jwt_decode` crashed on malformed JWTs.** `header.get(...)` was called unconditionally — if base64-decode failed and returned a `"<decode error>"` string, this raised `AttributeError`. Now guarded with `isinstance` checks. RS/ES/PS algorithms get an actionable hint about `alg=none` and RS→HS key confusion attacks.
+- **URL construction bugs in 5 more probes**: `open_redirect_check`, `ssti_probe`, `lfi_probe`, `cmdi_probe`, `path_traversal`, `prototype_pollution` GET-payload path. All switched to the parser-aware `_build_url_with_param()` helper. No more malformed URLs when targets already have query strings; payloads now properly URL-encoded.
+- **`open_redirect_check` was silently skipping 6 of 11 default params.** Hardcoded `params[:5]` slice replaced with configurable `max_params` / `max_payloads` args.
+- **`lfi_probe` / `path_traversal` detection broadened.** Both now use the shared `_imds_signal` helper (catches `/etc/passwd`, Windows boot.ini, cloud IMDS shapes) plus base64 source-disclosure for php://filter and explicit win.ini section names.
+- **`lfi_probe` `[CHECK]` threshold tightened.** Was 100B absolute → 500B delta-from-baseline. Pre-fix every response over 100 bytes flooded the output with manual-review noise.
+- **`cmdi_probe` time-based detection now compares to a baseline.** Pre-fix a 4+ second jitter spike on a slow endpoint triggered a false-positive blind cmdi finding even without a payload. Now measures baseline latency at start of probe and only flags `[VULN]` when delta exceeds baseline + 4s.
+- **`ssti_probe` `[SAFE]` relabelled `[NO_MATCH]`.** A payload not reflecting `49` doesn't prove safety (HTML-escape, different engine, payload landed in non-rendered context, etc.). Honest label.
+
+### v0.1.6
 
 **First-run wizard polish:**
 
