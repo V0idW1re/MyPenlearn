@@ -1,6 +1,6 @@
 {
   "productName": "penligent-local",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "identifier": "ai.penligent.local",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -42,7 +42,10 @@
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/__main__.py":               "../mcp-server/penligent_mcp/__main__.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/db.py":                     "../mcp-server/penligent_mcp/db.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/__init__.py":         "../mcp-server/penligent_mcp/tools/__init__.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/_cache.py":           "../mcp-server/penligent_mcp/tools/_cache.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/_helpers.py":         "../mcp-server/penligent_mcp/tools/_helpers.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/binary.py":           "../mcp-server/penligent_mcp/tools/binary.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/cloud.py":            "../mcp-server/penligent_mcp/tools/cloud.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/crypto.py":           "../mcp-server/penligent_mcp/tools/crypto.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/execute.py":          "../mcp-server/penligent_mcp/tools/execute.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/exploit.py":          "../mcp-server/penligent_mcp/tools/exploit.py",
@@ -60,6 +63,7 @@
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/scanner.py":          "../mcp-server/penligent_mcp/tools/scanner.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/utils.py":            "../mcp-server/penligent_mcp/tools/utils.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/web.py":              "../mcp-server/penligent_mcp/tools/web.py",
+          "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/wiki.py":             "../mcp-server/penligent_mcp/tools/wiki.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/workspace.py":        "../mcp-server/penligent_mcp/tools/workspace.py"
         }
       }

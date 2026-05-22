@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.1_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.2_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.1_amd64.deb
+sudo dpkg -i penligent-local_0.1.2_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.1_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.2_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,27 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.0 (current)
+### v0.1.2 (current)
+
+**Performance:**
+
+- **System prompt trimmed 67%** — from ~5,900 to ~1,935 tokens per turn. Methodology sections (compliance tables, WAF bypass, XSS layers, XXE, OSINT, auth/session, BAC, cloud, LLM, PDF, blind spots) moved out of the prompt and into wiki pages the agent loads on demand via `wiki_query()`. Saves ~3,900 tokens every turn.
+- **Chat streaming** — coalesced rapid claude://chunk events into a single rAF-batched render (was O(N²) array churn over a turn, now O(N) capped at 60Hz). Added a 256-entry LRU cache for `renderMarkdown` so settled message parts and finished tool_use blocks don't re-parse on every frame. Smooth-scroll queue replaced with instant scroll inside the rAF callback.
+- **MCP read caching** — in-process LRU+TTL cache for `wiki_*` and `workspace_*` idempotent reads (60s TTL / 64 entries per namespace). Mutating tools invalidate their namespace. Cache state never outlives a single turn.
+
+**Bug fixes:**
+
+- **`cloud.py` / `binary.py` missing from .deb bundle** — both were imported by the MCP server but absent from `tauri.conf.json` files map; a fresh install would fail to start the MCP server. Added to the bundle.
+- **`wiki.py` / `_cache.py` missing from .deb bundle** — same issue for the newly added MCP modules. Added.
+- **Inline `import re` calls in `wiki.py`** — flagged by `TestPythonSyntax::test_no_remaining_inline_imports`. Hoisted to module-top imports.
+
+**Features:**
+
+- **Wiki / Second Brain MCP tool** (`wiki.py`, 554 lines) — query/read/write/lint/ingest the local pentest knowledge base at `~/.local/share/penligent-local/wiki/`. The system prompt now mandates `wiki_query()` before every task so the agent prefers your synthesized notes over its training data.
+- **11 methodology wiki pages** seeded locally (evidence-first, compliance-mappings, waf-bypass, web-engagement-startup, osint-pre-engagement, auth-session-testing, broken-access-control, cloud-attack-surface, llm-attack-surface, document-parser-exploits, detection-blind-spots) — these back the keywords the trimmed system prompt references.
+- **`scripts/ingest_machines.py`** — bulk ingestion helper for machine writeups.
+
+### v0.1.0
 
 **Bug fixes:**
 
