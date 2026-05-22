@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.4_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.5_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.4_amd64.deb
+sudo dpkg -i penligent-local_0.1.5_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.4_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.5_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,21 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.4 (current)
+### v0.1.5 (current)
+
+**Bug fixes (web.py audit pass):**
+
+- **13 probe tools honoured documented `timeout` arg.** `open_redirect_check`, `ssrf_probe`, `ssti_probe`, `lfi_probe`, `rfi_probe`, `xxe_probe`, `cmdi_probe`, `path_traversal`, `idor_check`, `rate_limit_check`, `graphql_probe`, `prototype_pollution`, `deserialization_check` accepted `timeout: int` but hardcoded 15s (or 10s/30s) internally. The agent could never override — slow targets and time-based probes silently failed. Now every probe uses the parsed `timeout_s`.
+- **`jwt_crack` algorithm-aware.** Previously hardcoded HS256/SHA-256. Tokens using HS384, HS512, RS256, ES256 silently returned "secret not found" — false negatives every time. Now reads the JWT header `alg`, picks hashcat mode 16500/16600/16700 for HS256/384/512, and fails non-HMAC algorithms with a clear pointer to `alg=none` and RS→HS key confusion.
+- **`jwt_crack` output parsing.** Hashcat result extraction now uses `--show` + `rsplit(":", 1)` instead of a regex that captured the first `:` on a line.
+- **SSRF / RFI URL construction.** Old pattern `f"{target}?{param}={payload}"` produced malformed URLs (`http://x?a=1?param=…`) when the target already had a query string, and never URL-encoded the payload — so `&` in a payload polluted the outer query. New `_build_url_with_param()` helper parses, encodes, and reassembles. Adopted by SSRF + RFI probes.
+- **SSRF probe positive signal.** Previously reported only "HTTP code + body_len" per payload — the agent had to guess. Now detects AWS / GCP / Azure / DigitalOcean metadata content, `/etc/passwd`, Windows boot.ini, and falls back to a body-size differential heuristic. Reports `[VULN]` when confirmed.
+- **XXE probe broadened.** Dropped the useless "blind_oob" payload pointing at the target's own `127.0.0.1`. Added `callback_host` arg, `php://filter` base64 source disclosure, Windows hosts file payload, proper OOB DTD payload. Detection extended beyond `root:`/`daemon:` to base64 source bytes and XML parser-error keywords (`doctype`/`entity`/`saxparser`/`expat`/`lxml.etree`/`xerces`).
+- **Java deserialization probe actually delivers the payload.** Previously generated a ysoserial payload and returned "send as POST body" without sending it; the required `target` arg was unused. Now POSTs the binary payload to the target and measures elapsed time vs the gadget's 5s sleep. Reports `[CONFIRMED]` with measured delay. Binary-safe: ysoserial stdout streams to a temp file so the 0xAC 0xED magic bytes hit the wire intact (sidesteps `_run_subprocess`'s UTF-8 decoding).
+
+Tests: 1,476 passed, 390 subtests passed.
+
+### v0.1.4
 
 **Features:**
 
