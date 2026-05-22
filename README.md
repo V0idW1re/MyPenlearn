@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.5_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.6_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.5_amd64.deb
+sudo dpkg -i penligent-local_0.1.6_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.5_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.6_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,19 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.5 (current)
+### v0.1.6 (current)
+
+**First-run wizard polish:**
+
+- **New Welcome step** with a one-line positioning sentence, a bulleted overview of the three setup steps (HTB token / OpenVPN sudoers / VPN profile) with optional/recommended badges, and a hint that the wizard can be re-run anytime from `Ctrl+K`.
+- **Back button on every step.** Typing the wrong HTB token used to mean restarting the wizard.
+- **Show/Hide toggle** on the HTB token field (defaults hidden).
+- **OVPN path input is editable** — paste works alongside the Browse button.
+- **New Summary step** before Finish, with ✓/— icons and the masked last-6 chars of the HTB token. Errors during save now render inline as a styled red block so users can see what failed, instead of the wizard closing silently.
+- **`Ctrl+K` → "Re-run first-run setup wizard"** command added. Resets all wizard state and reopens the dialog.
+- **Internal:** `wzFinish()` now collects errors per save operation instead of `catch (_) {}` swallowing them; the wizard stays open with the error list visible if anything failed.
+
+### v0.1.5
 
 **Bug fixes (web.py audit pass):**
 
