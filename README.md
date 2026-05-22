@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.7_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.8_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.7_amd64.deb
+sudo dpkg -i penligent-local_0.1.8_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.7_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.8_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,14 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.7 (current)
+### v0.1.8 (current)
+
+**Features:**
+
+- **MCP-down auto-halt + modal.** When the periodic MCP health check flips from `ok` to `error`, the frontend now invokes a new `claude_halt` Tauri command to stop the in-flight Claude turn (no point firing tool calls into a dead server) and surfaces a blocking modal explaining what happened. The modal shows any captured error, offers a "Recheck now" button (re-runs `pollMcpHealth` immediately instead of waiting up to 15s), and auto-dismisses when health recovers. The bottom-right status-bar dot is unchanged — this is purely additive.
+- **`claude_halt` Tauri command.** Backend uses a `tokio::sync::oneshot` channel stored in `ClaudeState`; `run_turn`'s read loop is now a `tokio::select!` with the halt arm `biased;` so an idle agent gets stopped promptly. The existing `kill_on_drop(true)` does the actual SIGTERM as the `Child` handle goes out of scope. Returns `true` if a turn was actually halted, `false` if nothing was running.
+
+### v0.1.7
 
 **Bug fixes (web.py audit, second pass):**
 
