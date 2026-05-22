@@ -19,7 +19,11 @@
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
-  let tokenCount = $state(0);
+  // Per-turn and cumulative session token usage. Real numbers come from the
+  // backend's `claude://usage` event (parsed from Claude Code stream-json
+  // `result.usage`). Reset on project switch / clear; turn resets when sending.
+  let turnUsage    = $state({ input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 });
+  let sessionUsage = $state({ input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 });
   let pendingApproval = $state(null);
   let approvalPollTimer = null;
   let activeDbSessionId = $state(null);
@@ -88,9 +92,20 @@
     await listen("claude://chunk", (e) => {
       const c = e.payload;
       if (c.kind === "tool_use") currentTool = c.tool_name;
-      if (c.cost_usd != null) tokenCount += Math.round(c.cost_usd * 200000);
       // Surface approvals quickly when the agent calls approve_intent
       if (c.tool_name === "approve_intent") setTimeout(pollApprovals, 800);
+    });
+
+    await listen("claude://usage", (e) => {
+      const u = e.payload ?? {};
+      turnUsage = u;
+      sessionUsage = {
+        input:          sessionUsage.input          + (u.input          ?? 0),
+        output:         sessionUsage.output         + (u.output         ?? 0),
+        cache_read:     sessionUsage.cache_read     + (u.cache_read     ?? 0),
+        cache_creation: sessionUsage.cache_creation + (u.cache_creation ?? 0),
+        cost_usd:       sessionUsage.cost_usd       + (u.cost_usd       ?? 0),
+      };
     });
 
     try { vpnState = await invoke("vpn_status"); } catch (_) {}
@@ -133,7 +148,8 @@
     activeProject = project;
     sessionId = null;
     currentTool = null;
-    tokenCount = 0;
+    turnUsage    = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 };
+    sessionUsage = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 };
     pendingApproval = null;
     resumableSession = null;
     activeDbSessionId = null;
@@ -255,7 +271,7 @@
     <Settings {vpnState} />
   </div>
 
-  <StatusBar {vpnState} {currentTool} {tokenCount} {mcpStatus} />
+  <StatusBar {vpnState} {currentTool} {turnUsage} {sessionUsage} {mcpStatus} />
 
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />

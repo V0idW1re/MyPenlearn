@@ -1,5 +1,5 @@
 <script>
-  let { vpnState, currentTool, tokenCount, mcpStatus } = $props();
+  let { vpnState, currentTool, turnUsage, sessionUsage, mcpStatus } = $props();
 
   const DOT_COLOR = {
     connected:    "#3fb950",
@@ -23,9 +23,19 @@
     return "VPN · off";
   }
 
+  // Format a token count compactly: 0 → null (hide), <1k → raw, ≥1k → "X.Yk"
   function fmtTokens(n) {
-    if (!n || n < 100) return null;
+    if (!n) return null;
+    if (n < 1000) return String(n);
     return (n / 1000).toFixed(1) + "k";
+  }
+
+  function fmtCost(c) {
+    if (!c) return null;
+    if (c < 0.001) return `$${c.toFixed(4)}`;
+    if (c < 0.01)  return `$${c.toFixed(4)}`;
+    if (c < 1)     return `$${c.toFixed(3)}`;
+    return `$${c.toFixed(2)}`;
   }
 
   function mcpLabel(s) {
@@ -38,6 +48,12 @@
     if (!s || s.state === "checking") return MCP_DOT.checking;
     return s.state === "ok" ? MCP_DOT.ok : MCP_DOT.error;
   }
+
+  // Derived display fields. `turnUsage` / `sessionUsage` always exist (defaulted
+  // by App.svelte) but may be all-zero before the first turn completes.
+  let turn    = $derived(turnUsage    ?? {});
+  let session = $derived(sessionUsage ?? {});
+  let hasTurn = $derived(!!(turn.input || turn.output || turn.cache_read));
 </script>
 
 <div class="pl-statusbar">
@@ -59,14 +75,33 @@
     </div>
   {/if}
 
-  <div class="pl-status-item ml-auto">
-    <span>Sonnet 4.6</span>
-    {#if fmtTokens(tokenCount)}
+  {#if hasTurn}
+    <div class="pl-status-item ml-auto"
+         title={`Turn — in ${turn.input ?? 0}, out ${turn.output ?? 0}, cache-read ${turn.cache_read ?? 0}, cache-create ${turn.cache_creation ?? 0}\nSession — in ${session.input ?? 0}, out ${session.output ?? 0}, cache-read ${session.cache_read ?? 0}, cost ${fmtCost(session.cost_usd) ?? '$0'}`}>
+      <span>turn</span>
+      <code>{fmtTokens(turn.input + turn.output) ?? "0"}</code>
+      {#if turn.cache_read}
+        <span class="sep">·</span>
+        <span class="cache">cache</span>
+        <code class="cache">{fmtTokens(turn.cache_read)}</code>
+      {/if}
+      {#if fmtCost(turn.cost_usd)}
+        <span class="sep">·</span>
+        <code>{fmtCost(turn.cost_usd)}</code>
+      {/if}
       <span class="sep">·</span>
-      <code>{fmtTokens(tokenCount)}</code>
-      <span>tokens</span>
-    {/if}
-  </div>
+      <span>session</span>
+      <code>{fmtTokens(session.input + session.output) ?? "0"}</code>
+      {#if fmtCost(session.cost_usd)}
+        <span class="sep">·</span>
+        <code>{fmtCost(session.cost_usd)}</code>
+      {/if}
+    </div>
+  {:else}
+    <div class="pl-status-item ml-auto">
+      <span>Sonnet 4.6</span>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -110,4 +145,8 @@
     color: #c9d1d9;
     font-size: 11px;
   }
+
+  /* cache hits are wins — visually distinct from regular tokens */
+  .cache       { color: #9fef00; }
+  code.cache   { color: #9fef00; }
 </style>

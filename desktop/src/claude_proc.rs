@@ -129,7 +129,29 @@ struct StreamEvent {
     message: Option<MessageWrapper>,
     session_id: Option<String>,
     total_cost_usd: Option<f64>,
+    usage: Option<Usage>,
     error: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize, Default, Clone)]
+struct Usage {
+    #[serde(default)]
+    input_tokens: u64,
+    #[serde(default)]
+    output_tokens: u64,
+    #[serde(default)]
+    cache_creation_input_tokens: u64,
+    #[serde(default)]
+    cache_read_input_tokens: u64,
+}
+
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct TurnUsage {
+    pub input: u64,
+    pub output: u64,
+    pub cache_read: u64,
+    pub cache_creation: u64,
+    pub cost_usd: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,6 +325,19 @@ pub async fn run_turn(
                     if let Some(id) = db_id {
                         crate::db_commands::update_session_cost_internal(id, c);
                     }
+                }
+                // Emit precise per-turn token usage if Claude Code reported it.
+                // Source: stream-json `result.usage`. Frontend accumulates session
+                // totals — it knows when to reset (project switch / clear).
+                if let Some(u) = event.usage.as_ref() {
+                    let turn_usage = TurnUsage {
+                        input: u.input_tokens,
+                        output: u.output_tokens,
+                        cache_read: u.cache_read_input_tokens,
+                        cache_creation: u.cache_creation_input_tokens,
+                        cost_usd: cost.unwrap_or(0.0),
+                    };
+                    let _ = app.emit("claude://usage", turn_usage);
                 }
                 let chunk = ChatChunk {
                     kind: "result".into(),
