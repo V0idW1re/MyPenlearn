@@ -13,7 +13,13 @@
   };
 
   let messages     = $state([]);
-  let pendingParts = $state([]);
+  // `pendingParts` is the reactive view used by the template. We back it with
+  // `pendingPartsRaw` (plain mutable array) and re-publish via requestAnimationFrame
+  // so a burst of N text chunks coalesces into a single template re-render per frame
+  // instead of N reactivity passes (was O(N²) with array-spread; now O(N) total, ≤60Hz).
+  let pendingParts    = $state.raw([]);
+  let pendingPartsRaw = [];
+  let renderScheduled = false;
   let input        = $state("");
   let sending      = $state(false);
   let scrollEl     = $state(null);
@@ -21,13 +27,32 @@
   let atBottom     = $state(true);
   let unlistenChunk, unlistenDone;
 
+  function scheduleStreamRender() {
+    if (renderScheduled) return;
+    renderScheduled = true;
+    requestAnimationFrame(() => {
+      renderScheduled = false;
+      // shallow-copy to trigger reactivity; inner objects stay shared so
+      // text mutations done in-place are picked up by the new array reference
+      pendingParts = pendingPartsRaw.slice();
+      if (atBottom && scrollEl) {
+        scrollEl.scrollTop = scrollEl.scrollHeight;
+      }
+    });
+  }
+
+  function resetPending() {
+    pendingPartsRaw = [];
+    pendingParts = pendingPartsRaw;
+  }
+
   $effect(() => {
     if (textareaEl && !input) textareaEl.style.height = "22px";
   });
 
   $effect(() => {
     const pid = project?.id;
-    pendingParts = [];
+    resetPending();
     sending = false;
     if (pid) loadHistory(pid);
     else messages = [];
@@ -54,27 +79,29 @@
   onMount(async () => {
     unlistenChunk = await listen("claude://chunk", (event) => {
       const c = event.payload;
+      const arr = pendingPartsRaw;
+      const last = arr.length ? arr[arr.length - 1] : null;
       if (c.kind === "text") {
-        const last = pendingParts.at(-1);
         if (last?.kind === "text") {
-          pendingParts = [...pendingParts.slice(0, -1), { ...last, text: last.text + c.text }];
+          // mutate in place — published to template by scheduleStreamRender()
+          last.text += c.text;
         } else {
-          pendingParts = [...pendingParts, { kind: "text", text: c.text }];
+          arr.push({ kind: "text", text: c.text });
         }
       } else if (c.kind === "tool_use") {
-        pendingParts = [...pendingParts, { kind: "tool_use", tool_name: c.tool_name, tool_input: c.tool_input }];
+        arr.push({ kind: "tool_use", tool_name: c.tool_name, tool_input: c.tool_input });
       } else if (c.kind === "error") {
-        pendingParts = [...pendingParts, { kind: "error", text: c.text }];
+        arr.push({ kind: "error", text: c.text });
       }
-      scrollToBottom();
+      scheduleStreamRender();
     });
 
     unlistenDone = await listen("claude://done", () => {
-      if (pendingParts.length > 0) {
-        const parts = pendingParts;
+      if (pendingPartsRaw.length > 0) {
+        const parts = pendingPartsRaw;
         messages = [...messages, { role: "assistant", parts }];
         persistMessage("assistant", parts);
-        pendingParts = [];
+        resetPending();
       }
       sending = false;
       scrollToBottom();
@@ -88,7 +115,7 @@
     if (!text || sending || !project) return;
     input = "";
     sending = true;
-    pendingParts = [];
+    resetPending();
     const userParts = [{ kind: "text", text }];
     messages = [...messages, { role: "user", parts: userParts }];
     persistMessage("user", userParts);
@@ -104,7 +131,7 @@
 
   function clearSession() {
     messages = [];
-    pendingParts = [];
+    resetPending();
     sending = false;
     invoke("claude_clear_session").catch(() => {});
     if (project?.id) invoke("clear_messages", { projectId: project.id }).catch(() => {});
@@ -215,8 +242,21 @@
 
   const ACTION_PHRASE = "Let me know when you have completed these steps and I will continue.";
 
+  // Cache parsed markdown by text content. A WeakMap keyed on the part object
+  // would be ideal, but `part.text` is a primitive — use a plain Map with cap.
+  // Hit rate is high: settled-message parts, finished tool_use parts, and
+  // (across frames) text parts whose content didn't grow this frame.
+  const MD_CACHE_CAP = 256;
+  const mdCache = new Map();
   function renderMarkdown(text) {
     if (!text) return "";
+    const cached = mdCache.get(text);
+    if (cached !== undefined) {
+      // refresh LRU order
+      mdCache.delete(text);
+      mdCache.set(text, cached);
+      return cached;
+    }
     let body = text;
     let hasAction = false;
     const aIdx = text.lastIndexOf(ACTION_PHRASE);
@@ -241,7 +281,14 @@
         `</div>`
       );
     }
-    return out.join("");
+    const html = out.join("");
+    if (mdCache.size >= MD_CACHE_CAP) {
+      // evict oldest (first inserted) entry
+      const firstKey = mdCache.keys().next().value;
+      mdCache.delete(firstKey);
+    }
+    mdCache.set(text, html);
+    return html;
   }
 
   function fmtArgs(args) {
