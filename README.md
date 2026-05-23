@@ -15,8 +15,8 @@ exec $SHELL                  # pick up the new PATH entry
 claude                       # one-time browser OAuth, then exit
 
 # 2. Install Penlearn Local
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penlearn-local_0.1.18_amd64.deb
-sudo dpkg -i penlearn-local_0.1.18_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penlearn-local_0.1.19_amd64.deb
+sudo dpkg -i penlearn-local_0.1.19_amd64.deb
 
 # 3. Launch
 penlearn-local
@@ -154,10 +154,10 @@ exec $SHELL
 claude              # browser OAuth on first run, then exit
 ```
 
-Then download `penlearn-local_0.1.18_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
+Then download `penlearn-local_0.1.19_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
 
 ```bash
-sudo dpkg -i penlearn-local_0.1.18_amd64.deb
+sudo dpkg -i penlearn-local_0.1.19_amd64.deb
 penlearn-local
 ```
 
@@ -483,7 +483,9 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.18 (current)
+### v0.1.19 (current)
+
+Renames the product from Penligent → Penlearn across the entire codebase and rewires the agent loop around teach-as-you-go. The rename touches the Python package (`penligent_mcp` → `penlearn_mcp`), Rust crate (`penligent-local` → `penlearn-local`), Tauri identifier and product name, `.desktop` launcher, post-install / pre-remove scripts, Svelte UI strings, README, and the `mcpServers.penligent-local` registration key (now `mcpServers.penlearn-local`) — existing installs need a one-shot re-register via Settings → Diagnostics so Claude Code picks up the new key. Stale `penligent-local_*` bundles from prior releases were pruned from `desktop/target/release/bundle/deb/`. Agent loop (driven by ThirdTest review where the agent ran 20+ raw Bash commands with no wiki lookup, no plan, no findings recorded): every user turn now starts with a mandatory wiki ritual (`wiki_query` → `wiki_read_page` → cite the page in the response), one active tool per turn (bookkeeping calls chain freely), `plan_create` required on the first turn with `plan_update_step` wrapped around every active call, every turn ends with a Next Steps block where each option carries a `Wiki:` line tying back to a technique, `record_finding` always lands as `verify_status=open` with an `attack_chain_position`, and `verify_finding` / `update_finding` / `delete_finding` are never agent-initiated — the operator picks from Next Steps. Findings branch out (tech stack / security headers / sensitive paths get their own records) instead of one fat scan dump. Verification: `cargo check` clean, `vite build` clean, Python byte-compile clean, no `penligent` strings remain in source.
 
 Closes the last false-positive surface around Penlearn MCP registration plus a README polish pass. Symptom that exposed the gap in 0.1.17: every Settings diagnostic ticked green, the status-bar MCP dot stayed green, then the agent reported "Penlearn MCP server is not registered" on the first tool call. Cause: `mcp_health_check` only verified that the Python module imports — it never looked at `~/.claude.json` for the actual entry, so a missing or hand-deleted `mcpServers.penlearn-local` slipped past the 15s health poll. Fix: `mcp_health_check` now reads `~/.claude.json` top-level `mcpServers` first and short-circuits with `ok:false` + a directive error message ("Open Settings → Diagnostics → Fix next to \"Penlearn MCP registered\"") when the entry is absent. That cascades through the existing UI plumbing in `App.svelte:103` — status-bar dot flips red, any running agent turn gets halted via `claude_halt`, the MCP-down modal opens with the action hint, and the user sees the failure *before* an agent turn does. README quick-start pass: claude-first install order surfaced as the recommended path (so first-launch diagnostics come up all-green and the wizard's Claude step shows ✓ immediately); 2-step wizard description matches the trimmed 0.1.17 layout; source-build snippet now writes to `~/.claude.json` instead of `~/.claude/settings.json`. Verification: `cargo check` clean.
 
