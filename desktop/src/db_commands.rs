@@ -147,6 +147,37 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             "ALTER TABLE agent_sessions ADD COLUMN {col} {typedef}"
         ));
     }
+
+    // Mirror the Python MCP server's risk_items migrations so the Findings
+    // panel works even when the user opens the app before the MCP server
+    // ever runs. Each statement is idempotent (silently fails if the column
+    // already exists, or if risk_items itself doesn't yet exist).
+    // See mcp-server/penligent_mcp/db.py — keep these two lists in sync.
+    let table_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='risk_items'",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .unwrap_or(0) > 0;
+    if table_exists {
+        for (col, typedef) in &[
+            ("impact",                   "TEXT"),
+            ("repro_steps_json",         "TEXT"),
+            ("compliance_controls_json", "TEXT"),
+            ("remediation_json",         "TEXT"),
+            ("false_positive_rationale", "TEXT"),
+            ("blast_radius",             "TEXT"),
+            ("confirmed_exploitable",    "INTEGER DEFAULT 0"),
+            ("regression_required",      "INTEGER DEFAULT 0"),
+            ("regression_verified_at",   "INTEGER"),
+            ("regression_note",          "TEXT"),
+        ] {
+            let _ = conn.execute_batch(&format!(
+                "ALTER TABLE risk_items ADD COLUMN {col} {typedef}"
+            ));
+        }
+    }
     Ok(())
 }
 

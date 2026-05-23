@@ -82,6 +82,7 @@
   };
 
   let findings    = $state([]);
+  let findingsErr = $state("");
   let openFinding = $state(null);
   let execResults = $state([]);
   let execOpen    = $state(false);
@@ -116,10 +117,20 @@
   }
 
   async function load(pid) {
+    findingsErr = "";
     try {
       const res = await invoke("list_findings", { projectId: pid });
       if (project?.id === pid) findings = res;
-    } catch (_) { if (project?.id === pid) findings = []; }
+    } catch (e) {
+      // Was a silent catch — that hid a long-standing schema-mismatch bug
+      // where the Rust list_findings query referenced columns not present
+      // on freshly-created DBs (impact / compliance_controls_json /
+      // remediation_json). Now we surface so the user can tell us.
+      if (project?.id === pid) {
+        findings = [];
+        findingsErr = String(e);
+      }
+    }
     try {
       const res = await invoke("list_execution_results", { projectId: pid });
       if (project?.id === pid) execResults = res;
@@ -230,6 +241,11 @@
   <div class="pl-find-list">
     {#if !project}
       <div class="pl-find-empty">No engagement selected.</div>
+    {:else if findingsErr}
+      <div class="pl-find-empty pl-find-err" title={findingsErr}>
+        Couldn't load findings.<br>
+        <code>{findingsErr.length > 80 ? findingsErr.slice(0, 77) + "…" : findingsErr}</code>
+      </div>
     {:else if findings.length === 0}
       <div class="pl-find-empty">No findings yet.</div>
     {:else}
@@ -416,6 +432,22 @@
     font-size: 12px;
     padding: 20px 8px;
     text-align: center;
+  }
+  .pl-find-err {
+    color: #ff7b72;
+    line-height: 1.5;
+  }
+  .pl-find-err code {
+    display: inline-block;
+    margin-top: 6px;
+    padding: 4px 6px;
+    background: #1c0a0a;
+    border: 1px solid #5d1f1f;
+    border-radius: 3px;
+    color: #ff7b72;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 10px;
+    word-break: break-all;
   }
 
   .pl-finding {
