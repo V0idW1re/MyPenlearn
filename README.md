@@ -10,10 +10,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.12_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.13_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.12_amd64.deb
+sudo dpkg -i penligent-local_0.1.13_amd64.deb
 
 # Launch
 penligent-local
@@ -141,10 +141,10 @@ First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<k
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.12_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.13_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.12_amd64.deb
+sudo dpkg -i penligent-local_0.1.13_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.12_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.13_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.12 (current)
+### v0.1.13 (current)
+
+Develop-as-you-work Attack Path + phase coloring + finding spurs + new app icon. The Attack Path rail now only shows steps the agent has actually started (plus one preview of the immediate next pending step), so the engagement narrative builds up live instead of dumping the whole pre-baked sequence at once. Hidden future steps surface as a dim italic `…N more steps planned but not started`. Each step carries a phase pill (`RECON` / `DISCOVERY` / `EXPLOIT` / `POST-EXPLOIT` / `REPORT`) coloured to match the Workspace kill-chain. Findings recorded during a step now branch off as severity-coloured spurs beside it — your "two users discovered from a recon step" effect; the spine itself stays linear but each step can fan out to N findings. Open/suspected findings get a dashed border so the plan visibly tracks what's being chased, not just confirmed kills. Two system-prompt rules added to make the data behave this way: agent must `plan_create` 2–3 steps at a time (not the whole engagement up front), and must `record_finding(verify_status='open')` as soon as it has a tentative discovery. Prompt cost: ~2,161 → ~2,404 tokens per turn (+243); still 59% smaller than the v0.1.1 baseline. Also: app icon swapped for the user's custom PNG.
+
+### v0.1.12
 
 Resizable left/right sidebars + no-repeat agent rule. Drag the 1px guide line between the engagements sidebar and chat (or between chat and findings rail) to resize. Widths clamped (160–480px left, 200–560px right) and persisted to `config.json` so they survive restarts. Pointer-capture keeps the drag alive when the cursor leaves the 4px hit target. The agent's system prompt now has an emphatic no-repeat clause: before running a tool OR proposing one in a Next Steps block, the agent must scan the session's tool_use history and reject any `(tool_name, target, parameters)` combination already attempted — success or failure. If the only thing it can think of is something it already tried, it must propose a different technique or explicitly say it's out of ideas. Prompt cost: ~1,935 → ~2,161 tokens per turn (+226), still 63% smaller than the v0.1.1 baseline of ~5,900.
 
