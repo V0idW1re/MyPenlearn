@@ -81,6 +81,29 @@
     skipped:     "—",
   };
 
+  // Phase grouping — drives the colored vertical strip on each step card
+  // so the user can read the engagement flow (recon → discovery → exploit
+  // → post-exploit → report) at a glance instead of having to read every
+  // verb. Mirrors the same scheme used by Workspace.svelte's kill-chain.
+  const VERB_PHASE = {
+    passive_recon: "Recon", active_recon: "Recon", subdomain_enum: "Recon",
+    port_scan: "Recon", dir_brute: "Recon", http_probe: "Recon", tech_detect: "Recon",
+    sqli_detect: "Discovery", xss_probe: "Discovery", ssrf_probe: "Discovery",
+    lfi_probe: "Discovery", auth_test: "Discovery", session_test: "Discovery", bac_test: "Discovery",
+    exploit_run: "Exploit",
+    privesc: "Post-Exploit", post_exploit: "Post-Exploit",
+    lateral_move: "Post-Exploit", evidence_collect: "Post-Exploit",
+    report_generate: "Report", custom: "Custom",
+  };
+  const PHASE_COLOR = {
+    Recon: "#388bfd", Discovery: "#bc8cff", Exploit: "#f85149",
+    "Post-Exploit": "#fb8500", Report: "#3fb950", Custom: "#8b949e",
+  };
+  const SEV_DOT_COLOR = {
+    critical: "#f85149", high: "#fb8500", medium: "#d29922",
+    low: "#3fb950", info: "#388bfd",
+  };
+
   let findings    = $state([]);
   let findingsErr = $state("");
   let openFinding = $state(null);
@@ -151,6 +174,49 @@
     return new Date(ts * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   }
 
+  // ── "Develop as I work" filter + finding-spur correlation ─────────
+  // Show only what has actually happened: in_progress, done, failed, plus a
+  // preview of the immediate next pending step so the user can see what the
+  // agent is about to attempt. Subsequent pending steps stay hidden — they
+  // come into view as the agent starts them.
+  let visibleSteps = $derived((() => {
+    const taken = planSteps.filter(s =>
+      s.status === "in_progress" || s.status === "done" || s.status === "failed"
+    );
+    const firstPending = planSteps.find(s => s.status === "pending");
+    return firstPending ? [...taken, firstPending] : taken;
+  })());
+
+  // Each step "branches" into N findings that were created during its time
+  // window (started_at .. ended_at or now). The visualisation renders these
+  // as severity-coloured spurs beside the step — your "two users discovered"
+  // example becomes two side-spurs off the recon step. Findings with
+  // verify_status='open' get a dashed border so the plan visibly tracks
+  // "found but not confirmed".
+  let findingsByStep = $derived((() => {
+    const out = new Map();
+    if (!findings.length || !planSteps.length) return out;
+    for (const f of findings) {
+      // Pick the step whose time window contains this finding's created_at.
+      // Fall back to the last started step if no window matches.
+      let pick = null;
+      const t = f.found_at ?? f.created_at ?? 0;
+      for (const s of planSteps) {
+        if (!s.started_at) continue;
+        const end = s.ended_at ?? Math.floor(Date.now() / 1000) + 60;
+        if (t >= s.started_at && t <= end) { pick = s; break; }
+      }
+      if (!pick) {
+        // Findings recorded before any step started → attach to first step
+        pick = planSteps.find(s => s.started_at) ?? planSteps[0];
+      }
+      if (!pick) continue;
+      if (!out.has(pick.id)) out.set(pick.id, []);
+      out.get(pick.id).push(f);
+    }
+    return out;
+  })());
+
   onMount(async () => {
     unlistenPlan = await listen("claude://chunk", (e) => {
       const c = e.payload;
@@ -205,17 +271,24 @@
       {#if pathOpen}
         <div class="pl-path-obj" title={plan.objective}>{plan.objective}</div>
         <div class="pl-path-chain">
-          {#each planSteps as step, i (step.id)}
+          {#if visibleSteps.length === 0}
+            <div class="pl-path-empty">Agent will populate steps as it works.</div>
+          {/if}
+          {#each visibleSteps as step, i (step.id)}
             {#if i > 0}
               <div class="pl-path-arrow">↓</div>
             {/if}
+            {@const phase = VERB_PHASE[step.verb] ?? "Custom"}
+            {@const phaseColor = PHASE_COLOR[phase] ?? "#8b949e"}
+            {@const sfindings = findingsByStep.get(step.id) ?? []}
             <div
               class="pl-path-step"
               class:pl-step-live={step.status === 'in_progress'}
               class:pl-step-done={step.status === 'done'}
               class:pl-step-failed={step.status === 'failed'}
               class:pl-step-skipped={step.status === 'skipped'}
-              style="border-left-color:{STEP_COLOR[step.status] ?? '#484f58'}"
+              class:pl-step-preview={step.status === 'pending'}
+              style="border-left-color:{phaseColor}"
             >
               <div class="pl-step-row">
                 <span class="pl-step-icon" style="color:{STEP_COLOR[step.status] ?? '#484f58'}">
@@ -224,6 +297,7 @@
                 <span class="pl-step-verb" class:pl-verb-live={step.status === 'in_progress'}>
                   {VERB_LABELS[step.verb] ?? step.verb}
                 </span>
+                <span class="pl-step-phase" style="color:{phaseColor}">{phase}</span>
                 {#if step.status === 'in_progress'}
                   <span class="pl-step-pulse"></span>
                 {/if}
@@ -231,8 +305,29 @@
               {#if step.target}
                 <div class="pl-step-target">{step.target}</div>
               {/if}
+              {#if sfindings.length > 0}
+                <div class="pl-step-spurs" title="Findings produced during this step">
+                  {#each sfindings as f (f.id)}
+                    <button
+                      class="pl-spur"
+                      class:pl-spur-open={f.status === 'open'}
+                      style="--sev:{SEV_DOT_COLOR[f.severity] ?? '#8b949e'}"
+                      title="{(f.severity ?? 'info').toUpperCase()} · {f.title} · {f.status ?? 'open'}"
+                      onclick={(e) => { e.stopPropagation(); openFinding = f.id; loadEvidence(f.id); }}
+                    >
+                      <span class="pl-spur-dot"></span>
+                      <span class="pl-spur-title">{f.title}</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
             </div>
           {/each}
+          {#if planSteps.length > visibleSteps.length}
+            <div class="pl-path-rest">
+              <span class="pl-path-rest-dim">…{planSteps.length - visibleSteps.length} more step{planSteps.length - visibleSteps.length === 1 ? '' : 's'} planned but not started</span>
+            </div>
+          {/if}
         </div>
       {/if}
     </div>
@@ -862,5 +957,88 @@
   @keyframes step-pulse {
     0%, 100% { opacity: 1; transform: scale(1); }
     50%       { opacity: 0.25; transform: scale(0.7); }
+  }
+
+  /* ── Phase pill ─────────────────────────────────────────── */
+  .pl-step-phase {
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-left: auto;
+    padding: 1px 5px;
+    border: 1px solid currentColor;
+    border-radius: 3px;
+    opacity: 0.85;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+  }
+
+  /* ── Preview (next pending step) — dashed border ────────── */
+  .pl-path-step.pl-step-preview {
+    opacity: 0.65;
+    border-left-style: dashed;
+  }
+
+  /* ── Finding spurs (the "branches") ─────────────────────── */
+  .pl-step-spurs {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 6px 0 0 14px;
+    padding-left: 8px;
+    border-left: 1px solid #21262d;
+  }
+  .pl-spur {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid #21262d;
+    border-left: 2px solid var(--sev);
+    border-radius: 3px;
+    color: #c9d1d9;
+    font-family: inherit;
+    font-size: 10px;
+    line-height: 1.3;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.1s;
+  }
+  .pl-spur:hover { background: rgba(255, 255, 255, 0.05); }
+  .pl-spur-open {
+    /* unconfirmed finding: dashed border + slightly dim */
+    border-style: dashed;
+    opacity: 0.78;
+  }
+  .pl-spur-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--sev);
+    flex-shrink: 0;
+  }
+  .pl-spur-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── "Develop as you work" placeholders ─────────────────── */
+  .pl-path-empty {
+    font-size: 11px;
+    color: #484f58;
+    padding: 14px 8px;
+    text-align: center;
+    font-style: italic;
+  }
+  .pl-path-rest {
+    padding: 6px 0 0 14px;
+    font-size: 10px;
+  }
+  .pl-path-rest-dim {
+    color: #484f58;
+    font-style: italic;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
   }
 </style>

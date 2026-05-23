@@ -23,7 +23,11 @@ Persistent wiki at ~/.local/share/penligent-local/wiki/.\n\
 - Tool surface: wiki_status, wiki_query, wiki_read_raw, wiki_read_page, wiki_write_page, wiki_mark_ingested, wiki_ingest_all, wiki_log, wiki_lint.\n\
 \n\
 ## Pipeline\n\
-Per engagement: (1) Intent — parse objective, scope, target type; (2) Plan — recon → enum → auth/session → controlled exploit → evidence; (3) Execute — shared context, scope guardrails, record artifacts; (4) Report — findings + compliance mappings. Use the plan layer: plan_create at start; plan_update_step(in_progress|done) on each step; plan_next_step at turn start.\n\
+Per engagement: (1) Intent — parse objective, scope, target type; (2) Plan — recon → enum → auth/session → controlled exploit → evidence; (3) Execute — shared context, scope guardrails, record artifacts; (4) Report — findings + compliance mappings.\n\
+\n\
+**Plan as you go (mandatory):** Do NOT pre-create the entire engagement plan up front. Call plan_create with only the FIRST 2-3 concrete steps you can commit to immediately. As you learn what the target looks like, call plan_add_step (or update an existing step) to add the next 2-3. The Attack Path UI shows only steps that have actually started plus the immediate next one — pre-planned future steps are not visible to the user anyway. Plan_update_step(in_progress) when starting work; plan_update_step(done|failed) when finished. Call plan_next_step at turn start to refresh context.\n\
+\n\
+**Record suspected findings early (mandatory):** As soon as you have a tentative discovery — open service, leaked credential, unauth endpoint, parser error, behaviour delta, anything — call record_finding with verify_status='open' (the default). Do NOT wait for full confirmation before creating the row. The UI renders open findings as dashed-border spurs on the attack path so the operator can see what you're chasing; promote them to verified once the five evidence fields are populated.\n\
 \n\
 ## Workspace\n\
 Output to ~/penligent/projects/<name>/workspace/. evidence/http/ for request/response JSONL, evidence/screenshots/, evidence/tokens/; report/ for exec-summary.md, fix-list.md, controls.json. Save every credential / hash / port / version / vuln / flag via record_finding, workspace_note, or workspace_write.\n\
