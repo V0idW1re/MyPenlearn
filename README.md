@@ -10,10 +10,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.11_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.12_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.11_amd64.deb
+sudo dpkg -i penligent-local_0.1.12_amd64.deb
 
 # Launch
 penligent-local
@@ -141,10 +141,10 @@ First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<k
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.11_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.12_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.11_amd64.deb
+sudo dpkg -i penligent-local_0.1.12_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.11_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.12_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.11 (current)
+### v0.1.12 (current)
+
+Resizable left/right sidebars + no-repeat agent rule. Drag the 1px guide line between the engagements sidebar and chat (or between chat and findings rail) to resize. Widths clamped (160–480px left, 200–560px right) and persisted to `config.json` so they survive restarts. Pointer-capture keeps the drag alive when the cursor leaves the 4px hit target. The agent's system prompt now has an emphatic no-repeat clause: before running a tool OR proposing one in a Next Steps block, the agent must scan the session's tool_use history and reject any `(tool_name, target, parameters)` combination already attempted — success or failure. If the only thing it can think of is something it already tried, it must propose a different technique or explicitly say it's out of ideas. Prompt cost: ~1,935 → ~2,161 tokens per turn (+226), still 63% smaller than the v0.1.1 baseline of ~5,900.
+
+### v0.1.11
 
 Findings panel migration fix + README polish. `list_findings` on the Rust side queried `risk_items` columns (`impact`, `compliance_controls_json`, `remediation_json`, …) that only Python's MCP server's migration code added to the table — if the user opened the app before MCP ever connected to the DB, the SELECT failed, the silent `catch (_) {}` swallowed the error, and the panel showed "No findings yet." even when findings existed. Rust `ensure_schema()` now mirrors the same `ALTER TABLE` migrations Python runs, and the frontend surfaces any future schema-drift errors as a red block instead of an empty list. Discovered via a structured test pass with 5 seeded findings — see the screenshot trail referenced in commit `368e3c8`. The README also got a full polish pass (394 → 507 lines): new Quick Start, Shortcuts, Second-brain wiki, Troubleshooting sections, plus the Features list now reflects every v0.1.2–v0.1.10 feature instead of just the v0.1.0 set.
 
