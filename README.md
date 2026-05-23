@@ -10,16 +10,16 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.15_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.16_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.15_amd64.deb
+sudo dpkg -i penligent-local_0.1.16_amd64.deb
 
 # Launch
 penligent-local
 ```
 
-First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to open the command palette or just type your objective into the chat.
+First launch shows a 4-step welcome wizard (Claude Code → HTB token → sudoers → VPN). After that, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to open the command palette or just type your objective into the chat.
 
 ---
 
@@ -141,10 +141,10 @@ First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<k
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.15_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.16_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.15_amd64.deb
+sudo dpkg -i penligent-local_0.1.16_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.15_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.16_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.15 (current)
+### v0.1.16 (current)
+
+Closes the gaps a first-test user hit on a clean Kali VM. **Claude Code is now an explicit wizard step.** The `.deb` postinst doesn't install `~/.local/bin/claude` (Anthropic's installer expects to run in a user shell, not under `dpkg`), so before this release the wizard's HTB MCP register call failed with `claude mcp add: No such file or directory` and the user had no in-app remedy. Step 1 of the wizard now probes for `claude` via `get_claude_version`, offers a one-click Install button that runs `curl -fsSL https://claude.ai/install.sh | bash`, and gates Next on success. **Safety net in `wzFinish`** detects the missing-claude failure signature and auto-installs + retries the HTB MCP register once, so even a user who skipped step 1 ends up with a working setup. Settings → Diagnostics gained the same Install button as a `fix="install_claude"` action for users past the wizard. **Right-side rail now has a Next Steps panel** above Findings — parses the agent's `## Next Steps` block from the streamed assistant text and renders each numbered option as a clickable button; clicking sends `Proceed with step N: <action>` back to the agent so the operator doesn't have to retype the choice. **VPN wizard now self-completes**: the saved profile is marked default if none exists, and Settings auto-loads the default profile into the path field on open — one click on Connect replaces the prior re-paste-and-connect dance. Pre-release pass: post-install syntax OK, agent-guard.py parse OK, .deb sha256 `3df573a4d78d3e99e0fadbe2cc8ad8be29d1500496c2eabaf3ba1eeed8e6f84c`.
+
+### v0.1.15
 
 Two visual fixes the user caught after rolling 0.1.14. (1) **Workspace kill-chain node overflow.** In-progress steps with a target line and an impact label (e.g. `Exploit / CVE-2007-2447 / T+5:45 / running… / HOST COMPROMISE`) overflowed the 70px-tall node box because the foot's `flex-wrap` pushed `running…` and the IMPACT badge onto a second line that visually overlapped the target above. `NODE_H` bumped 70 → 96, `LANE_H` 88 → 112, and `.ck-foot` now caps at `max-height: 28px; overflow: hidden` so future longer labels can't recreate the same overlap. (2) **Right-click Copy title menu drifts away from the cursor under non-1.0 UI zoom.** WebKitGTK treats CSS `zoom` as a transform that establishes a containing block for `position: fixed` descendants, so `left: clientX px` rendered at `clientX × zoom` visually. `openCtx()` now divides the click coords by the current zoom factor (read from `getComputedStyle().zoom` with fallbacks) so the menu anchors at the cursor regardless of the Settings → Appearance slider setting. Pre-release pass: MCP test suite 1,477 passed / 390 subtests / 0 fail, bundle integrity clean, post-install syntax OK.
 
