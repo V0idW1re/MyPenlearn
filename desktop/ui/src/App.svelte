@@ -40,6 +40,51 @@
   let paletteOpen = $state(false);
   let helpOpen    = $state(false);
 
+  // Resizable sidebar widths. Persisted via save_config_value so they survive
+  // restarts. Defaults match the previous fixed values: 220 left, 240 right.
+  const SIDEBAR_MIN  = 160, SIDEBAR_MAX  = 480;
+  const FINDINGS_MIN = 200, FINDINGS_MAX = 560;
+  let sidebarWidth  = $state(220);
+  let findingsWidth = $state(240);
+  let resizing = $state(null); // "sidebar" | "findings" | null
+
+  // Throttle config writes during a drag so we don't spam the disk.
+  let widthSaveTimer = null;
+  function scheduleWidthSave() {
+    if (widthSaveTimer) clearTimeout(widthSaveTimer);
+    widthSaveTimer = setTimeout(() => {
+      invoke("save_config_value", { key: "ui_sidebar_width",  value: String(sidebarWidth)  }).catch(() => {});
+      invoke("save_config_value", { key: "ui_findings_width", value: String(findingsWidth) }).catch(() => {});
+    }, 400);
+  }
+
+  function startResize(which, e) {
+    resizing = which;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }
+  function onResizeMove(e) {
+    if (!resizing) return;
+    if (resizing === "sidebar") {
+      // mouse X is the new right edge of the sidebar — clamp to range.
+      const next = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, e.clientX));
+      sidebarWidth = next;
+    } else if (resizing === "findings") {
+      // findings panel is right-anchored: width = window.right - mouse X.
+      const next = Math.max(FINDINGS_MIN, Math.min(FINDINGS_MAX, window.innerWidth - e.clientX));
+      findingsWidth = next;
+    }
+  }
+  function endResize() {
+    if (!resizing) return;
+    resizing = null;
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+    scheduleWidthSave();
+  }
+
   // MCP-down detection. When the periodic health check flips from ok → error
   // we halt the in-flight Claude turn (no point letting the agent fire tool
   // calls into a dead server) and surface a blocking modal so the user can
@@ -255,6 +300,20 @@
       if (z) document.documentElement.style.zoom = parseFloat(z);
     } catch (_) {}
 
+    // Load saved sidebar widths
+    try {
+      const sw = await invoke("load_config_value", { key: "ui_sidebar_width" });
+      if (sw) {
+        const n = parseInt(sw, 10);
+        if (Number.isFinite(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX) sidebarWidth = n;
+      }
+      const fw = await invoke("load_config_value", { key: "ui_findings_width" });
+      if (fw) {
+        const n = parseInt(fw, 10);
+        if (Number.isFinite(n) && n >= FINDINGS_MIN && n <= FINDINGS_MAX) findingsWidth = n;
+      }
+    } catch (_) {}
+
     try {
       const done = await invoke("load_config_value", { key: "setup_complete" });
       if (!done) wizardOpen = true;
@@ -385,7 +444,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onGlobalKey} />
+<svelte:window onkeydown={onGlobalKey} onpointermove={onResizeMove} onpointerup={endResize} />
 
 <div class="pl-app">
   <div class="pl-titlebar">
@@ -414,11 +473,19 @@
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'chat' ? 'flex' : 'none'}">
-    <div class="pl-sidebar">
+    <div class="pl-sidebar" style="width:{sidebarWidth}px">
       <Sidebar {activeProject} onSelect={handleProjectSelect} />
     </div>
+    <div class="pl-resize-handle" class:active={resizing === 'sidebar'}
+         onpointerdown={(e) => startResize('sidebar', e)}
+         aria-label="Resize left sidebar" role="separator" aria-orientation="vertical"></div>
     <Chat project={activeProject} {sessionId} />
-    <Findings project={activeProject} />
+    <div class="pl-resize-handle" class:active={resizing === 'findings'}
+         onpointerdown={(e) => startResize('findings', e)}
+         aria-label="Resize findings panel" role="separator" aria-orientation="vertical"></div>
+    <div class="pl-findings-wrap" style="width:{findingsWidth}px">
+      <Findings project={activeProject} />
+    </div>
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'workspace' ? 'flex' : 'none'}">
@@ -766,13 +833,51 @@
   .pl-vpn-dismiss:hover { color: #c9d1d9; }
 
   .pl-sidebar {
-    width: 220px;
+    /* width set inline from $state(sidebarWidth) — see App.svelte markup */
     background: #161b22;
     border-right: 1px solid #30363d;
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
     overflow-y: auto;
+  }
+
+  .pl-findings-wrap {
+    /* width set inline from $state(findingsWidth) */
+    display: flex;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  /* Child Findings component fills the wrapper */
+  .pl-findings-wrap > :global(.pl-findings) {
+    width: 100% !important;
+  }
+
+  .pl-resize-handle {
+    flex: 0 0 4px;
+    background: transparent;
+    cursor: col-resize;
+    position: relative;
+    z-index: 5;
+    transition: background 0.1s;
+  }
+  .pl-resize-handle::before {
+    /* visible 1px guide line in the middle of the 4px hit-target */
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 0; bottom: 0;
+    width: 1px;
+    transform: translateX(-0.5px);
+    background: #30363d;
+  }
+  .pl-resize-handle:hover,
+  .pl-resize-handle.active {
+    background: rgba(88, 166, 255, 0.15);
+  }
+  .pl-resize-handle:hover::before,
+  .pl-resize-handle.active::before {
+    background: #58a6ff;
   }
 
   .pl-wizard-backdrop {
