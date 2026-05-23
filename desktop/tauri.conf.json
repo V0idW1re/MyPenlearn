@@ -61,6 +61,7 @@
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/post_exploit.py": "../mcp-server/penligent_mcp/tools/post_exploit.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/recon.py": "../mcp-server/penligent_mcp/tools/recon.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/register_all.py": "../mcp-server/penligent_mcp/tools/register_all.py",
+          "/usr/lib/penligent-local/scripts/agent-guard.py": "../scripts/agent-guard.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/report.py": "../mcp-server/penligent_mcp/tools/report.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/scanner.py": "../mcp-server/penligent_mcp/tools/scanner.py",
           "/usr/lib/penligent-local/mcp-server/penligent_mcp/tools/utils.py": "../mcp-server/penligent_mcp/tools/utils.py",

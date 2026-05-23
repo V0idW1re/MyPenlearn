@@ -1,5 +1,5 @@
 <script>
-  let { vpnState, currentTool, currentModel, turnUsage, sessionUsage, mcpStatus } = $props();
+  let { vpnState, currentTool, currentModel, turnUsage, sessionUsage, mcpStatus, htbMcpStatus } = $props();
 
   // Translate a Claude Code model id ("claude-sonnet-4-5-20250929") into a
   // short, friendly label ("Sonnet 4.5"). Falls back to the raw id for
@@ -64,6 +64,21 @@
     return s.state === "ok" ? MCP_DOT.ok : MCP_DOT.error;
   }
 
+  // HTB MCP indicator. Only renders when the user has actually configured a
+  // token (state !== "no_token") so a non-HTB user doesn't see a chip they
+  // can't act on. "missing" = token saved but registration absent → agent
+  // can't reach the HTB tool surface, and App.svelte halts any running turn.
+  function htbLabel(s) {
+    if (!s || s.state === "checking") return "HTB · …";
+    if (s.state === "ok")             return "HTB MCP · ok";
+    if (s.state === "missing")        return "HTB MCP · not registered";
+    return "HTB MCP · error";
+  }
+  function htbDotColor(s) {
+    if (!s || s.state === "checking") return MCP_DOT.checking;
+    return s.state === "ok" ? MCP_DOT.ok : MCP_DOT.error;
+  }
+
   // Derived display fields. `turnUsage` / `sessionUsage` always exist (defaulted
   // by App.svelte) but may be all-zero before the first turn completes.
   let turn    = $derived(turnUsage    ?? {});
@@ -81,6 +96,13 @@
     <span class="pl-dot" class:pulse={mcpStatus?.state === "checking"} style="background:{mcpDotColor(mcpStatus)}"></span>
     <span>{mcpLabel(mcpStatus)}</span>
   </div>
+
+  {#if htbMcpStatus && htbMcpStatus.state !== "no_token"}
+    <div class="pl-status-item" title={htbMcpStatus?.error ?? ""}>
+      <span class="pl-dot" class:pulse={htbMcpStatus?.state === "checking"} style="background:{htbDotColor(htbMcpStatus)}"></span>
+      <span>{htbLabel(htbMcpStatus)}</span>
+    </div>
+  {/if}
 
   {#if currentTool}
     <div class="pl-status-item">

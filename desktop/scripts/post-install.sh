@@ -3,6 +3,13 @@ set -e
 
 INSTALL_DIR="/usr/lib/penligent-local/mcp-server"
 VENV="$INSTALL_DIR/.venv"
+GUARD="/usr/lib/penligent-local/scripts/agent-guard.py"
+
+# Make sure the PreToolUse guard script is executable. tauri bundles it
+# read-only by default; without +x the hook fires but exec fails silently.
+if [ -f "$GUARD" ]; then
+    chmod 755 "$GUARD"
+fi
 
 # ---------------------------------------------------------------------------
 # 1. Create Python venv and install the MCP server package

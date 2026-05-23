@@ -7,6 +7,7 @@
   import Sidebar from "./lib/Sidebar.svelte";
   import Chat from "./routes/Chat.svelte";
   import Findings from "./lib/Findings.svelte";
+  import NextSteps from "./lib/NextSteps.svelte";
   import StatusBar from "./lib/StatusBar.svelte";
   import Settings from "./lib/Settings.svelte";
   import ApprovalModal from "./lib/ApprovalModal.svelte";
@@ -34,6 +35,7 @@
   let approvalPollTimer = null;
   let activeDbSessionId = $state(null);
   let mcpStatus  = $state({ state: "checking", tool_count: 0, error: null });
+  let htbMcpStatus = $state({ state: "checking", error: null });
   let mcpPollTimer = null;
 
   // Command palette + shortcuts help
@@ -93,12 +95,16 @@
   let mcpDownModalOpen = $state(false);
   let mcpHaltedTurn    = $state(false);
   let mcpRechecking    = $state(false);
+  // Mirror state for HTB MCP. Separate modal source = "penligent" | "htb"
+  // so the message reflects which server actually died.
+  let htbPrevState = $state(null);
+  let mcpDownSource = $state("penligent");
 
   $effect(() => {
     const cur = mcpStatus?.state;
     if (cur === "ok") {
       // Recovery — auto-dismiss the modal so the user can keep working.
-      if (mcpDownModalOpen) {
+      if (mcpDownModalOpen && mcpDownSource === "penligent") {
         mcpDownModalOpen = false;
         mcpHaltedTurn = false;
       }
@@ -109,15 +115,48 @@
         invoke("claude_halt").then(halted => {
           mcpHaltedTurn = !!halted;
         }).catch(e => console.error("claude_halt failed:", e));
+        mcpDownSource = "penligent";
         mcpDownModalOpen = true;
       } else if (mcpPrevState === null) {
         // First poll after launch showed error — surface the modal but don't
         // claim we "halted" anything (nothing was running).
+        mcpDownSource = "penligent";
         mcpDownModalOpen = true;
       }
       mcpPrevState = "error";
     } else {
       // "checking" — leave prev state alone, modal stays open or closed as-is.
+    }
+  });
+
+  // Same protection for HTB MCP. The user explicitly asked: "stop the ai if
+  // they not appear". Only fires when state was previously ok — a user with
+  // no token (state "no_token") is excluded entirely.
+  $effect(() => {
+    const cur = htbMcpStatus?.state;
+    if (cur === "no_token" || cur === "checking") {
+      htbPrevState = cur;
+      if (mcpDownSource === "htb" && cur === "no_token") {
+        mcpDownModalOpen = false;
+        mcpHaltedTurn = false;
+      }
+      return;
+    }
+    if (cur === "ok") {
+      if (mcpDownModalOpen && mcpDownSource === "htb") {
+        mcpDownModalOpen = false;
+        mcpHaltedTurn = false;
+      }
+      htbPrevState = "ok";
+    } else if (cur === "missing" || cur === "error") {
+      if (htbPrevState === "ok") {
+        invoke("claude_halt").then(halted => {
+          mcpHaltedTurn = !!halted;
+        }).catch(e => console.error("claude_halt failed:", e));
+        mcpDownSource = "htb";
+        mcpDownModalOpen = true;
+      }
+      htbPrevState = cur;
     }
   });
 
@@ -190,8 +229,10 @@
     }
   }
 
-  // First-run wizard state. Steps 0..4 (welcome → htb → sudoers → vpn → summary).
-  // Step indicator only shows steps 1..3 since 0 is intro and 4 is review.
+  // First-run wizard state. Steps 0..5 (welcome → claude → htb → sudoers → vpn → summary).
+  // Step indicator only shows steps 1..4 since 0 is intro and 5 is review.
+  // Claude install was promoted to step 1 because every downstream action
+  // (HTB MCP register, agent runtime) silently fails without ~/.local/bin/claude.
   let wizardOpen  = $state(false);
   let wizardStep  = $state(0);
   let wzHtbToken  = $state("");
@@ -200,6 +241,10 @@
   let wzSudoersDone = $state(false);
   let wzSudoersErr  = $state("");
   let wzBusy = $state(false);
+  let wzClaudeInstalled = $state(false);
+  let wzClaudeInstalling = $state(false);
+  let wzClaudeErr = $state("");
+  let wzClaudeVersion = $state("");
 
   function wzReset() {
     wizardStep = 0;
@@ -209,11 +254,16 @@
     wzSudoersDone = false;
     wzSudoersErr = "";
     wzBusy = false;
+    wzClaudeInstalled = false;
+    wzClaudeInstalling = false;
+    wzClaudeErr = "";
+    wzClaudeVersion = "";
   }
 
   function wzReopen() {
     wzReset();
     wizardOpen = true;
+    wzCheckClaude();
   }
 
   async function pollMcpHealth() {
@@ -227,6 +277,16 @@
       };
     } catch (e) {
       mcpStatus = { state: "error", tool_count: 0, error: String(e) };
+    }
+    // Piggyback on the same 15s timer for HTB MCP — both are cheap (file reads,
+    // no network) and they fail/recover together often enough (claude install
+    // overwrites settings.json AND clears registrations) that polling them
+    // independently would be wasteful.
+    try {
+      const htb = await invoke("htb_mcp_health_check");
+      htbMcpStatus = { state: htb.state ?? "error", error: htb.error ?? null };
+    } catch (e) {
+      htbMcpStatus = { state: "error", error: String(e) };
     }
   }
 
@@ -316,9 +376,9 @@
 
     try {
       const done = await invoke("load_config_value", { key: "setup_complete" });
-      if (!done) wizardOpen = true;
+      if (!done) { wizardOpen = true; wzCheckClaude(); }
     } catch (_) {
-      wizardOpen = true;
+      wizardOpen = true; wzCheckClaude();
     }
 
     // Poll for approvals every 5 seconds when a project is active
@@ -384,6 +444,33 @@
     }
   }
 
+  async function wzCheckClaude() {
+    try {
+      const v = await invoke("get_claude_version");
+      wzClaudeVersion = (v ?? "").toString().trim();
+      wzClaudeInstalled = !!wzClaudeVersion;
+    } catch (_) {
+      wzClaudeInstalled = false;
+      wzClaudeVersion = "";
+    }
+  }
+
+  async function wzInstallClaude() {
+    wzClaudeInstalling = true;
+    wzClaudeErr = "";
+    try {
+      await invoke("install_claude_code");
+      await wzCheckClaude();
+      if (!wzClaudeInstalled) {
+        wzClaudeErr = "Installer reported success but ~/.local/bin/claude is still missing. Open a terminal and run: curl -fsSL https://claude.ai/install.sh | bash";
+      }
+    } catch (e) {
+      wzClaudeErr = String(e);
+    } finally {
+      wzClaudeInstalling = false;
+    }
+  }
+
   async function wzInstallSudoers() {
     wzBusy = true;
     wzSudoersErr = "";
@@ -418,7 +505,26 @@
         try {
           await invoke("save_config_value", { key: "htb_app_token", value: wzHtbToken.trim() });
           await invoke("save_config_value", { key: "htb_mcp_token", value: wzHtbToken.trim() });
-          await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() }).catch(e => errors.push(`HTB MCP register: ${e}`));
+          // Safety net: if the user skipped step 1 (or it failed silently),
+          // detect the "Claude Code not installed" failure mode and self-heal
+          // by running the installer once, then retry the registration.
+          try {
+            await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() });
+          } catch (e) {
+            const msg = String(e);
+            const missingClaude = /not installed|No such file or directory/i.test(msg);
+            if (missingClaude) {
+              try {
+                await invoke("install_claude_code");
+                await invoke("register_htb_mcp_server", { token: wzHtbToken.trim() });
+                await wzCheckClaude();
+              } catch (e2) {
+                errors.push(`HTB MCP register (auto-install retry failed): ${e2}`);
+              }
+            } else {
+              errors.push(`HTB MCP register: ${msg}`);
+            }
+          }
         } catch (e) {
           errors.push(`HTB token save: ${e}`);
         }
@@ -426,7 +532,16 @@
       if (wzOvpnPath) {
         try {
           const name = wzOvpnPath.split("/").pop().replace(".ovpn", "");
-          await invoke("save_vpn_profile", { name, ovpnPath: wzOvpnPath, kind: "" });
+          const saved = await invoke("save_vpn_profile", { name, ovpnPath: wzOvpnPath, kind: "" });
+          // Mark this profile as default if no other default exists. Combined
+          // with Settings.autoLoadDefaultProfile, the user can hit Connect
+          // immediately without re-pasting the path.
+          try {
+            const profiles = await invoke("list_vpn_profiles");
+            if (!profiles.some(p => p.is_default) && saved?.id) {
+              await invoke("set_default_vpn_profile", { id: saved.id });
+            }
+          } catch (_) {}
         } catch (e) {
           errors.push(`VPN profile save: ${e}`);
         }
@@ -484,6 +599,7 @@
          onpointerdown={(e) => startResize('findings', e)}
          aria-label="Resize findings panel" role="separator" aria-orientation="vertical"></div>
     <div class="pl-findings-wrap" style="width:{findingsWidth}px">
+      <NextSteps project={activeProject} />
       <Findings project={activeProject} />
     </div>
   </div>
@@ -493,10 +609,10 @@
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'settings' ? 'flex' : 'none'}">
-    <Settings {vpnState} />
+    <Settings {vpnState} active={activeTab === 'settings'} />
   </div>
 
-  <StatusBar {vpnState} {currentTool} {currentModel} {turnUsage} {sessionUsage} {mcpStatus} />
+  <StatusBar {vpnState} {currentTool} {currentModel} {turnUsage} {sessionUsage} {mcpStatus} {htbMcpStatus} />
 
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />
@@ -509,18 +625,28 @@
     <div class="pl-mcp-down-backdrop" role="presentation">
       <div class="pl-mcp-down-modal" role="dialog" aria-modal="true" aria-label="MCP server offline">
         <div class="pl-mcp-down-icon">⚠</div>
-        <h3 class="pl-mcp-down-title">MCP server is offline</h3>
+        <h3 class="pl-mcp-down-title">
+          {mcpDownSource === "htb" ? "HTB MCP not available" : "MCP server is offline"}
+        </h3>
         <p class="pl-mcp-down-msg">
-          The Penligent MCP server is not responding. The agent has no tools while it's down.
+          {#if mcpDownSource === "htb"}
+            The HackTheBox MCP server is not registered with Claude Code. The agent can't reach HTB machine/CTF tools.
+          {:else}
+            The Penligent MCP server is not responding. The agent has no tools while it's down.
+          {/if}
         </p>
         {#if mcpHaltedTurn}
           <p class="pl-mcp-down-halt">The running agent turn was halted to prevent failed tool calls.</p>
         {/if}
-        {#if mcpStatus?.error}
-          <pre class="pl-mcp-down-err">{mcpStatus.error}</pre>
+        {#if (mcpDownSource === "htb" ? htbMcpStatus?.error : mcpStatus?.error)}
+          <pre class="pl-mcp-down-err">{mcpDownSource === "htb" ? htbMcpStatus.error : mcpStatus.error}</pre>
         {/if}
         <p class="pl-mcp-down-actions-hint">
-          Try the MCP debug recipe from the README, then click <strong>Recheck now</strong>. If that fails, restart Penligent.
+          {#if mcpDownSource === "htb"}
+            Open <strong>Settings → Diagnostics</strong> and click Fix next to "HTB MCP registered", or re-save your token under HackTheBox.
+          {:else}
+            Try the MCP debug recipe from the README, then click <strong>Recheck now</strong>. If that fails, restart Penligent.
+          {/if}
         </p>
         <div class="pl-mcp-down-actions">
           <button class="pl-mcp-down-btn-secondary" onclick={() => mcpDownModalOpen = false}>Dismiss</button>
@@ -565,12 +691,12 @@
         <div class="pl-wiz-header">
           <span class="pl-wiz-title">
             {#if wizardStep === 0}Welcome to Penligent Local
-            {:else if wizardStep === 4}Setup complete
-            {:else}Setup — step {wizardStep} of 3{/if}
+            {:else if wizardStep === 5}Setup complete
+            {:else}Setup — step {wizardStep} of 4{/if}
           </span>
-          {#if wizardStep >= 1 && wizardStep <= 3}
+          {#if wizardStep >= 1 && wizardStep <= 4}
             <div class="pl-wiz-steps">
-              {#each [1,2,3] as s}
+              {#each [1,2,3,4] as s}
                 <span class="pl-wiz-dot" class:active={s === wizardStep} class:done={s < wizardStep}></span>
               {/each}
             </div>
@@ -581,13 +707,29 @@
           {#if wizardStep === 0}
             <p class="pl-wiz-welcome-lead">A self-hosted, autonomous penetration testing agent running entirely on your machine.</p>
             <ul class="pl-wiz-welcome-bullets">
-              <li><b>Step 1 — HTB API Token</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;authenticates HTB API calls</li>
-              <li><b>Step 2 — OpenVPN privilege</b> &nbsp;<span class="pl-wiz-meta">(recommended)</span> &nbsp;passwordless VPN start/stop</li>
-              <li><b>Step 3 — Default VPN profile</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;your <code>.ovpn</code> file</li>
+              <li><b>Step 1 — Claude Code</b> &nbsp;<span class="pl-wiz-meta">(required)</span> &nbsp;the agent runtime</li>
+              <li><b>Step 2 — HTB API Token</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;authenticates HTB API calls</li>
+              <li><b>Step 3 — OpenVPN privilege</b> &nbsp;<span class="pl-wiz-meta">(recommended)</span> &nbsp;passwordless VPN start/stop</li>
+              <li><b>Step 4 — Default VPN profile</b> &nbsp;<span class="pl-wiz-meta">(optional)</span> &nbsp;your <code>.ovpn</code> file</li>
             </ul>
             <p class="pl-wiz-hint">Every step is skippable. You can re-run this wizard anytime from <kbd>Ctrl+K</kbd> → "Re-run first-run setup".</p>
 
           {:else if wizardStep === 1}
+            <p class="pl-wiz-label">Claude Code <span class="pl-wiz-meta">(required)</span></p>
+            <p class="pl-wiz-hint">Penligent drives <code>~/.local/bin/claude</code> as its agent runtime. Without it the HTB MCP can't register and chat won't run.</p>
+            {#if wzClaudeInstalled}
+              <span class="pl-wiz-ok">&#10003; Installed{wzClaudeVersion ? ` · ${wzClaudeVersion}` : ""}</span>
+            {:else}
+              <button class="pl-wiz-action-btn" onclick={wzInstallClaude} disabled={wzClaudeInstalling}>
+                {wzClaudeInstalling ? "Installing…" : "Install Claude Code"}
+              </button>
+              <p class="pl-wiz-hint" style="margin-top:8px">Runs <code>curl -fsSL https://claude.ai/install.sh | bash</code>. Needs internet. After install you'll still need to <code>claude login</code> once in a terminal.</p>
+              {#if wzClaudeErr}
+                <pre class="pl-wiz-err-block">{wzClaudeErr}</pre>
+              {/if}
+            {/if}
+
+          {:else if wizardStep === 2}
             <p class="pl-wiz-label">HTB API Token <span class="pl-wiz-meta">(optional)</span></p>
             <p class="pl-wiz-hint">HTB profile → Settings → API → create app token. Used for REST API calls and MCP server authentication.</p>
             <div class="pl-wiz-row">
@@ -604,7 +746,7 @@
               </button>
             </div>
 
-          {:else if wizardStep === 2}
+          {:else if wizardStep === 3}
             <p class="pl-wiz-label">OpenVPN privilege <span class="pl-wiz-meta">(recommended)</span></p>
             <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted; the rule lives in <code>/etc/sudoers.d/penligent-openvpn</code>.</p>
             {#if wzSudoersDone}
@@ -618,7 +760,7 @@
               {/if}
             {/if}
 
-          {:else if wizardStep === 3}
+          {:else if wizardStep === 4}
             <p class="pl-wiz-label">Default VPN profile <span class="pl-wiz-meta">(optional)</span></p>
             <p class="pl-wiz-hint">Select or paste the path to your HTB <code>.ovpn</code> file. You can add more profiles in Settings later.</p>
             <div class="pl-wiz-row">
@@ -626,9 +768,14 @@
               <button class="pl-wiz-browse" onclick={wzBrowseOvpn} type="button">Browse</button>
             </div>
 
-          {:else if wizardStep === 4}
+          {:else if wizardStep === 5}
             <p class="pl-wiz-welcome-lead">Ready to launch. Here's what will be saved:</p>
             <div class="pl-wiz-summary">
+              <div class="pl-wiz-sum-row">
+                <span class="pl-wiz-sum-icon">{wzClaudeInstalled ? "✓" : "—"}</span>
+                <span class="pl-wiz-sum-label">Claude Code</span>
+                <span class="pl-wiz-sum-val">{wzClaudeInstalled ? (wzClaudeVersion || "installed") : "missing"}</span>
+              </div>
               <div class="pl-wiz-sum-row">
                 <span class="pl-wiz-sum-icon">{wzHtbToken.trim() ? "✓" : "—"}</span>
                 <span class="pl-wiz-sum-label">HTB API Token</span>
@@ -653,14 +800,14 @@
 
         <div class="pl-wiz-actions">
           {#if wizardStep === 0}
-            <button class="pl-wiz-skip" onclick={() => { wizardStep = 4; }}>Skip all</button>
+            <button class="pl-wiz-skip" onclick={() => { wizardStep = 5; }}>Skip all</button>
             <button class="pl-wiz-next" onclick={() => wizardStep++}>Get started →</button>
-          {:else if wizardStep >= 1 && wizardStep <= 3}
-            <button class="pl-wiz-back" onclick={() => wizardStep--} disabled={wzBusy} type="button">← Back</button>
-            <button class="pl-wiz-skip" onclick={() => wizardStep++} disabled={wzBusy} type="button">Skip</button>
-            <button class="pl-wiz-next" onclick={() => wizardStep++} disabled={wzBusy} type="button">Next →</button>
+          {:else if wizardStep >= 1 && wizardStep <= 4}
+            <button class="pl-wiz-back" onclick={() => wizardStep--} disabled={wzBusy || wzClaudeInstalling} type="button">← Back</button>
+            <button class="pl-wiz-skip" onclick={() => wizardStep++} disabled={wzBusy || wzClaudeInstalling} type="button">Skip</button>
+            <button class="pl-wiz-next" onclick={() => wizardStep++} disabled={wzBusy || wzClaudeInstalling} type="button">Next →</button>
           {:else}
-            <button class="pl-wiz-back" onclick={() => wizardStep = 3} disabled={wzBusy} type="button">← Back</button>
+            <button class="pl-wiz-back" onclick={() => wizardStep = 4} disabled={wzBusy} type="button">← Back</button>
             <button class="pl-wiz-next" onclick={wzFinish} disabled={wzBusy} type="button">
               {wzBusy ? "Saving…" : "Finish setup"}
             </button>
@@ -845,12 +992,18 @@
   .pl-findings-wrap {
     /* width set inline from $state(findingsWidth) */
     display: flex;
+    flex-direction: column;
     flex-shrink: 0;
     overflow: hidden;
   }
   /* Child Findings component fills the wrapper */
   .pl-findings-wrap > :global(.pl-findings) {
     width: 100% !important;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .pl-findings-wrap > :global(.pl-next) {
+    flex: 0 0 auto;
   }
 
   .pl-resize-handle {

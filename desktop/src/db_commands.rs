@@ -1251,6 +1251,9 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     let claude = dirs::home_dir()
         .unwrap_or_default()
         .join(".local/bin/claude");
+    if !claude.exists() {
+        return Err("Claude Code is not installed. Install it from Settings, then retry.".into());
+    }
     let output = std::process::Command::new(&claude)
         .args([
             "mcp", "add",
@@ -1271,6 +1274,155 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     } else {
         Err(format!("claude mcp add failed: {stdout}{stderr}"))
     }
+}
+
+// ── Register the Penligent MCP server in ~/.claude/settings.json ──────────────
+// Idempotent: merges the entry without clobbering other keys. Called on every
+// app launch so a settings.json that was overwritten by the Claude installer
+// (which happens on a fresh `curl claude.ai/install.sh | bash`) gets healed
+// without the user having to know what went wrong.
+
+fn locate_mcp_python() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/lib/penligent-local/mcp-server/.venv/bin/python"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.join("../../../mcp-server/.venv/bin/python"));
+        }
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+fn locate_agent_guard() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/usr/lib/penligent-local/scripts/agent-guard.py"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            // dev: target/debug/penligent-local → ../../../scripts/agent-guard.py
+            candidates.push(parent.join("../../../scripts/agent-guard.py"));
+        }
+    }
+    candidates.into_iter().find(|p| p.exists())
+}
+
+#[tauri::command]
+pub fn register_local_mcp_server() -> Result<String, String> {
+    let python = locate_mcp_python()
+        .ok_or_else(|| "Penligent MCP venv not found".to_string())?;
+    let python_str = python.to_string_lossy().to_string();
+
+    let home = dirs::home_dir().ok_or("HOME not set")?;
+    let claude_dir = home.join(".claude");
+    let settings_path = claude_dir.join("settings.json");
+    std::fs::create_dir_all(&claude_dir).map_err(|e| e.to_string())?;
+
+    let mut cfg: serde_json::Value = match std::fs::read_to_string(&settings_path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
+        Err(_) => serde_json::json!({}),
+    };
+    if !cfg.is_object() {
+        cfg = serde_json::json!({});
+    }
+
+    let obj = cfg.as_object_mut().unwrap();
+    let mcp = obj.entry("mcpServers".to_string())
+        .or_insert_with(|| serde_json::json!({}));
+    if !mcp.is_object() {
+        *mcp = serde_json::json!({});
+    }
+    let mcp_obj = mcp.as_object_mut().unwrap();
+
+    let desired_mcp = serde_json::json!({
+        "command": python_str,
+        "args": ["-m", "penligent_mcp"],
+    });
+
+    let mut changed = false;
+    if mcp_obj.get("penligent-local") != Some(&desired_mcp) {
+        mcp_obj.insert("penligent-local".to_string(), desired_mcp);
+        changed = true;
+    }
+
+    // Also install the PreToolUse guard so the agent can't kill claude / rm
+    // ~/.claude / unregister MCP servers / disable the VPN. The guard is a
+    // small Python script bundled in the .deb (or repo for dev builds);
+    // settings.json points at its absolute path.
+    if let Some(guard) = locate_agent_guard() {
+        let guard_str = guard.canonicalize().unwrap_or(guard).to_string_lossy().to_string();
+        let desired_hook = serde_json::json!({
+            "matcher": "Bash",
+            "hooks": [ { "type": "command", "command": guard_str } ],
+        });
+
+        let hooks = cfg.as_object_mut().unwrap()
+            .entry("hooks".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !hooks.is_object() { *hooks = serde_json::json!({}); }
+        let hooks_obj = hooks.as_object_mut().unwrap();
+
+        let pre_tool_use = hooks_obj
+            .entry("PreToolUse".to_string())
+            .or_insert_with(|| serde_json::json!([]));
+        if !pre_tool_use.is_array() { *pre_tool_use = serde_json::json!([]); }
+        let arr = pre_tool_use.as_array_mut().unwrap();
+
+        // Find an existing penligent guard entry (by matching the script
+        // basename). If it already matches `desired_hook` exactly, leave it.
+        // Otherwise rebuild it so a moved script path or stale config heals.
+        let mut existing_idx: Option<usize> = None;
+        for (i, h) in arr.iter().enumerate() {
+            let cmd = h.pointer("/hooks/0/command").and_then(|v| v.as_str()).unwrap_or("");
+            if cmd.contains("agent-guard.py") {
+                existing_idx = Some(i);
+                break;
+            }
+        }
+        match existing_idx {
+            Some(i) if arr[i] == desired_hook => {}
+            Some(i) => { arr[i] = desired_hook; changed = true; }
+            None    => { arr.push(desired_hook); changed = true; }
+        }
+    }
+
+    if changed {
+        let pretty = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+        std::fs::write(&settings_path, pretty).map_err(|e| e.to_string())?;
+        Ok(format!("Registered penligent-local MCP server + guard at {}", settings_path.display()))
+    } else {
+        Ok("penligent-local MCP entry and guard already present.".into())
+    }
+}
+
+// ── Install Claude Code via the official installer ────────────────────────────
+// Runs `curl -fsSL https://claude.ai/install.sh | bash` and then re-registers
+// the local MCP server (the installer clobbers ~/.claude/settings.json).
+
+#[tauri::command]
+pub fn install_claude_code() -> Result<String, String> {
+    let output = std::process::Command::new("bash")
+        .args(["-lc", "curl -fsSL https://claude.ai/install.sh | bash"])
+        .output()
+        .map_err(|e| format!("Failed to run installer: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    if !output.status.success() {
+        return Err(format!("Claude install failed:\n{stdout}\n{stderr}").trim().to_string());
+    }
+
+    let claude = dirs::home_dir().unwrap_or_default().join(".local/bin/claude");
+    if !claude.exists() {
+        return Err(format!(
+            "Installer reported success but {} is missing.\n{}",
+            claude.display(), stdout
+        ));
+    }
+
+    // Heal settings.json (the installer rewrites it).
+    let _ = register_local_mcp_server();
+    Ok(format!("Claude Code installed at {}", claude.display()))
 }
 
 #[tauri::command]
@@ -1324,6 +1476,219 @@ pub struct McpHealthStatus {
     pub ok: bool,
     pub tool_count: u32,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HtbMcpStatus {
+    /// "ok" — entry present in claude config
+    /// "missing" — token saved but no registration found
+    /// "no_token" — user hasn't configured HTB at all; status bar should hide
+    pub state: String,
+    pub error: Option<String>,
+}
+
+fn htb_mcp_entry_present() -> bool {
+    let path = match dirs::home_dir() {
+        Some(h) => h.join(".claude.json"),
+        None => return false,
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+    let cfg: serde_json::Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    // `claude mcp add --scope user` writes top-level mcpServers; older versions
+    // landed it under projects.<cwd>.mcpServers. Accept either so a user who
+    // ran `add` from any cwd still passes the check.
+    if cfg.get("mcpServers")
+        .and_then(|m| m.get("htb-mcp-ctf"))
+        .is_some() {
+        return true;
+    }
+    if let Some(projects) = cfg.get("projects").and_then(|p| p.as_object()) {
+        for (_, v) in projects {
+            if v.get("mcpServers")
+                .and_then(|m| m.get("htb-mcp-ctf"))
+                .is_some() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn load_config_str(key: &str) -> String {
+    let path = config_path();
+    if !path.exists() { return String::new(); }
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(_) => return String::new(),
+    };
+    let cfg: serde_json::Value = serde_json::from_str(&text).unwrap_or(serde_json::json!({}));
+    cfg[key].as_str().map(String::from).unwrap_or_default()
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiagItem {
+    pub id: String,
+    pub name: String,
+    pub ok: bool,
+    pub hint: String,
+    /// id of a repair command the UI can invoke; empty when there's no
+    /// programmatic fix (e.g. data dir missing — user has bigger problems).
+    pub fix: String,
+}
+
+#[tauri::command]
+pub fn run_diagnostics() -> Vec<DiagItem> {
+    let mut out: Vec<DiagItem> = Vec::new();
+    let home = dirs::home_dir().unwrap_or_default();
+
+    // 1. Claude Code binary
+    let claude = home.join(".local/bin/claude");
+    let claude_ok = claude.exists();
+    out.push(DiagItem {
+        id: "claude_installed".into(),
+        name: "Claude Code installed".into(),
+        ok: claude_ok,
+        hint: if claude_ok { format!("{}", claude.display()) }
+              else { "~/.local/bin/claude is missing — install it.".into() },
+        fix: if claude_ok { "".into() } else { "install_claude".into() },
+    });
+
+    // 2. Penligent MCP registered in ~/.claude/settings.json
+    let settings_path = home.join(".claude/settings.json");
+    let mcp_registered = std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penligent-local")).cloned())
+        .is_some();
+    out.push(DiagItem {
+        id: "penligent_mcp_registered".into(),
+        name: "Penligent MCP registered".into(),
+        ok: mcp_registered,
+        hint: if mcp_registered { "Entry present in ~/.claude/settings.json".into() }
+              else { "mcpServers.penligent-local missing — agent has no Penligent tools.".into() },
+        fix: if mcp_registered { "".into() } else { "register_local_mcp".into() },
+    });
+
+    // 3. Penligent MCP venv imports
+    let python = locate_mcp_python();
+    let venv_ok = python.as_ref().map(|p| {
+        std::process::Command::new(p)
+            .args(["-c", "import penligent_mcp"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }).unwrap_or(false);
+    out.push(DiagItem {
+        id: "penligent_mcp_imports".into(),
+        name: "Penligent MCP imports".into(),
+        ok: venv_ok,
+        hint: match (&python, venv_ok) {
+            (Some(p), true)  => format!("{}", p.display()),
+            (Some(p), false) => format!("`import penligent_mcp` failed under {}", p.display()),
+            (None, _)        => "venv not found — reinstall the .deb or run scripts/post-install.sh.".into(),
+        },
+        fix: "".into(),  // no in-app pip-install fix — needs system context
+    });
+
+    // 4. HTB MCP — only relevant if user has a token
+    let token = load_config_str("htb_app_token");
+    if !token.trim().is_empty() {
+        let htb_ok = htb_mcp_entry_present();
+        out.push(DiagItem {
+            id: "htb_mcp_registered".into(),
+            name: "HTB MCP registered".into(),
+            ok: htb_ok,
+            hint: if htb_ok { "htb-mcp-ctf entry present in claude config.".into() }
+                  else { "Token saved but htb-mcp-ctf not registered — agent has no HTB tools.".into() },
+            fix: if htb_ok { "".into() } else { "register_htb_mcp".into() },
+        });
+    }
+
+    // 5. Agent guard installed AND wired into Claude hooks. Both pieces
+    //    must hold: the script must exist on disk AND settings.json must
+    //    point at a path containing "agent-guard.py" in PreToolUse[Bash].
+    let guard_path = locate_agent_guard();
+    let guard_executable = guard_path.as_ref().map(|p| {
+        // is_file + readable as executable; cheap approximation via metadata.
+        std::fs::metadata(p)
+            .map(|m| {
+                use std::os::unix::fs::PermissionsExt;
+                m.permissions().mode() & 0o111 != 0
+            })
+            .unwrap_or(false)
+    }).unwrap_or(false);
+    let hook_wired = std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("hooks").and_then(|h| h.get("PreToolUse")).cloned())
+        .and_then(|arr| arr.as_array().cloned())
+        .map(|arr| arr.iter().any(|h| {
+            h.pointer("/hooks/0/command")
+                .and_then(|v| v.as_str())
+                .map(|c| c.contains("agent-guard.py"))
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false);
+    let guard_ok = guard_path.is_some() && guard_executable && hook_wired;
+    out.push(DiagItem {
+        id: "agent_guard".into(),
+        name: "Agent guard installed".into(),
+        ok: guard_ok,
+        hint: match (&guard_path, guard_executable, hook_wired) {
+            (None, _, _)          => "agent-guard.py not bundled — reinstall the .deb.".into(),
+            (Some(p), false, _)   => format!("{} not executable (chmod +x).", p.display()),
+            (Some(p), true, false) => format!("Guard at {} but not wired into ~/.claude/settings.json — agent can still kill claude/openvpn.", p.display()),
+            (Some(p), true, true)  => format!("Active · blocks destructive Bash via {}", p.display()),
+        },
+        fix: if guard_ok { "".into() } else { "register_local_mcp".into() },
+    });
+
+    // 6. OpenVPN sudoers
+    let sudoers = std::path::Path::new("/etc/sudoers.d/penligent-openvpn").exists();
+    out.push(DiagItem {
+        id: "sudoers_rule".into(),
+        name: "OpenVPN sudoers rule".into(),
+        ok: sudoers,
+        hint: if sudoers { "/etc/sudoers.d/penligent-openvpn present.".into() }
+              else { "VPN connect will prompt for password each time.".into() },
+        fix: if sudoers { "".into() } else { "install_sudoers".into() },
+    });
+
+    // 7. Data dir writable
+    let data_dir = home.join(".local/share/penligent-local");
+    let data_ok = data_dir.is_dir() && std::fs::metadata(&data_dir)
+        .map(|m| !m.permissions().readonly()).unwrap_or(false);
+    out.push(DiagItem {
+        id: "data_dir".into(),
+        name: "Data dir writable".into(),
+        ok: data_ok,
+        hint: format!("{}", data_dir.display()),
+        fix: "".into(),
+    });
+
+    out
+}
+
+#[tauri::command]
+pub fn htb_mcp_health_check() -> HtbMcpStatus {
+    let token = load_config_str("htb_app_token");
+    if token.trim().is_empty() {
+        return HtbMcpStatus { state: "no_token".into(), error: None };
+    }
+    if htb_mcp_entry_present() {
+        HtbMcpStatus { state: "ok".into(), error: None }
+    } else {
+        HtbMcpStatus {
+            state: "missing".into(),
+            error: Some("htb-mcp-ctf not registered with Claude Code. Re-save your HTB token in Settings.".into()),
+        }
+    }
 }
 
 #[tauri::command]

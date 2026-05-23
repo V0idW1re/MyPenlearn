@@ -4,7 +4,7 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { homeDir } from "@tauri-apps/api/path";
 
-  let { vpnState } = $props();
+  let { vpnState, active = true } = $props();
 
   let htbToken        = $state("");
   let htbTokenVisible = $state(false);
@@ -22,10 +22,34 @@
 
   let claudeVersion        = $state("");
   let claudeVersionLoading = $state(true);
+  let claudeInstalling     = $state(false);
+  let claudeInstallErr     = $state("");
   let toolCount            = $state(null);
   let toolCountLoading     = $state(false);
 
+  // Diagnostics — reflects backend run_diagnostics(). Each item carries a
+  // `fix` action id; the UI maps it to a Tauri invoke. Stays in sync via the
+  // Settings-tab-activate $effect below.
+  let diagItems    = $state([]);
+  let diagLoading  = $state(false);
+  let diagFixBusy  = $state(null);  // id of the item currently being repaired
+  let diagFixErr   = $state("");
+
   let uiZoom = $state(1.0);
+
+  // Refresh detection state every time the user navigates to Settings.
+  // The Claude binary, MCP venv, or VPN profile list can change while the
+  // app is open (user installs claude, edits ~/.claude/settings.json, etc.)
+  // so a stale onMount-only read leaves "not found" stuck until restart.
+  let mountedOnce = false;
+  $effect(() => {
+    if (!active) return;
+    if (!mountedOnce) { mountedOnce = true; return; }
+    fetchClaudeVersion();
+    fetchToolCount();
+    loadProfiles().then(autoLoadDefaultProfile);
+    runDiagnostics();
+  });
 
   function applyZoom(z) {
     document.documentElement.style.zoom = z;
@@ -54,13 +78,78 @@
     await loadProfiles();
     fetchClaudeVersion();
     fetchToolCount();
+    autoLoadDefaultProfile();
+    runDiagnostics();
   });
+
+  async function runDiagnostics() {
+    diagLoading = true;
+    try { diagItems = await invoke("run_diagnostics"); }
+    catch (e) { diagItems = []; diagFixErr = String(e); }
+    finally { diagLoading = false; }
+  }
+
+  async function applyFix(item) {
+    if (!item.fix || diagFixBusy) return;
+    diagFixBusy = item.id;
+    diagFixErr = "";
+    try {
+      if (item.fix === "install_claude") {
+        await invoke("install_claude_code");
+        await invoke("register_local_mcp_server").catch(() => {});
+        await fetchClaudeVersion();
+      } else if (item.fix === "register_local_mcp") {
+        await invoke("register_local_mcp_server");
+      } else if (item.fix === "register_htb_mcp") {
+        if (!htbToken.trim()) throw new Error("No HTB token saved. Save one under HackTheBox first.");
+        await invoke("register_htb_mcp_server", { token: htbToken.trim() });
+      } else if (item.fix === "install_sudoers") {
+        await invoke("install_sudoers_rule");
+      } else {
+        throw new Error(`Unknown fix action: ${item.fix}`);
+      }
+      await runDiagnostics();
+    } catch (e) {
+      diagFixErr = `${item.name}: ${e}`;
+    } finally {
+      diagFixBusy = null;
+    }
+  }
 
   async function fetchClaudeVersion() {
     claudeVersionLoading = true;
     try { claudeVersion = await invoke("get_claude_version"); }
     catch (_) { claudeVersion = ""; }
     finally { claudeVersionLoading = false; }
+  }
+
+  // One-click Claude Code installer. The .deb intentionally doesn't bundle
+  // Claude (it's third-party + needs an Anthropic account), so when detection
+  // fails we let the user install it from here. After install we re-register
+  // the local Penligent MCP server because the installer rewrites settings.json.
+  async function installClaude() {
+    if (claudeInstalling) return;
+    claudeInstalling = true;
+    claudeInstallErr = "";
+    try {
+      await invoke("install_claude_code");
+      await invoke("register_local_mcp_server").catch(() => {});
+      await fetchClaudeVersion();
+    } catch (e) {
+      claudeInstallErr = String(e);
+    } finally {
+      claudeInstalling = false;
+    }
+  }
+
+  // First-launch UX: the wizard saves the .ovpn but doesn't connect. Without
+  // this, the user lands in Settings with an empty path field and a disabled
+  // Connect button — they have to click the saved profile row to populate it.
+  // Auto-loading the default (or only) profile makes Connect immediately usable.
+  function autoLoadDefaultProfile() {
+    if (ovpnPath || vpnState?.status === "connected") return;
+    const def = vpnProfiles.find(p => p.is_default) ?? (vpnProfiles.length === 1 ? vpnProfiles[0] : null);
+    if (def) loadProfile(def);
   }
 
   async function fetchToolCount() {
@@ -312,15 +401,26 @@
         <span class="pl-rt-label">Claude Code</span>
         <code class="pl-rt-path">~/.local/bin/claude</code>
         <span class="pl-rt-right">
-          {#if claudeVersionLoading}
+          {#if claudeInstalling}
+            <span class="pl-rt-dim">installing…</span>
+          {:else if claudeVersionLoading}
             <span class="pl-rt-dim">checking…</span>
           {:else if claudeVersion}
             <span class="pl-rt-ok">{claudeVersion}</span>
           {:else}
             <span class="pl-rt-warn">not found</span>
+            <button class="pl-rt-install" onclick={installClaude} disabled={claudeInstalling} title="curl -fsSL https://claude.ai/install.sh | bash">
+              Install
+            </button>
           {/if}
+          <button class="pl-rt-refresh" onclick={fetchClaudeVersion} disabled={claudeVersionLoading || claudeInstalling} title="Re-check">
+            {claudeVersionLoading ? "…" : "↻"}
+          </button>
         </span>
       </div>
+      {#if claudeInstallErr}
+        <pre class="pl-rt-err">{claudeInstallErr}</pre>
+      {/if}
 
       <div class="pl-rt-row">
         <span class="pl-rt-label">MCP tools</span>
@@ -350,6 +450,52 @@
         <code class="pl-rt-path">/etc/sudoers.d/penligent-openvpn</code>
         <span class="pl-rt-right pl-rt-ok">✓ openvpn only</span>
       </div>
+    </div>
+  </section>
+
+  <!-- Diagnostics -->
+  <section class="pl-section">
+    <div class="pl-section-head">
+      <h3>Diagnostics</h3>
+      <span class="pl-section-sub">Live checks · Fix repairs the failing item in place</span>
+    </div>
+
+    <div class="pl-diag-bar">
+      <button class="pl-btn pl-btn-primary" onclick={runDiagnostics} disabled={diagLoading}>
+        {diagLoading ? "Running…" : "Run all checks"}
+      </button>
+      {#if diagItems.length > 0}
+        {@const failing = diagItems.filter(d => !d.ok).length}
+        {#if failing === 0}
+          <span class="pl-diag-summary pl-diag-ok">All {diagItems.length} checks pass</span>
+        {:else}
+          <span class="pl-diag-summary pl-diag-bad">{failing} of {diagItems.length} failing</span>
+        {/if}
+      {/if}
+    </div>
+
+    {#if diagFixErr}
+      <pre class="pl-rt-err" style="margin-left:0">{diagFixErr}</pre>
+    {/if}
+
+    <div class="pl-diag-list">
+      {#each diagItems as it (it.id)}
+        <div class="pl-diag-row" class:pl-diag-row-bad={!it.ok}>
+          <span class="pl-diag-status">{it.ok ? "✓" : "✗"}</span>
+          <div class="pl-diag-body">
+            <div class="pl-diag-name">{it.name}</div>
+            <div class="pl-diag-hint">{it.hint}</div>
+          </div>
+          {#if !it.ok && it.fix}
+            <button class="pl-rt-install" onclick={() => applyFix(it)} disabled={diagFixBusy === it.id}>
+              {diagFixBusy === it.id ? "Fixing…" : "Fix"}
+            </button>
+          {/if}
+        </div>
+      {/each}
+      {#if diagItems.length === 0 && !diagLoading}
+        <div class="pl-diag-empty">No diagnostics yet — click "Run all checks".</div>
+      {/if}
     </div>
   </section>
 
@@ -631,6 +777,88 @@
   }
   .pl-rt-refresh:hover:not(:disabled) { color: #58a6ff; border-color: #58a6ff; }
   .pl-rt-refresh:disabled { opacity: 0.4; cursor: default; }
+  .pl-rt-install {
+    background: #1f6feb;
+    border: 1px solid #388bfd;
+    color: #fff;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 3px;
+    line-height: 1.4;
+    font-family: inherit;
+  }
+  .pl-rt-install:hover:not(:disabled) { background: #388bfd; }
+  .pl-rt-install:disabled { opacity: 0.5; cursor: default; }
+  .pl-rt-err {
+    margin: 6px 0 0 142px;
+    padding: 6px 8px;
+    background: #2d1417;
+    color: #f85149;
+    border: 1px solid #5a2a2f;
+    border-radius: 4px;
+    font-size: 11px;
+    white-space: pre-wrap;
+    max-height: 120px;
+    overflow: auto;
+  }
+
+  .pl-diag-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .pl-diag-summary {
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .pl-diag-ok  { color: #3fb950; }
+  .pl-diag-bad { color: #f85149; }
+  .pl-diag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .pl-diag-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: #161b22;
+    border: 1px solid #21262d;
+    border-radius: 4px;
+  }
+  .pl-diag-row-bad {
+    border-left: 3px solid #f85149;
+  }
+  .pl-diag-status {
+    font-size: 14px;
+    font-weight: 700;
+    color: #3fb950;
+    width: 14px;
+    flex-shrink: 0;
+  }
+  .pl-diag-row-bad .pl-diag-status { color: #f85149; }
+  .pl-diag-body { flex: 1; min-width: 0; }
+  .pl-diag-name {
+    font-size: 12px;
+    color: #c9d1d9;
+    font-weight: 500;
+  }
+  .pl-diag-hint {
+    font-size: 11px;
+    color: #6e7681;
+    margin-top: 2px;
+    word-break: break-word;
+  }
+  .pl-diag-empty {
+    font-size: 11px;
+    color: #6e7681;
+    padding: 8px 4px;
+  }
 
   .pl-zoom-row {
     display: flex;

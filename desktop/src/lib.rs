@@ -12,6 +12,17 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|_app| {
+            // Heal the Penligent MCP entry in ~/.claude/settings.json on every
+            // launch. The Claude installer (curl claude.ai/install.sh | bash)
+            // rewrites that file from scratch, so a user who installs claude
+            // after the .deb loses their MCP registration. Re-applying it here
+            // is idempotent and survives external overwrites.
+            if let Err(e) = db_commands::register_local_mcp_server() {
+                eprintln!("penligent-local: MCP self-register skipped: {e}");
+            }
+            Ok(())
+        })
         .manage(SharedClaudeState::new(Mutex::new(
             claude_proc::ClaudeState::default(),
         )))
@@ -54,6 +65,10 @@ pub fn run() {
             db_commands::read_project_notes,
             db_commands::write_project_notes,
             db_commands::register_htb_mcp_server,
+            db_commands::register_local_mcp_server,
+            db_commands::install_claude_code,
+            db_commands::htb_mcp_health_check,
+            db_commands::run_diagnostics,
             vpn::vpn_set_auto_reconnect,
             db_commands::get_current_plan,
             db_commands::get_plan_steps,
