@@ -1758,6 +1758,32 @@ pub fn htb_mcp_health_check() -> HtbMcpStatus {
 
 #[tauri::command]
 pub fn mcp_health_check() -> McpHealthStatus {
+    // First check: is penligent-local actually registered at user scope?
+    // The venv test below confirms the Python module imports, but claude
+    // only sees the MCP if there's an entry in ~/.claude.json — and a
+    // missing entry is the exact failure mode that produced false-green
+    // ticks while the agent silently ran with no Penligent tools.
+    if let Some(home) = dirs::home_dir() {
+        let claude_json = home.join(".claude.json");
+        let registered = std::fs::read_to_string(&claude_json)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penligent-local")).cloned())
+            .is_some();
+        if !registered {
+            return McpHealthStatus {
+                ok: false,
+                tool_count: 0,
+                error: Some(
+                    "penligent-local is not registered at user scope in ~/.claude.json. \
+                     The agent will run with no Penligent tools. \
+                     Open Settings → Diagnostics → Fix next to \"Penligent MCP registered\"."
+                        .into(),
+                ),
+            };
+        }
+    }
+
     // Prefer installed path; fall back to dev-build path relative to the exe.
     let mut candidates: Vec<PathBuf> = vec![
         PathBuf::from("/usr/lib/penligent-local/mcp-server/.venv/bin/python"),

@@ -9,17 +9,22 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 ## Quick start
 
 ```bash
-# Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.17_amd64.deb
+# 1. Install Claude Code (the agent runtime) and authenticate
+curl -fsSL https://claude.ai/install.sh | bash
+exec $SHELL                  # pick up the new PATH entry
+claude                       # one-time browser OAuth, then exit
 
-# Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.17_amd64.deb
+# 2. Install Penligent Local
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.18_amd64.deb
+sudo dpkg -i penligent-local_0.1.18_amd64.deb
 
-# Launch
+# 3. Launch
 penligent-local
 ```
 
-First launch shows a 4-step welcome wizard (Claude Code → HTB token → sudoers → VPN). After that, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to open the command palette or just type your objective into the chat.
+Doing claude first means every check in Settings → Diagnostics is green on first launch and the wizard's "Claude Code" step shows ✓ Installed immediately. If you skip step 1, the wizard's step 1 (or Settings → "Install Claude Code") will do it for you — you'll just need to authenticate in a terminal afterward.
+
+First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). After that, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to open the command palette or just type your objective into the chat. HTB API token and `.ovpn` profile live in Settings.
 
 ---
 
@@ -141,10 +146,18 @@ First launch shows a 4-step welcome wizard (Claude Code → HTB token → sudoer
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.17_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+First, install and authenticate Claude Code (skippable — the app has an in-built installer fallback, but doing it now means the first-launch diagnostics come up all-green):
 
 ```bash
-sudo dpkg -i penligent-local_0.1.17_amd64.deb
+curl -fsSL https://claude.ai/install.sh | bash
+exec $SHELL
+claude              # browser OAuth on first run, then exit
+```
+
+Then download `penligent-local_0.1.18_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
+
+```bash
+sudo dpkg -i penligent-local_0.1.18_amd64.deb
 penligent-local
 ```
 
@@ -154,10 +167,10 @@ The installer automatically:
 - Bundles the Python MCP server to `/usr/lib/penligent-local/mcp-server/`
 - Ships 12 baseline methodology wiki pages under `penligent_mcp/data/methodology/` (seeded on first wiki tool call into `~/.local/share/penligent-local/wiki/pages/methodology/`)
 - Creates a Python virtual environment and `pip install -e .` the MCP server package
-- Registers the MCP server entry in `~/.claude/settings.json`
+- On first app launch, registers the MCP server at user scope in `~/.claude.json` (visible to claude from any workspace cwd) and wires the PreToolUse agent guard hook into `~/.claude/settings.json`
 - Adds a narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn`) so VPN connects without a password prompt
 
-No manual setup is needed after `dpkg -i`.
+No manual config-editing is needed after `dpkg -i`.
 
 ### Option B — Build from source
 
@@ -173,7 +186,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.17_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.18_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -186,18 +199,21 @@ python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-Then add to `~/.claude/settings.json`:
+Then add the entry at user scope in `~/.claude.json` (top-level `mcpServers` — this is what `claude mcp list` reads):
 
 ```json
 {
   "mcpServers": {
     "penligent-local": {
       "command": "/path/to/mcp-server/.venv/bin/python",
-      "args": ["-m", "penligent_mcp"]
+      "args": ["-m", "penligent_mcp"],
+      "env": { "HTB_APP_TOKEN": "<your token, optional>" }
     }
   }
 }
 ```
+
+Or use the claude CLI: `claude mcp add --scope user penligent-local -- /path/to/python -m penligent_mcp`. Either way, restart claude sessions after editing.
 
 ---
 
@@ -304,11 +320,12 @@ The MCP process only lives for the duration of a Claude turn — pgrep returning
 
 ### First-run wizard
 
-Launches automatically on first start. Three optional steps:
+Launches automatically on first start. Two user-facing steps:
 
-1. **HTB API Token** — HTB profile → Settings → API → create app token. Used for REST API calls.
-2. **OpenVPN sudoers** — installs the narrow `/etc/sudoers.d/penligent-openvpn` rule.
-3. **Default VPN profile** — point at your `.ovpn` file.
+1. **Claude Code** (required) — probes for `~/.local/bin/claude`; offers a one-click installer if missing. After install you still need to run `claude` once in a terminal to authenticate.
+2. **OpenVPN sudoers** (recommended) — installs the narrow `/etc/sudoers.d/penligent-openvpn` rule for passwordless VPN start/stop.
+
+HTB API token and the default `.ovpn` profile are configured in Settings (single source of truth — no more re-entering values across wizard and Settings).
 
 Skip any step; re-run anytime via <kbd>Ctrl</kbd>+<kbd>K</kbd> → "Re-run first-run setup wizard".
 
@@ -466,7 +483,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.17 (current)
+### v0.1.18 (current)
+
+Closes the last false-positive surface around Penligent MCP registration plus a README polish pass. Symptom that exposed the gap in 0.1.17: every Settings diagnostic ticked green, the status-bar MCP dot stayed green, then the agent reported "Penligent MCP server is not registered" on the first tool call. Cause: `mcp_health_check` only verified that the Python module imports — it never looked at `~/.claude.json` for the actual entry, so a missing or hand-deleted `mcpServers.penligent-local` slipped past the 15s health poll. Fix: `mcp_health_check` now reads `~/.claude.json` top-level `mcpServers` first and short-circuits with `ok:false` + a directive error message ("Open Settings → Diagnostics → Fix next to \"Penligent MCP registered\"") when the entry is absent. That cascades through the existing UI plumbing in `App.svelte:103` — status-bar dot flips red, any running agent turn gets halted via `claude_halt`, the MCP-down modal opens with the action hint, and the user sees the failure *before* an agent turn does. README quick-start pass: claude-first install order surfaced as the recommended path (so first-launch diagnostics come up all-green and the wizard's Claude step shows ✓ immediately); 2-step wizard description matches the trimmed 0.1.17 layout; source-build snippet now writes to `~/.claude.json` instead of `~/.claude/settings.json`. Verification: `cargo check` clean.
+
+### v0.1.17
 
 Closes two gaps a second-test user hit. **Wizard slimmed from 4 user-facing steps to 2** (Welcome → Claude → OpenVPN sudoers → Summary). The HTB API Token and default `.ovpn` profile steps were removed: both already exist in Settings with clearer feedback, and the wizard's "● saved" badge looked identical to "field has a value, not yet saved" — so the user kept re-entering both in Settings thinking the wizard hadn't worked. Welcome bullets and the Summary now explicitly point at Settings as the single source of truth for those two values. **Root cause behind "Penligent MCP server is not registered" reported by the agent in the second test**: `register_local_mcp_server` wrote the `penligent-local` entry to `~/.claude/settings.json`, but Claude Code reads MCP servers from `~/.claude.json`. The diagnostic in Settings checked the same wrong file, so it showed a green ✓ while the agent (running with cwd inside a project workspace like `~/penligent/projects/Kobold/workspace`) saw no `penligent-local` tools at all — and no user-scope entry meant project-scope or `/home/kali`-scope entries didn't cascade either. Fix: the entry now lands at the top-level `mcpServers` in `~/.claude.json` (user scope, visible from any cwd), `HTB_APP_TOKEN` is injected into the MCP's env so `penligent_mcp.tools.htb_machines` can authenticate the HTB API, the legacy `mcpServers.penligent-local` entry is stripped from `settings.json`, and the agent-guard `PreToolUse` hook stays in `settings.json` (correct location for hooks). The diagnostic now reads `~/.claude.json`. `register_htb_mcp_server` re-runs the Penligent registration so the `HTB_APP_TOKEN` env stays in sync on token rotation. Verification: `cargo check` clean, `svelte-check` 0 errors, `claude mcp list` reports `penligent-local: ✓ Connected` after first launch.
 
