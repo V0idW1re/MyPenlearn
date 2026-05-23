@@ -10,10 +10,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.16_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.17_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.16_amd64.deb
+sudo dpkg -i penligent-local_0.1.17_amd64.deb
 
 # Launch
 penligent-local
@@ -141,10 +141,10 @@ First launch shows a 4-step welcome wizard (Claude Code → HTB token → sudoer
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.16_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.17_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.16_amd64.deb
+sudo dpkg -i penligent-local_0.1.17_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.16_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.17_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.16 (current)
+### v0.1.17 (current)
+
+Closes two gaps a second-test user hit. **Wizard slimmed from 4 user-facing steps to 2** (Welcome → Claude → OpenVPN sudoers → Summary). The HTB API Token and default `.ovpn` profile steps were removed: both already exist in Settings with clearer feedback, and the wizard's "● saved" badge looked identical to "field has a value, not yet saved" — so the user kept re-entering both in Settings thinking the wizard hadn't worked. Welcome bullets and the Summary now explicitly point at Settings as the single source of truth for those two values. **Root cause behind "Penligent MCP server is not registered" reported by the agent in the second test**: `register_local_mcp_server` wrote the `penligent-local` entry to `~/.claude/settings.json`, but Claude Code reads MCP servers from `~/.claude.json`. The diagnostic in Settings checked the same wrong file, so it showed a green ✓ while the agent (running with cwd inside a project workspace like `~/penligent/projects/Kobold/workspace`) saw no `penligent-local` tools at all — and no user-scope entry meant project-scope or `/home/kali`-scope entries didn't cascade either. Fix: the entry now lands at the top-level `mcpServers` in `~/.claude.json` (user scope, visible from any cwd), `HTB_APP_TOKEN` is injected into the MCP's env so `penligent_mcp.tools.htb_machines` can authenticate the HTB API, the legacy `mcpServers.penligent-local` entry is stripped from `settings.json`, and the agent-guard `PreToolUse` hook stays in `settings.json` (correct location for hooks). The diagnostic now reads `~/.claude.json`. `register_htb_mcp_server` re-runs the Penligent registration so the `HTB_APP_TOKEN` env stays in sync on token rotation. Verification: `cargo check` clean, `svelte-check` 0 errors, `claude mcp list` reports `penligent-local: ✓ Connected` after first launch.
+
+### v0.1.16
 
 Closes the gaps a first-test user hit on a clean Kali VM. **Claude Code is now an explicit wizard step.** The `.deb` postinst doesn't install `~/.local/bin/claude` (Anthropic's installer expects to run in a user shell, not under `dpkg`), so before this release the wizard's HTB MCP register call failed with `claude mcp add: No such file or directory` and the user had no in-app remedy. Step 1 of the wizard now probes for `claude` via `get_claude_version`, offers a one-click Install button that runs `curl -fsSL https://claude.ai/install.sh | bash`, and gates Next on success. **Safety net in `wzFinish`** detects the missing-claude failure signature and auto-installs + retries the HTB MCP register once, so even a user who skipped step 1 ends up with a working setup. Settings → Diagnostics gained the same Install button as a `fix="install_claude"` action for users past the wizard. **Right-side rail now has a Next Steps panel** above Findings — parses the agent's `## Next Steps` block from the streamed assistant text and renders each numbered option as a clickable button; clicking sends `Proceed with step N: <action>` back to the agent so the operator doesn't have to retype the choice. **VPN wizard now self-completes**: the saved profile is marked default if none exists, and Settings auto-loads the default profile into the path field on open — one click on Connect replaces the prior re-paste-and-connect dance. Pre-release pass: post-install syntax OK, agent-guard.py parse OK, .deb sha256 `3df573a4d78d3e99e0fadbe2cc8ad8be29d1500496c2eabaf3ba1eeed8e6f84c`.
 
