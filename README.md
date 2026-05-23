@@ -10,10 +10,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.13_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.14_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.13_amd64.deb
+sudo dpkg -i penligent-local_0.1.14_amd64.deb
 
 # Launch
 penligent-local
@@ -141,10 +141,10 @@ First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<k
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.13_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.14_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.13_amd64.deb
+sudo dpkg -i penligent-local_0.1.14_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.13_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.14_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.13 (current)
+### v0.1.14 (current)
+
+Right-click → "Copy title" on finding cards and attack-path spurs. Left-click still expands the card. Right-click opens a small context menu next to the cursor with one item: `⧉ Copy title`. Only the finding's title text is copied — not the expanded description / evidence / compliance metadata. Brief `✓ Copied!` flash on success, auto-dismiss after ~700 ms, dismiss on Escape or click-away. Uses `navigator.clipboard.writeText` with a `<textarea>` + `document.execCommand("copy")` fallback because Tauri's WebKitGTK at `file://` origin sometimes blocks the modern Clipboard API.
+
+### v0.1.13
 
 Develop-as-you-work Attack Path + phase coloring + finding spurs + new app icon. The Attack Path rail now only shows steps the agent has actually started (plus one preview of the immediate next pending step), so the engagement narrative builds up live instead of dumping the whole pre-baked sequence at once. Hidden future steps surface as a dim italic `…N more steps planned but not started`. Each step carries a phase pill (`RECON` / `DISCOVERY` / `EXPLOIT` / `POST-EXPLOIT` / `REPORT`) coloured to match the Workspace kill-chain. Findings recorded during a step now branch off as severity-coloured spurs beside it — your "two users discovered from a recon step" effect; the spine itself stays linear but each step can fan out to N findings. Open/suspected findings get a dashed border so the plan visibly tracks what's being chased, not just confirmed kills. Two system-prompt rules added to make the data behave this way: agent must `plan_create` 2–3 steps at a time (not the whole engagement up front), and must `record_finding(verify_status='open')` as soon as it has a tentative discovery. Prompt cost: ~2,161 → ~2,404 tokens per turn (+243); still 59% smaller than the v0.1.1 baseline. Also: app icon swapped for the user's custom PNG.
 
