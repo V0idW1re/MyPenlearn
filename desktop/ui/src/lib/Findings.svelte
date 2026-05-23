@@ -107,6 +107,48 @@
   let findings    = $state([]);
   let findingsErr = $state("");
   let openFinding = $state(null);
+
+  // Right-click context menu. Pops next to the cursor on any finding card
+  // or any attack-path spur. Single item: "Copy title" — copies just the
+  // title text to the clipboard, NOT the expanded description/evidence.
+  let ctxMenu = $state(null);   // { x, y, title } | null
+  let ctxCopied = $state(false);
+
+  function openCtx(e, title) {
+    e.preventDefault();
+    e.stopPropagation();
+    ctxCopied = false;
+    ctxMenu = { x: e.clientX, y: e.clientY, title };
+  }
+  async function copyCtxTitle() {
+    if (!ctxMenu) return;
+    try {
+      await navigator.clipboard.writeText(ctxMenu.title);
+      ctxCopied = true;
+      setTimeout(() => { ctxMenu = null; ctxCopied = false; }, 700);
+    } catch (e) {
+      // navigator.clipboard can fail without HTTPS or in restricted contexts.
+      // Fallback: a hidden textarea + document.execCommand("copy").
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = ctxMenu.title;
+        ta.style.position = "fixed"; ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        ctxCopied = true;
+        setTimeout(() => { ctxMenu = null; ctxCopied = false; }, 700);
+      } catch (_) { ctxMenu = null; }
+    }
+  }
+  function closeCtxOnClick(e) {
+    if (!ctxMenu) return;
+    if (!e.target.closest(".pl-find-ctx")) ctxMenu = null;
+  }
+  function closeCtxOnEsc(e) {
+    if (e.key === "Escape" && ctxMenu) ctxMenu = null;
+  }
   let execResults = $state([]);
   let execOpen    = $state(false);
   let evidenceMap = $state({});
@@ -218,6 +260,9 @@
   })());
 
   onMount(async () => {
+    document.addEventListener("click",    closeCtxOnClick);
+    document.addEventListener("keydown",  closeCtxOnEsc);
+
     unlistenPlan = await listen("claude://chunk", (e) => {
       const c = e.payload;
       if (c.kind === "tool_use" && (
@@ -233,7 +278,11 @@
     });
   });
 
-  onDestroy(() => { unlisten?.(); unlistenPlan?.(); });
+  onDestroy(() => {
+    unlisten?.(); unlistenPlan?.();
+    document.removeEventListener("click", closeCtxOnClick);
+    document.removeEventListener("keydown", closeCtxOnEsc);
+  });
 </script>
 
 <div class="pl-findings">
@@ -313,6 +362,7 @@
                       class:pl-spur-open={f.status === 'open'}
                       style="--sev:{SEV_DOT_COLOR[f.severity] ?? '#8b949e'}"
                       title="{(f.severity ?? 'info').toUpperCase()} · {f.title} · {f.status ?? 'open'}"
+                      oncontextmenu={(e) => openCtx(e, f.title)}
                       onclick={(e) => { e.stopPropagation(); openFinding = f.id; loadEvidence(f.id); }}
                     >
                       <span class="pl-spur-dot"></span>
@@ -349,6 +399,7 @@
           class="pl-finding"
           class:open={openFinding === f.id}
           style="border-left-color:{SEV_COLOR[f.severity] ?? '#8b949e'}"
+          oncontextmenu={(e) => openCtx(e, f.title)}
           onclick={() => {
             const next = openFinding === f.id ? null : f.id;
             openFinding = next;
@@ -449,6 +500,19 @@
           {/each}
         </div>
       {/if}
+    </div>
+  {/if}
+
+  {#if ctxMenu}
+    <div
+      class="pl-find-ctx"
+      style="left:{ctxMenu.x}px;top:{ctxMenu.y}px"
+      role="menu"
+    >
+      <button class="pl-find-ctx-item" onclick={copyCtxTitle} role="menuitem">
+        <span class="pl-find-ctx-icon">{ctxCopied ? "✓" : "⧉"}</span>
+        {ctxCopied ? "Copied!" : "Copy title"}
+      </button>
     </div>
   {/if}
 </div>
@@ -1023,6 +1087,35 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  /* ── Right-click context menu (finding cards + attack-path spurs) ── */
+  .pl-find-ctx {
+    position: fixed;
+    background: #1c2128;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px;
+    min-width: 140px;
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  }
+  .pl-find-ctx-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px;
+    background: none;
+    border: none;
+    color: #c9d1d9;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    border-radius: 4px;
+    text-align: left;
+  }
+  .pl-find-ctx-item:hover { background: #30363d; }
+  .pl-find-ctx-icon { font-size: 12px; width: 14px; text-align: center; color: #8b949e; }
 
   /* ── "Develop as you work" placeholders ─────────────────── */
   .pl-path-empty {
