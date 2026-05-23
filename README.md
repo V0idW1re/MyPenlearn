@@ -10,10 +10,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ```bash
 # Grab the latest .deb
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.14_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.15_amd64.deb
 
 # Install (the post-install script handles MCP venv, sudoers, claude registration)
-sudo dpkg -i penligent-local_0.1.14_amd64.deb
+sudo dpkg -i penligent-local_0.1.15_amd64.deb
 
 # Launch
 penligent-local
@@ -141,10 +141,10 @@ First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<k
 
 ### Option A — Install the pre-built `.deb` (recommended)
 
-Download `penligent-local_0.1.14_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.15_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.14_amd64.deb
+sudo dpkg -i penligent-local_0.1.15_amd64.deb
 penligent-local
 ```
 
@@ -173,7 +173,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.14_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.15_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -466,7 +466,11 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.14 (current)
+### v0.1.15 (current)
+
+Two visual fixes the user caught after rolling 0.1.14. (1) **Workspace kill-chain node overflow.** In-progress steps with a target line and an impact label (e.g. `Exploit / CVE-2007-2447 / T+5:45 / running… / HOST COMPROMISE`) overflowed the 70px-tall node box because the foot's `flex-wrap` pushed `running…` and the IMPACT badge onto a second line that visually overlapped the target above. `NODE_H` bumped 70 → 96, `LANE_H` 88 → 112, and `.ck-foot` now caps at `max-height: 28px; overflow: hidden` so future longer labels can't recreate the same overlap. (2) **Right-click Copy title menu drifts away from the cursor under non-1.0 UI zoom.** WebKitGTK treats CSS `zoom` as a transform that establishes a containing block for `position: fixed` descendants, so `left: clientX px` rendered at `clientX × zoom` visually. `openCtx()` now divides the click coords by the current zoom factor (read from `getComputedStyle().zoom` with fallbacks) so the menu anchors at the cursor regardless of the Settings → Appearance slider setting. Pre-release pass: MCP test suite 1,477 passed / 390 subtests / 0 fail, bundle integrity clean, post-install syntax OK.
+
+### v0.1.14
 
 Right-click → "Copy title" on finding cards and attack-path spurs. Left-click still expands the card. Right-click opens a small context menu next to the cursor with one item: `⧉ Copy title`. Only the finding's title text is copied — not the expanded description / evidence / compliance metadata. Brief `✓ Copied!` flash on success, auto-dismiss after ~700 ms, dismiss on Escape or click-away. Uses `navigator.clipboard.writeText` with a `<textarea>` + `document.execCommand("copy")` fallback because Tauri's WebKitGTK at `file://` origin sometimes blocks the modern Clipboard API.
 
