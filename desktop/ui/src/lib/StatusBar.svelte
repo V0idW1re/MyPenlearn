@@ -1,5 +1,20 @@
 <script>
-  let { vpnState, currentTool, turnUsage, sessionUsage, mcpStatus } = $props();
+  let { vpnState, currentTool, currentModel, turnUsage, sessionUsage, mcpStatus } = $props();
+
+  // Translate a Claude Code model id ("claude-sonnet-4-5-20250929") into a
+  // short, friendly label ("Sonnet 4.5"). Falls back to the raw id for
+  // anything we don't recognise so a new family release still shows
+  // something sensible instead of being hidden.
+  function fmtModel(id) {
+    if (!id || typeof id !== "string") return "Claude · waiting…";
+    // claude-(opus|sonnet|haiku)-X-Y[-N]-YYYYMMDD or shorter id forms
+    const m = id.match(/^claude-(opus|sonnet|haiku)-(\d+)(?:[-.](\d+))?/i);
+    if (!m) return id;
+    const family = m[1][0].toUpperCase() + m[1].slice(1);
+    const major  = m[2];
+    const minor  = m[3] ?? "0";
+    return `${family} ${major}.${minor}`;
+  }
 
   const DOT_COLOR = {
     connected:    "#3fb950",
@@ -75,9 +90,13 @@
     </div>
   {/if}
 
-  {#if hasTurn}
-    <div class="pl-status-item ml-auto"
-         title={`Turn — in ${turn.input ?? 0}, out ${turn.output ?? 0}, cache-read ${turn.cache_read ?? 0}, cache-create ${turn.cache_creation ?? 0}\nSession — in ${session.input ?? 0}, out ${session.output ?? 0}, cache-read ${session.cache_read ?? 0}, cost ${fmtCost(session.cost_usd) ?? '$0'}`}>
+  <div class="pl-status-item ml-auto"
+       title={hasTurn
+         ? `Model: ${currentModel ?? "(unknown)"}\nTurn — in ${turn.input ?? 0}, out ${turn.output ?? 0}, cache-read ${turn.cache_read ?? 0}, cache-create ${turn.cache_creation ?? 0}\nSession — in ${session.input ?? 0}, out ${session.output ?? 0}, cache-read ${session.cache_read ?? 0}, cost ${fmtCost(session.cost_usd) ?? '$0'}`
+         : (currentModel ?? "Model detected on first turn")}>
+    <span>{fmtModel(currentModel)}</span>
+    {#if hasTurn}
+      <span class="sep">·</span>
       <span>turn</span>
       <code>{fmtTokens(turn.input + turn.output) ?? "0"}</code>
       {#if turn.cache_read}
@@ -96,12 +115,8 @@
         <span class="sep">·</span>
         <code>{fmtCost(session.cost_usd)}</code>
       {/if}
-    </div>
-  {:else}
-    <div class="pl-status-item ml-auto">
-      <span>Sonnet 4.6</span>
-    </div>
-  {/if}
+    {/if}
+  </div>
 </div>
 
 <style>

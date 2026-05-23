@@ -21,6 +21,10 @@
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
+  // Detected model id from Claude Code stream-json. Null until the first
+  // assistant event arrives in a turn; StatusBar shows a placeholder in
+  // the meantime. Survives across turns inside a project.
+  let currentModel = $state(null);
   // Per-turn and cumulative session token usage. Real numbers come from the
   // backend's `claude://usage` event (parsed from Claude Code stream-json
   // `result.usage`). Reset on project switch / clear; turn resets when sending.
@@ -224,6 +228,11 @@
       if (c.tool_name === "approve_intent") setTimeout(pollApprovals, 800);
     });
 
+    await listen("claude://model", (e) => {
+      const m = e.payload?.model;
+      if (m && typeof m === "string") currentModel = m;
+    });
+
     await listen("claude://usage", (e) => {
       const u = e.payload ?? {};
       turnUsage = u;
@@ -276,6 +285,7 @@
     activeProject = project;
     sessionId = null;
     currentTool = null;
+    currentModel = null;
     turnUsage    = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 };
     sessionUsage = { input: 0, output: 0, cache_read: 0, cache_creation: 0, cost_usd: 0 };
     pendingApproval = null;
@@ -419,7 +429,7 @@
     <Settings {vpnState} />
   </div>
 
-  <StatusBar {vpnState} {currentTool} {turnUsage} {sessionUsage} {mcpStatus} />
+  <StatusBar {vpnState} {currentTool} {currentModel} {turnUsage} {sessionUsage} {mcpStatus} />
 
   {#if pendingApproval}
     <ApprovalModal approval={pendingApproval} onDecide={handleApprovalDecide} />

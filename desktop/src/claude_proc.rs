@@ -157,6 +157,12 @@ pub struct TurnUsage {
 #[derive(Debug, Deserialize)]
 struct MessageWrapper {
     content: Option<Vec<ContentBlock>>,
+    // Model id reported on each assistant message in stream-json,
+    // e.g. "claude-sonnet-4-5-20250929" — used to drive the status-bar
+    // label. Previously hardcoded as "Sonnet 4.6" in the UI; now sourced
+    // from the actual running model so a Claude Code config change
+    // (Opus, Haiku, newer Sonnet) is reflected immediately.
+    model: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -331,6 +337,10 @@ pub async fn run_turn(
         match event.kind.as_str() {
             "assistant" => {
                 if let Some(msg) = event.message {
+                    if let Some(ref m) = msg.model {
+                        // Surface the actual model name to the frontend.
+                        let _ = app.emit("claude://model", serde_json::json!({ "model": m }));
+                    }
                     for block in msg.content.unwrap_or_default() {
                         let chunk = match block.kind.as_str() {
                             "text" => {
