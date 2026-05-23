@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.9_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.10_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.9_amd64.deb
+sudo dpkg -i penligent-local_0.1.10_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.9_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.10_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,17 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.9 (current)
+### v0.1.10 (current)
+
+**UI audit — seven concrete bugs fixed across the panels:**
+
+- **`ApprovalModal`** now shows decide_approval errors inline instead of silently logging to console (modal used to freeze with no feedback). `Esc` now defers the decision so the row stays pending for the next poll cycle to re-surface.
+- **`Sidebar`** rename and delete errors surface inline (were silently swallowed — users couldn't tell why a duplicate name or in-use engagement wouldn't take). Rename keeps the input open for retry. The decorative "Save" context-menu item (flashed ✓ for 1.5s without saving anything) was removed entirely along with its dead state.
+- **`Settings`** `.ovpn` path input is editable instead of read-only — paste now works alongside Browse, matching the wizard's behaviour shipped in v0.1.6.
+- **`Findings`** no longer crashes when a finding has a null/missing severity (`f.severity.toUpperCase()` was unconditional). Falls back to `info` priority badge.
+- **`Workspace`** notes save now flushes pending debounced writes synchronously on project switch / component destroy. Previously a fast tab switch within the 1.5s debounce window silently dropped unsaved typing — the `$effect` cleanup now captures the project name + content at the moment of switch and writes them through before the new project loads.
+
+### v0.1.9
 
 **Bug fixes:**
 
