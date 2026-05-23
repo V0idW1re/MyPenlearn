@@ -232,7 +232,7 @@ register(
 # ---------------------------------------------------------------------------
 
 async def _pacu_exploit(args: dict) -> str:
-    session_name = (args.get("session_name") or "penligent_session").strip()
+    session_name = (args.get("session_name") or "penlearn_session").strip()
     modules = (args.get("modules") or "").strip()
     regions = (args.get("regions") or "").strip()
     project_id = args.get("project_id")
@@ -279,7 +279,7 @@ register(
             "required": ["modules"],
             "properties": {
                 "modules": {"type": "string", "description": "Comma-separated Pacu modules to run (e.g. 'iam__enum_permissions,s3__enum_buckets')"},
-                "session_name": {"type": "string", "description": "Pacu session name (default: penligent_session)"},
+                "session_name": {"type": "string", "description": "Pacu session name (default: penlearn_session)"},
                 "regions": {"type": "string", "description": "AWS regions to target (comma-separated)"},
                 "project_id": {"type": "integer"},
             },

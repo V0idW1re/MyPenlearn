@@ -386,7 +386,7 @@ register(
 
 async def _ghidra_analyze(args: dict) -> str:
     binary = (args.get("binary") or "").strip()
-    project_name = (args.get("project_name") or "penligent_re").strip()
+    project_name = (args.get("project_name") or "penlearn_re").strip()
     script_file = (args.get("script_file") or "").strip()
     analysis_timeout = int(args.get("analysis_timeout", 300))
     extra = (args.get("additional_args") or "").strip()
@@ -426,7 +426,7 @@ register(
             "required": ["binary"],
             "properties": {
                 "binary": {"type": "string", "description": "Path to binary to analyze"},
-                "project_name": {"type": "string", "description": "Ghidra project name (default: penligent_re)"},
+                "project_name": {"type": "string", "description": "Ghidra project name (default: penlearn_re)"},
                 "script_file": {"type": "string", "description": "Post-analysis Ghidra script (Java or Python)"},
                 "analysis_timeout": {"type": "integer", "description": "Analysis timeout seconds (default: 300)"},
                 "additional_args": {"type": "string", "description": "Extra analyzeHeadless flags"},

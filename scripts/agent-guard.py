@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Penligent agent guard — Claude Code PreToolUse hook.
+# Penlearn agent guard — Claude Code PreToolUse hook.
 #
 # Reads tool_use payload from stdin and refuses commands that would
 # terminate or remove infrastructure the operator depends on (Claude
-# Code itself, the Penligent desktop app, the Penligent MCP server,
+# Code itself, the Penlearn desktop app, the Penlearn MCP server,
 # the HTB MCP registration, the OpenVPN tunnel, or any config files
 # the app relies on).
 #
@@ -40,8 +40,8 @@ def _path_variants(rel):
     return [f"{HOME}/{rel}", f"~/{rel}", f"$HOME/{rel}"]
 
 PROTECTED_PATHS = [
-    "/usr/lib/penligent-local",
-    *_path_variants(".local/share/penligent-local"),
+    "/usr/lib/penlearn-local",
+    *_path_variants(".local/share/penlearn-local"),
     *_path_variants(".claude.json"),
     *_path_variants(".claude/"),          # everything under ~/.claude/
     *_path_variants(".claude/settings.json"),
@@ -52,9 +52,9 @@ PROTECTED_PATHS = [
 # or its connectivity to the target.
 PROTECTED_PROCS = [
     "claude",
-    "penligent-local",
-    "penligent_mcp",
-    "penligent-mcp",
+    "penlearn-local",
+    "penlearn_mcp",
+    "penlearn-mcp",
     "openvpn",
 ]
 
@@ -65,8 +65,8 @@ RULES = []
 proc_alt = "|".join(re.escape(p) for p in PROTECTED_PROCS)
 RULES.append((
     re.compile(rf"\b(kill|pkill|killall)\b[^|;&]*\b({proc_alt})\b", re.IGNORECASE),
-    "Refusing to kill an infrastructure process Penligent depends on "
-    "(Claude Code, Penligent MCP, OpenVPN tunnel, or the desktop app).",
+    "Refusing to kill an infrastructure process Penlearn depends on "
+    "(Claude Code, Penlearn MCP, OpenVPN tunnel, or the desktop app).",
 ))
 
 # 2. rm -r / rm -rf / rm -f / rm --recursive on protected paths
@@ -76,13 +76,13 @@ RULES.append((
         rf"\brm\b(?:\s+-{{1,2}}[a-zA-Z-]*)*\s+[^|;&]*({path_alt})",
         re.IGNORECASE,
     ),
-    "Refusing to delete a path Penligent or Claude Code depends on.",
+    "Refusing to delete a path Penlearn or Claude Code depends on.",
 ))
 
 # 3. claude mcp remove of the servers we actually use
 RULES.append((
     re.compile(
-        r"\bclaude\b\s+mcp\s+(?:remove|rm)\b[^|;&]*\b(penligent-local|htb-mcp-ctf)\b",
+        r"\bclaude\b\s+mcp\s+(?:remove|rm)\b[^|;&]*\b(penlearn-local|htb-mcp-ctf)\b",
         re.IGNORECASE,
     ),
     "Refusing to unregister an MCP server the agent depends on.",
@@ -96,14 +96,14 @@ RULES.append((
 
 # 5. Removing the sudoers rule (would break passwordless VPN start)
 RULES.append((
-    re.compile(r"\brm\b[^|;&]*/etc/sudoers\.d/penligent-openvpn", re.IGNORECASE),
-    "Refusing to remove the Penligent OpenVPN sudoers rule.",
+    re.compile(r"\brm\b[^|;&]*/etc/sudoers\.d/penlearn-openvpn", re.IGNORECASE),
+    "Refusing to remove the Penlearn OpenVPN sudoers rule.",
 ))
 
 # 6. Removing/disabling the guard itself
 RULES.append((
     re.compile(r"\b(rm|mv|chmod\s+0?00)\b[^|;&]*agent-guard\.(py|sh)", re.IGNORECASE),
-    "Refusing to remove or disable the Penligent agent guard.",
+    "Refusing to remove or disable the Penlearn agent guard.",
 ))
 
 # 7. chattr +i / chmod 000 on protected dirs — would lock the app out
@@ -112,7 +112,7 @@ RULES.append((
         rf"\b(chmod\s+0?00|chattr\s+\+i)\b[^|;&]*({path_alt})",
         re.IGNORECASE,
     ),
-    "Refusing to lock down a Penligent/Claude path that the app needs to write.",
+    "Refusing to lock down a Penlearn/Claude path that the app needs to write.",
 ))
 
 # 8. Rewriting ~/.claude/settings.json wholesale (truncate, > redirect, tee >)
@@ -141,7 +141,7 @@ RULES.append((
 for rx, reason in RULES:
     if rx.search(cmd):
         sys.stderr.write(
-            f"penligent-guard: blocked. {reason}\n"
+            f"penlearn-guard: blocked. {reason}\n"
             f"Command: {cmd}\n"
             "If you genuinely need this, ask the operator to run it from the host shell.\n"
         )

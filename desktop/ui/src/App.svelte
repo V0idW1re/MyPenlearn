@@ -94,16 +94,16 @@
   let mcpDownModalOpen = $state(false);
   let mcpHaltedTurn    = $state(false);
   let mcpRechecking    = $state(false);
-  // Mirror state for HTB MCP. Separate modal source = "penligent" | "htb"
+  // Mirror state for HTB MCP. Separate modal source = "penlearn" | "htb"
   // so the message reflects which server actually died.
   let htbPrevState = $state(null);
-  let mcpDownSource = $state("penligent");
+  let mcpDownSource = $state("penlearn");
 
   $effect(() => {
     const cur = mcpStatus?.state;
     if (cur === "ok") {
       // Recovery — auto-dismiss the modal so the user can keep working.
-      if (mcpDownModalOpen && mcpDownSource === "penligent") {
+      if (mcpDownModalOpen && mcpDownSource === "penlearn") {
         mcpDownModalOpen = false;
         mcpHaltedTurn = false;
       }
@@ -114,12 +114,12 @@
         invoke("claude_halt").then(halted => {
           mcpHaltedTurn = !!halted;
         }).catch(e => console.error("claude_halt failed:", e));
-        mcpDownSource = "penligent";
+        mcpDownSource = "penlearn";
         mcpDownModalOpen = true;
       } else if (mcpPrevState === null) {
         // First poll after launch showed error — surface the modal but don't
         // claim we "halted" anything (nothing was running).
-        mcpDownSource = "penligent";
+        mcpDownSource = "penlearn";
         mcpDownModalOpen = true;
       }
       mcpPrevState = "error";
@@ -408,7 +408,7 @@
     setTimeout(pollApprovals, 300);
     const selectedId = project.id;
     const home = await homeDir();
-    const workDir = `${home}/penligent/projects/${project.name}/workspace`;
+    const workDir = `${home}/penlearn/projects/${project.name}/workspace`;
     try {
       const sessions = await invoke("list_resumable_sessions", { projectId: selectedId });
       // Guard: user may have switched to a different project while this awaited
@@ -513,11 +513,11 @@
     </div>
     <div class="pl-app-name">
       {#if activeProject}
-        <span class="pl-crumb">Penligent</span>
+        <span class="pl-crumb">Penlearn</span>
         <span class="pl-crumb-sep">/</span>
         <span class="pl-engagement">{activeProject.name}</span>
       {:else}
-        Penligent Local
+        Penlearn Local
       {/if}
     </div>
   </div>
@@ -567,7 +567,7 @@
           {#if mcpDownSource === "htb"}
             The HackTheBox MCP server is not registered with Claude Code. The agent can't reach HTB machine/CTF tools.
           {:else}
-            The Penligent MCP server is not responding. The agent has no tools while it's down.
+            The Penlearn MCP server is not responding. The agent has no tools while it's down.
           {/if}
         </p>
         {#if mcpHaltedTurn}
@@ -580,7 +580,7 @@
           {#if mcpDownSource === "htb"}
             Open <strong>Settings → Diagnostics</strong> and click Fix next to "HTB MCP registered", or re-save your token under HackTheBox.
           {:else}
-            Try the MCP debug recipe from the README, then click <strong>Recheck now</strong>. If that fails, restart Penligent.
+            Try the MCP debug recipe from the README, then click <strong>Recheck now</strong>. If that fails, restart Penlearn.
           {/if}
         </p>
         <div class="pl-mcp-down-actions">
@@ -625,7 +625,7 @@
       <div class="pl-wizard">
         <div class="pl-wiz-header">
           <span class="pl-wiz-title">
-            {#if wizardStep === 0}Welcome to Penligent Local
+            {#if wizardStep === 0}Welcome to Penlearn Local
             {:else if wizardStep === 3}Setup complete
             {:else}Setup — step {wizardStep} of 2{/if}
           </span>
@@ -650,7 +650,7 @@
 
           {:else if wizardStep === 1}
             <p class="pl-wiz-label">Claude Code <span class="pl-wiz-meta">(required)</span></p>
-            <p class="pl-wiz-hint">Penligent drives <code>~/.local/bin/claude</code> as its agent runtime. Without it the HTB MCP can't register and chat won't run.</p>
+            <p class="pl-wiz-hint">Penlearn drives <code>~/.local/bin/claude</code> as its agent runtime. Without it the HTB MCP can't register and chat won't run.</p>
             {#if wzClaudeInstalled}
               <span class="pl-wiz-ok">&#10003; Installed{wzClaudeVersion ? ` · ${wzClaudeVersion}` : ""}</span>
             {:else}
@@ -665,7 +665,7 @@
 
           {:else if wizardStep === 2}
             <p class="pl-wiz-label">OpenVPN privilege <span class="pl-wiz-meta">(recommended)</span></p>
-            <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted; the rule lives in <code>/etc/sudoers.d/penligent-openvpn</code>.</p>
+            <p class="pl-wiz-hint">Installs a narrow sudoers rule so the agent can start/stop OpenVPN without a password prompt. Only <code>/usr/sbin/openvpn</code> is permitted; the rule lives in <code>/etc/sudoers.d/penlearn-openvpn</code>.</p>
             {#if wzSudoersDone}
               <span class="pl-wiz-ok">&#10003; Installed</span>
             {:else}

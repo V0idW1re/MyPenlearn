@@ -11,7 +11,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-WIKI_DIR = Path.home() / ".local" / "share" / "penligent-local" / "wiki"
+WIKI_DIR = Path.home() / ".local" / "share" / "penlearn-local" / "wiki"
 RAW_DIR = WIKI_DIR / "raw" / "machines"
 PAGES_DIR = WIKI_DIR / "pages" / "machines"
 MANIFEST_FILE = WIKI_DIR / "manifest.json"

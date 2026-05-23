@@ -117,7 +117,7 @@ async def _check_domain(args: dict) -> list[TextContent]:
 
     # Scope check if project provided
     if project_name:
-        ws = Path.home() / "penligent" / "projects" / project_name / "workspace"
+        ws = Path.home() / "penlearn" / "projects" / project_name / "workspace"
         scope_file = ws / "scope.json"
         if scope_file.exists():
             try:
@@ -209,7 +209,7 @@ async def _check_ip(args: dict) -> list[TextContent]:
 
     # Scope check
     if project_name:
-        ws = Path.home() / "penligent" / "projects" / project_name / "workspace"
+        ws = Path.home() / "penlearn" / "projects" / project_name / "workspace"
         scope_file = ws / "scope.json"
         if scope_file.exists():
             try:
@@ -240,7 +240,7 @@ async def _check_ip(args: dict) -> list[TextContent]:
     if not addr.is_private and not addr.is_loopback:
         try:
             url = f"http://ip-api.com/json/{ip}?fields=country,regionName,city,isp,org,as"
-            req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+            req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
             def _geo_fetch(r=req):
                 with urllib.request.urlopen(r, timeout=5) as resp:
                     return json.loads(resp.read())

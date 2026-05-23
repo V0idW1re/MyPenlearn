@@ -1,11 +1,11 @@
 [package]
-name = "penligent-local"
+name = "penlearn-local"
 version = "0.1.18"
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "penligent_local_lib"
+name = "penlearn_local_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

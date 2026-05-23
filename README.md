@@ -1,4 +1,4 @@
-# Penligent Local
+# Penlearn Local
 
 A self-hosted, autonomous penetration testing agent that runs entirely on your machine. Combines a Tauri 2 desktop app, a Svelte 5 UI, and a Python MCP server to give Claude Code a full suite of offensive security tools, a persistent knowledge base, and a structured engagement workflow — without any cloud dependency beyond Anthropic.
 
@@ -14,12 +14,12 @@ curl -fsSL https://claude.ai/install.sh | bash
 exec $SHELL                  # pick up the new PATH entry
 claude                       # one-time browser OAuth, then exit
 
-# 2. Install Penligent Local
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.18_amd64.deb
-sudo dpkg -i penligent-local_0.1.18_amd64.deb
+# 2. Install Penlearn Local
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penlearn-local_0.1.18_amd64.deb
+sudo dpkg -i penlearn-local_0.1.18_amd64.deb
 
 # 3. Launch
-penligent-local
+penlearn-local
 ```
 
 Doing claude first means every check in Settings → Diagnostics is green on first launch and the wizard's "Claude Code" step shows ✓ Installed immediately. If you skip step 1, the wizard's step 1 (or Settings → "Install Claude Code") will do it for you — you'll just need to authenticate in a terminal afterward.
@@ -32,7 +32,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  Penligent Local (Tauri 2 desktop app)                  │
+│  Penlearn Local (Tauri 2 desktop app)                  │
 │                                                         │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
 │  │ Engagements  │  │     Chat     │  │   Findings    │  │
@@ -59,7 +59,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
               └─────────────┬──────────────┘
                             │ MCP (stdio, per turn)
               ┌─────────────▼──────────────┐
-              │   Penligent MCP Server      │
+              │   Penlearn MCP Server      │
               │   (Python, 289 tools)       │
               │                             │
               │  Tool categories:           │
@@ -78,7 +78,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
                              │ reads
               ┌──────────────▼──────────────┐
               │ Wiki second-brain           │
-              │ ~/.local/share/penligent-   │
+              │ ~/.local/share/penlearn-   │
               │  local/wiki/                │
               │   pages/methodology/*.md    │
               │   pages/modules/*.md        │
@@ -101,7 +101,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
 
 ### Knowledge base (second brain)
 
-- **Persistent pentest wiki** at `~/.local/share/penligent-local/wiki/`
+- **Persistent pentest wiki** at `~/.local/share/penlearn-local/wiki/`
 - **12 methodology pages bundled in the `.deb`** — evidence-first, compliance-mappings, waf-bypass, web-engagement-startup, osint-pre-engagement, auth-session-testing, broken-access-control, cloud-attack-surface, llm-attack-surface, document-parser-exploits, detection-blind-spots, pentest-engagement
 - **System prompt mandates `wiki_query()`** before every task so the agent prefers your synthesized notes over its training data
 - **Per-process LRU+TTL cache** on idempotent wiki and workspace reads — same `wiki_query()` within a turn doesn't re-execute file scans
@@ -111,7 +111,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
 - **HITL guardrails** — agent calls `approve_intent` for any exploit / active scan / shell-spawn / file-write / OOB callback / flag-submit / machine-reset
 - **MCP-down auto-halt** — if the MCP health check flips from ok → error, the running Claude turn is halted (no point firing tool calls into a dead server) and a blocking modal surfaces the error
 - **Approval modal** — Esc defers, decision errors surface inline, scope/rate-limit/stop-conditions/time-window from the agent visible up front
-- **Workspace persistence** — every finding, note, and file lives in `~/penligent/projects/<name>/workspace/` with a tamper-evident sha256 audit chain
+- **Workspace persistence** — every finding, note, and file lives in `~/penlearn/projects/<name>/workspace/` with a tamper-evident sha256 audit chain
 - **Evidence-first contract** — agent only marks a finding `verified` when all five fields are populated: preconditions, control_request, test_request, observable_effect, retest_after_fix
 
 ### Interface
@@ -154,18 +154,18 @@ exec $SHELL
 claude              # browser OAuth on first run, then exit
 ```
 
-Then download `penligent-local_0.1.18_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
+Then download `penlearn-local_0.1.18_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
 
 ```bash
-sudo dpkg -i penligent-local_0.1.18_amd64.deb
-penligent-local
+sudo dpkg -i penlearn-local_0.1.18_amd64.deb
+penlearn-local
 ```
 
 The installer automatically:
 
-- Installs the binary to `/usr/bin/penligent-local`
-- Bundles the Python MCP server to `/usr/lib/penligent-local/mcp-server/`
-- Ships 12 baseline methodology wiki pages under `penligent_mcp/data/methodology/` (seeded on first wiki tool call into `~/.local/share/penligent-local/wiki/pages/methodology/`)
+- Installs the binary to `/usr/bin/penlearn-local`
+- Bundles the Python MCP server to `/usr/lib/penlearn-local/mcp-server/`
+- Ships 12 baseline methodology wiki pages under `penlearn_mcp/data/methodology/` (seeded on first wiki tool call into `~/.local/share/penlearn-local/wiki/pages/methodology/`)
 - Creates a Python virtual environment and `pip install -e .` the MCP server package
 - On first app launch, registers the MCP server at user scope in `~/.claude.json` (visible to claude from any workspace cwd) and wires the PreToolUse agent guard hook into `~/.claude/settings.json`
 - Adds a narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn`) so VPN connects without a password prompt
@@ -186,7 +186,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.18_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penlearn-local_0.1.18_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -204,16 +204,16 @@ Then add the entry at user scope in `~/.claude.json` (top-level `mcpServers` —
 ```json
 {
   "mcpServers": {
-    "penligent-local": {
+    "penlearn-local": {
       "command": "/path/to/mcp-server/.venv/bin/python",
-      "args": ["-m", "penligent_mcp"],
+      "args": ["-m", "penlearn_mcp"],
       "env": { "HTB_APP_TOKEN": "<your token, optional>" }
     }
   }
 }
 ```
 
-Or use the claude CLI: `claude mcp add --scope user penligent-local -- /path/to/python -m penligent_mcp`. Either way, restart claude sessions after editing.
+Or use the claude CLI: `claude mcp add --scope user penlearn-local -- /path/to/python -m penlearn_mcp`. Either way, restart claude sessions after editing.
 
 ---
 
@@ -243,12 +243,12 @@ Palette commands also include:
 
 ## Second-brain wiki
 
-Every install ships with a baseline knowledge base under `~/.local/share/penligent-local/wiki/`. The agent reads from this **before every task** via the `wiki_query()` MCP tool.
+Every install ships with a baseline knowledge base under `~/.local/share/penlearn-local/wiki/`. The agent reads from this **before every task** via the `wiki_query()` MCP tool.
 
 ### Layout
 
 ```
-~/.local/share/penligent-local/wiki/
+~/.local/share/penlearn-local/wiki/
 ├── index.md                  ← top-level index of every page; first thing Claude reads
 ├── manifest.json             ← raw-source → page tracking (sha256-keyed)
 ├── log.md                    ← append-only ingest log
@@ -276,7 +276,7 @@ The agent has nine wiki tools registered:
 
 ### Adding your own knowledge
 
-Drop any markdown file into `~/.local/share/penligent-local/wiki/raw/<topic>/<name>.md`, then in the chat tell the agent: "ingest the new files in raw/". Claude reads the schema, synthesises pages, updates the manifest and log, and the content is queryable on the next task.
+Drop any markdown file into `~/.local/share/penlearn-local/wiki/raw/<topic>/<name>.md`, then in the chat tell the agent: "ingest the new files in raw/". Claude reads the schema, synthesises pages, updates the manifest and log, and the content is queryable on the next task.
 
 ---
 
@@ -306,10 +306,10 @@ claude mcp list
 /mcp
 
 # Check the Python import (same probe the status dot uses)
-/usr/lib/penligent-local/mcp-server/.venv/bin/python -c "import penligent_mcp; print('ok')"
+/usr/lib/penlearn-local/mcp-server/.venv/bin/python -c "import penlearn_mcp; print('ok')"
 
 # Check the process during an active agent turn
-pgrep -a -f penligent_mcp
+pgrep -a -f penlearn_mcp
 ```
 
 The MCP process only lives for the duration of a Claude turn — pgrep returning nothing between turns is normal.
@@ -323,7 +323,7 @@ The MCP process only lives for the duration of a Claude turn — pgrep returning
 Launches automatically on first start. Two user-facing steps:
 
 1. **Claude Code** (required) — probes for `~/.local/bin/claude`; offers a one-click installer if missing. After install you still need to run `claude` once in a terminal to authenticate.
-2. **OpenVPN sudoers** (recommended) — installs the narrow `/etc/sudoers.d/penligent-openvpn` rule for passwordless VPN start/stop.
+2. **OpenVPN sudoers** (recommended) — installs the narrow `/etc/sudoers.d/penlearn-openvpn` rule for passwordless VPN start/stop.
 
 HTB API token and the default `.ovpn` profile are configured in Settings (single source of truth — no more re-entering values across wizard and Settings).
 
@@ -333,7 +333,7 @@ Skip any step; re-run anytime via <kbd>Ctrl</kbd>+<kbd>K</kbd> → "Re-run first
 
 Settings → HackTheBox → API Token → paste → Save & Register.
 
-Stored locally at `~/.local/share/penligent-local/config.json`, passed to Claude as `HTB_APP_TOKEN`, and used to register the HTB MCP server entry.
+Stored locally at `~/.local/share/penlearn-local/config.json`, passed to Claude as `HTB_APP_TOKEN`, and used to register the HTB MCP server entry.
 
 ### VPN
 
@@ -343,8 +343,8 @@ The passwordless sudo rule for OpenVPN is added automatically by the `.deb` inst
 
 ```bash
 echo "%sudo ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
-  sudo tee /etc/sudoers.d/penligent-openvpn && \
-  sudo chmod 440 /etc/sudoers.d/penligent-openvpn
+  sudo tee /etc/sudoers.d/penlearn-openvpn && \
+  sudo chmod 440 /etc/sudoers.d/penlearn-openvpn
 ```
 
 Enable **auto-reconnect on drop** in Settings → OpenVPN to have the app reconnect using the most recently used profile if the tunnel dies.
@@ -353,7 +353,7 @@ Enable **auto-reconnect on drop** in Settings → OpenVPN to have the app reconn
 
 ## Usage
 
-1. Launch `penligent-local`
+1. Launch `penlearn-local`
 2. Create an engagement in the left sidebar — pick HTB Machine, CTF, Bug Bounty, or Pentest
 3. Set the target IP if applicable (set during creation, or right-click → Rename)
 4. (HTB) connect VPN from Settings or the status bar
@@ -380,8 +380,8 @@ Enable **auto-reconnect on drop** in Settings → OpenVPN to have the app reconn
 **MCP dot is red on launch.**
 The Python venv is missing or broken. Reinstall the `.deb`, or check that the post-install script ran without errors:
 ```bash
-sudo dpkg --configure penligent-local
-ls /usr/lib/penligent-local/mcp-server/.venv/bin/python
+sudo dpkg --configure penlearn-local
+ls /usr/lib/penlearn-local/mcp-server/.venv/bin/python
 ```
 
 **The MCP-down modal won't dismiss even after I fix the issue.**
@@ -393,7 +393,7 @@ That's the placeholder shown before the first assistant response of a session. A
 **Tool calls fail with "module not found".**
 The MCP venv was created against a different Python. Re-create it:
 ```bash
-sudo /usr/lib/penligent-local/mcp-server/.venv/bin/pip install -e /usr/lib/penligent-local/mcp-server
+sudo /usr/lib/penlearn-local/mcp-server/.venv/bin/pip install -e /usr/lib/penlearn-local/mcp-server
 ```
 
 **`Couldn't load findings.` red block in the findings panel.**
@@ -417,13 +417,13 @@ Hover the red dot for the exact error. Common causes: a Python syntax error in a
 
 | Path | Contents |
 |------|----------|
-| `~/.local/share/penligent-local/penligent.db` | Projects, findings, chat history, agent sessions, plans (SQLite WAL) |
-| `~/.local/share/penligent-local/config.json` | HTB token, UI zoom, VPN auto-reconnect, setup_complete flag |
-| `~/.local/share/penligent-local/artifacts/` | Raw tool stdout/stderr saved per execution |
-| `~/.local/share/penligent-local/wiki/` | Second-brain: methodology pages, modules, raw sources, manifest |
-| `~/penligent/projects/<name>/workspace/` | Per-engagement files, notes, evidence, scan output |
-| `~/.claude/settings.json` | MCP server registration (Penligent + HTB) |
-| `/etc/sudoers.d/penligent-openvpn` | Narrow passwordless sudo rule for OpenVPN only |
+| `~/.local/share/penlearn-local/penlearn.db` | Projects, findings, chat history, agent sessions, plans (SQLite WAL) |
+| `~/.local/share/penlearn-local/config.json` | HTB token, UI zoom, VPN auto-reconnect, setup_complete flag |
+| `~/.local/share/penlearn-local/artifacts/` | Raw tool stdout/stderr saved per execution |
+| `~/.local/share/penlearn-local/wiki/` | Second-brain: methodology pages, modules, raw sources, manifest |
+| `~/penlearn/projects/<name>/workspace/` | Per-engagement files, notes, evidence, scan output |
+| `~/.claude/settings.json` | MCP server registration (Penlearn + HTB) |
+| `/etc/sudoers.d/penlearn-openvpn` | Narrow passwordless sudo rule for OpenVPN only |
 
 ---
 
@@ -432,31 +432,31 @@ Hover the red dot for the exact error. Common causes: a Python syntax error in a
 ### 1 — Remove the application
 
 ```bash
-sudo dpkg -r penligent-local
+sudo dpkg -r penlearn-local
 ```
 
-This removes `/usr/bin/penligent-local`, `/usr/lib/penligent-local/`, and the desktop entry. The sudoers rule and user data are left behind on purpose.
+This removes `/usr/bin/penlearn-local`, `/usr/lib/penlearn-local/`, and the desktop entry. The sudoers rule and user data are left behind on purpose.
 
 ### 2 — Remove the sudoers rule
 
 ```bash
-sudo rm /etc/sudoers.d/penligent-openvpn
+sudo rm /etc/sudoers.d/penlearn-openvpn
 ```
 
 ### 3 — Remove user data (optional)
 
 ```bash
 # App database, HTB token, settings, tool output artifacts, wiki
-rm -rf ~/.local/share/penligent-local/
+rm -rf ~/.local/share/penlearn-local/
 
 # Per-engagement workspace files, notes, scan output, evidence
-rm -rf ~/penligent/
+rm -rf ~/penlearn/
 ```
 
 ### 4 — Remove the MCP server entry from Claude settings (optional)
 
 ```bash
-# Open ~/.claude/settings.json and remove the "penligent-local" key under "mcpServers"
+# Open ~/.claude/settings.json and remove the "penlearn-local" key under "mcpServers"
 ```
 
 ### 5 — Remove the Claude CLI (optional)
@@ -485,11 +485,11 @@ rm -rf ~/.claude/
 
 ### v0.1.18 (current)
 
-Closes the last false-positive surface around Penligent MCP registration plus a README polish pass. Symptom that exposed the gap in 0.1.17: every Settings diagnostic ticked green, the status-bar MCP dot stayed green, then the agent reported "Penligent MCP server is not registered" on the first tool call. Cause: `mcp_health_check` only verified that the Python module imports — it never looked at `~/.claude.json` for the actual entry, so a missing or hand-deleted `mcpServers.penligent-local` slipped past the 15s health poll. Fix: `mcp_health_check` now reads `~/.claude.json` top-level `mcpServers` first and short-circuits with `ok:false` + a directive error message ("Open Settings → Diagnostics → Fix next to \"Penligent MCP registered\"") when the entry is absent. That cascades through the existing UI plumbing in `App.svelte:103` — status-bar dot flips red, any running agent turn gets halted via `claude_halt`, the MCP-down modal opens with the action hint, and the user sees the failure *before* an agent turn does. README quick-start pass: claude-first install order surfaced as the recommended path (so first-launch diagnostics come up all-green and the wizard's Claude step shows ✓ immediately); 2-step wizard description matches the trimmed 0.1.17 layout; source-build snippet now writes to `~/.claude.json` instead of `~/.claude/settings.json`. Verification: `cargo check` clean.
+Closes the last false-positive surface around Penlearn MCP registration plus a README polish pass. Symptom that exposed the gap in 0.1.17: every Settings diagnostic ticked green, the status-bar MCP dot stayed green, then the agent reported "Penlearn MCP server is not registered" on the first tool call. Cause: `mcp_health_check` only verified that the Python module imports — it never looked at `~/.claude.json` for the actual entry, so a missing or hand-deleted `mcpServers.penlearn-local` slipped past the 15s health poll. Fix: `mcp_health_check` now reads `~/.claude.json` top-level `mcpServers` first and short-circuits with `ok:false` + a directive error message ("Open Settings → Diagnostics → Fix next to \"Penlearn MCP registered\"") when the entry is absent. That cascades through the existing UI plumbing in `App.svelte:103` — status-bar dot flips red, any running agent turn gets halted via `claude_halt`, the MCP-down modal opens with the action hint, and the user sees the failure *before* an agent turn does. README quick-start pass: claude-first install order surfaced as the recommended path (so first-launch diagnostics come up all-green and the wizard's Claude step shows ✓ immediately); 2-step wizard description matches the trimmed 0.1.17 layout; source-build snippet now writes to `~/.claude.json` instead of `~/.claude/settings.json`. Verification: `cargo check` clean.
 
 ### v0.1.17
 
-Closes two gaps a second-test user hit. **Wizard slimmed from 4 user-facing steps to 2** (Welcome → Claude → OpenVPN sudoers → Summary). The HTB API Token and default `.ovpn` profile steps were removed: both already exist in Settings with clearer feedback, and the wizard's "● saved" badge looked identical to "field has a value, not yet saved" — so the user kept re-entering both in Settings thinking the wizard hadn't worked. Welcome bullets and the Summary now explicitly point at Settings as the single source of truth for those two values. **Root cause behind "Penligent MCP server is not registered" reported by the agent in the second test**: `register_local_mcp_server` wrote the `penligent-local` entry to `~/.claude/settings.json`, but Claude Code reads MCP servers from `~/.claude.json`. The diagnostic in Settings checked the same wrong file, so it showed a green ✓ while the agent (running with cwd inside a project workspace like `~/penligent/projects/Kobold/workspace`) saw no `penligent-local` tools at all — and no user-scope entry meant project-scope or `/home/kali`-scope entries didn't cascade either. Fix: the entry now lands at the top-level `mcpServers` in `~/.claude.json` (user scope, visible from any cwd), `HTB_APP_TOKEN` is injected into the MCP's env so `penligent_mcp.tools.htb_machines` can authenticate the HTB API, the legacy `mcpServers.penligent-local` entry is stripped from `settings.json`, and the agent-guard `PreToolUse` hook stays in `settings.json` (correct location for hooks). The diagnostic now reads `~/.claude.json`. `register_htb_mcp_server` re-runs the Penligent registration so the `HTB_APP_TOKEN` env stays in sync on token rotation. Verification: `cargo check` clean, `svelte-check` 0 errors, `claude mcp list` reports `penligent-local: ✓ Connected` after first launch.
+Closes two gaps a second-test user hit. **Wizard slimmed from 4 user-facing steps to 2** (Welcome → Claude → OpenVPN sudoers → Summary). The HTB API Token and default `.ovpn` profile steps were removed: both already exist in Settings with clearer feedback, and the wizard's "● saved" badge looked identical to "field has a value, not yet saved" — so the user kept re-entering both in Settings thinking the wizard hadn't worked. Welcome bullets and the Summary now explicitly point at Settings as the single source of truth for those two values. **Root cause behind "Penlearn MCP server is not registered" reported by the agent in the second test**: `register_local_mcp_server` wrote the `penlearn-local` entry to `~/.claude/settings.json`, but Claude Code reads MCP servers from `~/.claude.json`. The diagnostic in Settings checked the same wrong file, so it showed a green ✓ while the agent (running with cwd inside a project workspace like `~/penlearn/projects/Kobold/workspace`) saw no `penlearn-local` tools at all — and no user-scope entry meant project-scope or `/home/kali`-scope entries didn't cascade either. Fix: the entry now lands at the top-level `mcpServers` in `~/.claude.json` (user scope, visible from any cwd), `HTB_APP_TOKEN` is injected into the MCP's env so `penlearn_mcp.tools.htb_machines` can authenticate the HTB API, the legacy `mcpServers.penlearn-local` entry is stripped from `settings.json`, and the agent-guard `PreToolUse` hook stays in `settings.json` (correct location for hooks). The diagnostic now reads `~/.claude.json`. `register_htb_mcp_server` re-runs the Penlearn registration so the `HTB_APP_TOKEN` env stays in sync on token rotation. Verification: `cargo check` clean, `svelte-check` 0 errors, `claude mcp list` reports `penlearn-local: ✓ Connected` after first launch.
 
 ### v0.1.16
 
@@ -545,7 +545,7 @@ Token telemetry, message virtualization, command palette + shortcuts. Status bar
 
 ### v0.1.3
 
-Wiki bootstrap. 12 baseline methodology pages (evidence-first, compliance-mappings, waf-bypass, etc.) ship in the `.deb` under `penligent_mcp/data/methodology/` and seed into `~/.local/share/penligent-local/wiki/pages/methodology/` on first wiki tool call. Idempotent — never overwrites existing user edits. Closes the v0.1.2 carry-over where the trimmed system prompt routed to wiki pages that only existed on the maintainer's machine.
+Wiki bootstrap. 12 baseline methodology pages (evidence-first, compliance-mappings, waf-bypass, etc.) ship in the `.deb` under `penlearn_mcp/data/methodology/` and seed into `~/.local/share/penlearn-local/wiki/pages/methodology/` on first wiki tool call. Idempotent — never overwrites existing user edits. Closes the v0.1.2 carry-over where the trimmed system prompt routed to wiki pages that only existed on the maintainer's machine.
 
 ### v0.1.2
 

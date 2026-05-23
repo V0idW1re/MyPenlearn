@@ -328,7 +328,7 @@ async def _sqli_detect(args: dict) -> str:
     cmd = [
         "sqlmap", "-u", target, "--batch",
         "--level", "2", "--risk", "1",
-        "--output-dir", str(Path.home() / ".local" / "share" / "penligent-local" / "sqlmap"),
+        "--output-dir", str(Path.home() / ".local" / "share" / "penlearn-local" / "sqlmap"),
     ]
     if data:
         if not _safe_arg(data):
@@ -892,7 +892,7 @@ async def _parsing_diff(args: dict) -> str:
         url = f"{target}{sep}{param}={encoded}"
         cmd = [
             "curl", "-sL", "-m", str(timeout_s),
-            "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) penligent-parsing-diff/1.0",
+            "--user-agent", "Mozilla/5.0 (X11; Linux x86_64) penlearn-parsing-diff/1.0",
             url,
         ]
         stdout, stderr, rc = await _run_subprocess(cmd, timeout=timeout_s + 5)

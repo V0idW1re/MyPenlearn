@@ -1,6 +1,6 @@
 """
 Wiki / Second Brain tools.
-Manages a persistent hacking knowledge base at ~/.local/share/penligent-local/wiki/.
+Manages a persistent hacking knowledge base at ~/.local/share/penlearn-local/wiki/.
 Raw sources are immutable; Claude owns the pages/ layer.
 """
 import hashlib
@@ -16,7 +16,7 @@ from .register_all import register
 from ._helpers import _ok, _s
 from ._cache import cached, invalidate as cache_invalidate
 
-WIKI_DIR = Path.home() / ".local" / "share" / "penligent-local" / "wiki"
+WIKI_DIR = Path.home() / ".local" / "share" / "penlearn-local" / "wiki"
 RAW_DIR = WIKI_DIR / "raw"
 PAGES_DIR = WIKI_DIR / "pages"
 INDEX_FILE = WIKI_DIR / "index.md"

@@ -4,8 +4,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-DB_DIR = Path.home() / ".local" / "share" / "penligent-local"
-DB_PATH = DB_DIR / "penligent.db"
+DB_DIR = Path.home() / ".local" / "share" / "penlearn-local"
+DB_PATH = DB_DIR / "penlearn.db"
 
 SCHEMA_VERSION = 1
 

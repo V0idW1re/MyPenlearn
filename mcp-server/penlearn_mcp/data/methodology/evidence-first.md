@@ -1,8 +1,8 @@
 ---
 name: evidence-first
-description: Penligent's five-field evidence rule that separates suspected from confirmed findings; template and audit chain
+description: Penlearn's five-field evidence rule that separates suspected from confirmed findings; template and audit chain
 tags: [methodology, evidence, findings, verification, audit]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Evidence-First — Suspected vs Confirmed

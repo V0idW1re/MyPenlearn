@@ -476,7 +476,7 @@ async def _sqli_error(args: dict) -> str:
     cmd = [
         "sqlmap", "-u", target, "--batch", "--level", "1", "--risk", "1",
         "--technique", "E", "--output-dir",
-        str(Path.home() / ".local" / "share" / "penligent-local" / "sqlmap"),
+        str(Path.home() / ".local" / "share" / "penlearn-local" / "sqlmap"),
     ]
     if data:
         cmd += ["--data", data]
@@ -527,7 +527,7 @@ async def _sqli_blind(args: dict) -> str:
     cmd = [
         "sqlmap", "-u", target, "--batch", "--level", "3", "--risk", "2",
         "--technique", "BT", "--output-dir",
-        str(Path.home() / ".local" / "share" / "penligent-local" / "sqlmap"),
+        str(Path.home() / ".local" / "share" / "penlearn-local" / "sqlmap"),
     ]
     if data:
         cmd += ["--data", data]
@@ -578,7 +578,7 @@ async def _sqli_union(args: dict) -> str:
     cmd = [
         "sqlmap", "-u", target, "--batch", "--technique", "U",
         "--output-dir",
-        str(Path.home() / ".local" / "share" / "penligent-local" / "sqlmap"),
+        str(Path.home() / ".local" / "share" / "penlearn-local" / "sqlmap"),
     ]
     if data:
         cmd += ["--data", data]
@@ -2341,7 +2341,7 @@ async def _crawler_login(args: dict) -> str:
             post_data = urllib.parse.urlencode({"username": username, "password": password, "email": username}).encode()
             def _do_login(pd=post_data):
                 req = urllib.request.Request(login_url, data=pd, method="POST")
-                req.add_header("User-Agent", "penligent-crawler/0.1")
+                req.add_header("User-Agent", "penlearn-crawler/0.1")
                 req.add_header("Content-Type", "application/x-www-form-urlencoded")
                 opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor())
                 cookies = {}
@@ -2381,7 +2381,7 @@ async def _crawler_login(args: dict) -> str:
     for path in _PATHS:
         url = target + path
         req = urllib.request.Request(url)
-        req.add_header("User-Agent", "penligent-crawler/0.1")
+        req.add_header("User-Agent", "penlearn-crawler/0.1")
         if session_cookie:
             req.add_header("Cookie", session_cookie)
         try:

@@ -13,13 +13,13 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|_app| {
-            // Heal the Penligent MCP entry in ~/.claude/settings.json on every
+            // Heal the Penlearn MCP entry in ~/.claude/settings.json on every
             // launch. The Claude installer (curl claude.ai/install.sh | bash)
             // rewrites that file from scratch, so a user who installs claude
             // after the .deb loses their MCP registration. Re-applying it here
             // is idempotent and survives external overwrites.
             if let Err(e) = db_commands::register_local_mcp_server() {
-                eprintln!("penligent-local: MCP self-register skipped: {e}");
+                eprintln!("penlearn-local: MCP self-register skipped: {e}");
             }
             Ok(())
         })
@@ -83,5 +83,5 @@ pub fn run() {
             db_commands::mcp_health_check,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running penligent-local");
+        .expect("error while running penlearn-local");
 }

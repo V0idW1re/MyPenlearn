@@ -2,7 +2,7 @@
 name: web-engagement-startup
 description: Five-step opening sequence for every web engagement — probe, detect, map, audit headers
 tags: [methodology, web, startup, recon, csp, security-headers]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Web Engagement — Startup Sequence

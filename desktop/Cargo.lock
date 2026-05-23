@@ -2352,7 +2352,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
-name = "penligent-local"
+name = "penlearn-local"
 version = "0.1.18"
 dependencies = [
  "dirs 5.0.1",

@@ -1,9 +1,0 @@
-[Desktop Entry]
-Categories=
-Exec=env WEBKIT_DISABLE_COMPOSITING_MODE=1 LIBGL_ALWAYS_SOFTWARE=1 penligent-local
-StartupWMClass=penligent-local
-Icon=penligent-local
-Name=Penligent Local
-Comment=Autonomous penetration testing agent
-Terminal=false
-Type=Application

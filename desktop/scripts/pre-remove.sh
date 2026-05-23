@@ -1,8 +1,8 @@
 #!/bin/bash
 set -e
 
-INSTALL_DIR="/usr/lib/penligent-local/mcp-server"
-SUDOERS_FILE="/etc/sudoers.d/penligent-openvpn"
+INSTALL_DIR="/usr/lib/penlearn-local/mcp-server"
+SUDOERS_FILE="/etc/sudoers.d/penlearn-openvpn"
 
 # ---------------------------------------------------------------------------
 # 1. Remove the Python venv and any runtime-generated files that dpkg does
@@ -42,7 +42,7 @@ settings_path = sys.argv[1]
 try:
     with open(settings_path) as f:
         cfg = json.load(f)
-    cfg.get("mcpServers", {}).pop("penligent-local", None)
+    cfg.get("mcpServers", {}).pop("penlearn-local", None)
     with open(settings_path, "w") as f:
         json.dump(cfg, f, indent=2)
 except Exception:

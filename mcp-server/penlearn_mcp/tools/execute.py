@@ -14,7 +14,7 @@ from .register_all import register
 from ._helpers import _ok, _s
 from ..db import get_db
 
-WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
+WORKSPACE_ROOT = Path.home() / "penlearn" / "projects"
 
 _PASSIVE_PREFIXES = (
     "cat ", "ls ", "find ", "echo ", "head ", "tail ", "grep ", "wc ",

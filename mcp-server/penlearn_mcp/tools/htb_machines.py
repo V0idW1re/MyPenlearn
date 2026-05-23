@@ -32,7 +32,7 @@ def _headers() -> dict:
     return {
         "Authorization": f"Bearer {_token()}",
         "Accept": "application/json",
-        "User-Agent": "penligent-local/0.1",
+        "User-Agent": "penlearn-local/0.1",
     }
 
 
@@ -182,7 +182,7 @@ async def _htb_machines_spawn(args: dict) -> str:
         if proj:
             workspace = (
                 Path.home()
-                / "penligent"
+                / "penlearn"
                 / "projects"
                 / proj["name"]
                 / "workspace"

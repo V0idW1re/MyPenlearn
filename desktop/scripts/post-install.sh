@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-INSTALL_DIR="/usr/lib/penligent-local/mcp-server"
+INSTALL_DIR="/usr/lib/penlearn-local/mcp-server"
 VENV="$INSTALL_DIR/.venv"
-GUARD="/usr/lib/penligent-local/scripts/agent-guard.py"
+GUARD="/usr/lib/penlearn-local/scripts/agent-guard.py"
 
 # Make sure the PreToolUse guard script is executable. tauri bundles it
 # read-only by default; without +x the hook fires but exec fails silently.
@@ -15,7 +15,7 @@ fi
 # 1. Create Python venv and install the MCP server package
 # ---------------------------------------------------------------------------
 if ! command -v python3 &>/dev/null; then
-    echo "penligent-local: python3 not found — skipping MCP server setup" >&2
+    echo "penlearn-local: python3 not found — skipping MCP server setup" >&2
     exit 0
 fi
 
@@ -25,13 +25,13 @@ if ! python3 -m venv --help &>/dev/null 2>&1; then
 fi
 
 if ! python3 -m venv "$VENV"; then
-    echo "penligent-local: python3 -m venv failed — skipping MCP server setup" >&2
+    echo "penlearn-local: python3 -m venv failed — skipping MCP server setup" >&2
     exit 0
 fi
 
 # Non-fatal: requires internet access the first time
 if ! "$VENV/bin/pip" install --quiet --no-input "$INSTALL_DIR"; then
-    echo "penligent-local: pip install failed (no internet?). Re-run manually:" >&2
+    echo "penlearn-local: pip install failed (no internet?). Re-run manually:" >&2
     echo "  sudo $VENV/bin/pip install $INSTALL_DIR" >&2
 fi
 
@@ -39,7 +39,7 @@ fi
 # 2. Add sudoers rule for passwordless openvpn (so VPN connect works without a
 #    GUI password prompt every time)
 # ---------------------------------------------------------------------------
-SUDOERS_FILE="/etc/sudoers.d/penligent-openvpn"
+SUDOERS_FILE="/etc/sudoers.d/penlearn-openvpn"
 if [ ! -f "$SUDOERS_FILE" ]; then
     echo "%sudo ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" > "$SUDOERS_FILE"
     chmod 440 "$SUDOERS_FILE"
@@ -60,7 +60,7 @@ else
 fi
 
 if [ -z "$REAL_USER" ]; then
-    echo "penligent-local: could not determine installing user — skipping Claude settings update" >&2
+    echo "penlearn-local: could not determine installing user — skipping Claude settings update" >&2
     exit 0
 fi
 
@@ -82,15 +82,15 @@ except (FileNotFoundError, json.JSONDecodeError):
     cfg = {}
 
 cfg.setdefault("mcpServers", {})
-cfg["mcpServers"]["penligent-local"] = {
+cfg["mcpServers"]["penlearn-local"] = {
     "command": venv_python,
-    "args": ["-m", "penligent_mcp"]
+    "args": ["-m", "penlearn_mcp"]
 }
 
 with open(settings_path, "w") as f:
     json.dump(cfg, f, indent=2)
 
-print(f"penligent-local: registered MCP server in {settings_path}")
+print(f"penlearn-local: registered MCP server in {settings_path}")
 PYEOF
 
 # Fix ownership so the user can write to their own settings

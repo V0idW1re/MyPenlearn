@@ -9,9 +9,9 @@ from .db import init_db
 from .tools import register_all
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
-log = logging.getLogger("penligent-mcp")
+log = logging.getLogger("penlearn-mcp")
 
-app = Server("penligent-local")
+app = Server("penlearn-local")
 
 
 @app.list_tools()
@@ -36,7 +36,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 async def _serve() -> None:
     await init_db()
-    log.info("penligent-local MCP server starting (stdio)")
+    log.info("penlearn-local MCP server starting (stdio)")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(read_stream, write_stream, app.create_initialization_options())
 

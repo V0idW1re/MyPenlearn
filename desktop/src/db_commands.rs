@@ -52,13 +52,13 @@ pub struct Project {
 fn db_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_default()
-        .join(".local/share/penligent-local/penligent.db")
+        .join(".local/share/penlearn-local/penlearn.db")
 }
 
 fn config_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_default()
-        .join(".local/share/penligent-local/config.json")
+        .join(".local/share/penlearn-local/config.json")
 }
 
 pub fn open_db() -> Result<Connection, String> {
@@ -152,7 +152,7 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
     // panel works even when the user opens the app before the MCP server
     // ever runs. Each statement is idempotent (silently fails if the column
     // already exists, or if risk_items itself doesn't yet exist).
-    // See mcp-server/penligent_mcp/db.py — keep these two lists in sync.
+    // See mcp-server/penlearn_mcp/db.py — keep these two lists in sync.
     let table_exists: bool = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='risk_items'",
@@ -263,7 +263,7 @@ pub fn create_project(name: String, target: String, kind: String, scope_json: Op
 
     let workspace = dirs::home_dir()
         .unwrap_or_default()
-        .join("penligent/projects")
+        .join("penlearn/projects")
         .join(&name)
         .join("workspace");
     std::fs::create_dir_all(&workspace)
@@ -828,7 +828,7 @@ pub fn add_workspace_file(
 
     let dest_dir = dirs::home_dir()
         .unwrap_or_default()
-        .join("penligent/projects")
+        .join("penlearn/projects")
         .join(&project_name)
         .join("workspace");
     std::fs::create_dir_all(&dest_dir)
@@ -874,13 +874,13 @@ pub fn add_workspace_file(
     Ok(AddFileResult { id, project_id, filename, kind: kind_opt, path: path_str, sha256, added_at })
 }
 
-// ── Project notes (read/write ~/penligent/projects/<name>/workspace/notes.md) ─
+// ── Project notes (read/write ~/penlearn/projects/<name>/workspace/notes.md) ─
 
 #[tauri::command]
 pub fn read_project_notes(project_name: String) -> Result<String, String> {
     let path = dirs::home_dir()
         .unwrap_or_default()
-        .join("penligent/projects")
+        .join("penlearn/projects")
         .join(&project_name)
         .join("workspace/notes.md");
     if !path.exists() {
@@ -893,7 +893,7 @@ pub fn read_project_notes(project_name: String) -> Result<String, String> {
 pub fn write_project_notes(project_name: String, content: String) -> Result<(), String> {
     let dir = dirs::home_dir()
         .unwrap_or_default()
-        .join("penligent/projects")
+        .join("penlearn/projects")
         .join(&project_name)
         .join("workspace");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1211,10 +1211,10 @@ pub fn verify_message_chain(session_id: i64) -> Result<bool, String> {
 pub fn install_sudoers_rule() -> Result<(), String> {
     let user = std::env::var("USER").unwrap_or_else(|_| "kali".to_string());
     let rule = format!("{user} ALL=(root) NOPASSWD: /usr/sbin/openvpn\n");
-    let tmp = "/tmp/penligent-sudoers";
+    let tmp = "/tmp/penlearn-sudoers";
     std::fs::write(tmp, &rule).map_err(|e| e.to_string())?;
     let out = std::process::Command::new("sudo")
-        .args(["install", "-m", "440", "-o", "root", "-g", "root", tmp, "/etc/sudoers.d/penligent-openvpn"])
+        .args(["install", "-m", "440", "-o", "root", "-g", "root", tmp, "/etc/sudoers.d/penlearn-openvpn"])
         .output()
         .map_err(|e| format!("sudo install failed: {e}"))?;
     if out.status.success() {
@@ -1270,7 +1270,7 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() || stdout.contains("htb-mcp-ctf") || stderr.contains("htb-mcp-ctf") {
-        // Refresh penligent-local so HTB_APP_TOKEN in its env stays in sync
+        // Refresh penlearn-local so HTB_APP_TOKEN in its env stays in sync
         // with the new token. The MCP's HTB tools read this env var directly.
         let _ = register_local_mcp_server();
         Ok("HTB MCP server registered successfully.".into())
@@ -1279,12 +1279,12 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     }
 }
 
-// ── Register the Penligent MCP server in ~/.claude.json ───────────────────────
+// ── Register the Penlearn MCP server in ~/.claude.json ───────────────────────
 // MCP server entries must live in ~/.claude.json (top-level `mcpServers` =
 // user scope) for Claude Code to surface them from any working directory.
 // Earlier versions wrote to ~/.claude/settings.json — that file is read by
 // claude for hooks/permissions but NOT for MCP discovery, so the agent
-// reported "Penligent MCP server is not registered" even when diagnostics
+// reported "Penlearn MCP server is not registered" even when diagnostics
 // claimed it was registered. The hook config still goes to settings.json
 // (correct location); only the MCP entry moved.
 //
@@ -1294,7 +1294,7 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
 
 fn locate_mcp_python() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/lib/penligent-local/mcp-server/.venv/bin/python"),
+        PathBuf::from("/usr/lib/penlearn-local/mcp-server/.venv/bin/python"),
     ];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -1306,11 +1306,11 @@ fn locate_mcp_python() -> Option<PathBuf> {
 
 fn locate_agent_guard() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/lib/penligent-local/scripts/agent-guard.py"),
+        PathBuf::from("/usr/lib/penlearn-local/scripts/agent-guard.py"),
     ];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            // dev: target/debug/penligent-local → ../../../scripts/agent-guard.py
+            // dev: target/debug/penlearn-local → ../../../scripts/agent-guard.py
             candidates.push(parent.join("../../../scripts/agent-guard.py"));
         }
     }
@@ -1320,25 +1320,25 @@ fn locate_agent_guard() -> Option<PathBuf> {
 #[tauri::command]
 pub fn register_local_mcp_server() -> Result<String, String> {
     let python = locate_mcp_python()
-        .ok_or_else(|| "Penligent MCP venv not found".to_string())?;
+        .ok_or_else(|| "Penlearn MCP venv not found".to_string())?;
     let python_str = python.to_string_lossy().to_string();
 
     let home = dirs::home_dir().ok_or("HOME not set")?;
 
     // Pass the HTB token through as env so the MCP's HTB tools can call the
     // HTB API. The dedicated htb-mcp-ctf server uses the same token via a
-    // bearer header; penligent_mcp.tools.htb_machines reads HTB_APP_TOKEN
+    // bearer header; penlearn_mcp.tools.htb_machines reads HTB_APP_TOKEN
     // straight from the process env, so the MCP launcher needs to inject it.
     let htb_token = load_config_str("htb_app_token");
     let desired_mcp = if htb_token.trim().is_empty() {
         serde_json::json!({
             "command": python_str,
-            "args": ["-m", "penligent_mcp"],
+            "args": ["-m", "penlearn_mcp"],
         })
     } else {
         serde_json::json!({
             "command": python_str,
-            "args": ["-m", "penligent_mcp"],
+            "args": ["-m", "penlearn_mcp"],
             "env": { "HTB_APP_TOKEN": htb_token.trim() },
         })
     };
@@ -1359,8 +1359,8 @@ pub fn register_local_mcp_server() -> Result<String, String> {
             .or_insert_with(|| serde_json::json!({}));
         if !mcp.is_object() { *mcp = serde_json::json!({}); }
         let mcp_obj = mcp.as_object_mut().unwrap();
-        if mcp_obj.get("penligent-local") != Some(&desired_mcp) {
-            mcp_obj.insert("penligent-local".to_string(), desired_mcp);
+        if mcp_obj.get("penlearn-local") != Some(&desired_mcp) {
+            mcp_obj.insert("penlearn-local".to_string(), desired_mcp);
             changed_claude_json = true;
         }
     }
@@ -1369,7 +1369,7 @@ pub fn register_local_mcp_server() -> Result<String, String> {
         std::fs::write(&claude_json_path, pretty).map_err(|e| e.to_string())?;
     }
 
-    // ── Step 2: settings.json — strip any stale mcpServers.penligent-local
+    // ── Step 2: settings.json — strip any stale mcpServers.penlearn-local
     // entry from older installs (wrong file), then ensure the agent-guard
     // PreToolUse hook is wired up. Hooks DO belong in settings.json.
     let claude_dir = home.join(".claude");
@@ -1384,13 +1384,13 @@ pub fn register_local_mcp_server() -> Result<String, String> {
 
     let mut changed_settings = false;
 
-    // Strip legacy mcpServers.penligent-local (wrong file). If the resulting
+    // Strip legacy mcpServers.penlearn-local (wrong file). If the resulting
     // mcpServers map is empty, drop the key entirely so settings.json stays
     // clean.
     if let Some(obj) = settings_cfg.as_object_mut() {
         let mut empty_after = false;
         if let Some(mcp) = obj.get_mut("mcpServers").and_then(|m| m.as_object_mut()) {
-            if mcp.remove("penligent-local").is_some() {
+            if mcp.remove("penlearn-local").is_some() {
                 changed_settings = true;
             }
             empty_after = mcp.is_empty();
@@ -1421,7 +1421,7 @@ pub fn register_local_mcp_server() -> Result<String, String> {
         if !pre_tool_use.is_array() { *pre_tool_use = serde_json::json!([]); }
         let arr = pre_tool_use.as_array_mut().unwrap();
 
-        // Find an existing penligent guard entry (by matching the script
+        // Find an existing penlearn guard entry (by matching the script
         // basename). If it already matches `desired_hook` exactly, leave it.
         // Otherwise rebuild it so a moved script path or stale config heals.
         let mut existing_idx: Option<usize> = None;
@@ -1446,9 +1446,9 @@ pub fn register_local_mcp_server() -> Result<String, String> {
 
     let mut summary = String::new();
     if changed_claude_json {
-        summary.push_str(&format!("Registered penligent-local at user scope in {}.", claude_json_path.display()));
+        summary.push_str(&format!("Registered penlearn-local at user scope in {}.", claude_json_path.display()));
     } else {
-        summary.push_str("penligent-local already at user scope.");
+        summary.push_str("penlearn-local already at user scope.");
     }
     if changed_settings {
         summary.push_str(&format!(" Updated hook config at {}.", settings_path.display()));
@@ -1493,10 +1493,10 @@ pub fn count_mcp_tools() -> Result<u32, String> {
     let mut dirs: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
-            dirs.push(parent.join("../../../mcp-server/penligent_mcp/tools"));
+            dirs.push(parent.join("../../../mcp-server/penlearn_mcp/tools"));
         }
     }
-    dirs.push(std::path::PathBuf::from("/usr/lib/penligent-local/mcp-server/penligent_mcp/tools"));
+    dirs.push(std::path::PathBuf::from("/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools"));
     for dir in &dirs {
         if !dir.exists() { continue; }
         let mut count = 0u32;
@@ -1620,42 +1620,42 @@ pub fn run_diagnostics() -> Vec<DiagItem> {
         fix: if claude_ok { "".into() } else { "install_claude".into() },
     });
 
-    // 2. Penligent MCP registered at user scope in ~/.claude.json. This is the
+    // 2. Penlearn MCP registered at user scope in ~/.claude.json. This is the
     //    file `claude mcp list` actually reads — checking settings.json (old
     //    location) produced false positives where diagnostics looked green
-    //    but the agent reported "Penligent MCP is not registered".
+    //    but the agent reported "Penlearn MCP is not registered".
     let claude_json_path = home.join(".claude.json");
     let settings_path = home.join(".claude/settings.json");
     let mcp_registered = std::fs::read_to_string(&claude_json_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penligent-local")).cloned())
+        .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penlearn-local")).cloned())
         .is_some();
     out.push(DiagItem {
-        id: "penligent_mcp_registered".into(),
-        name: "Penligent MCP registered".into(),
+        id: "penlearn_mcp_registered".into(),
+        name: "Penlearn MCP registered".into(),
         ok: mcp_registered,
         hint: if mcp_registered { "Entry present in ~/.claude.json (user scope)".into() }
-              else { "mcpServers.penligent-local missing in ~/.claude.json — agent has no Penligent tools.".into() },
+              else { "mcpServers.penlearn-local missing in ~/.claude.json — agent has no Penlearn tools.".into() },
         fix: if mcp_registered { "".into() } else { "register_local_mcp".into() },
     });
 
-    // 3. Penligent MCP venv imports
+    // 3. Penlearn MCP venv imports
     let python = locate_mcp_python();
     let venv_ok = python.as_ref().map(|p| {
         std::process::Command::new(p)
-            .args(["-c", "import penligent_mcp"])
+            .args(["-c", "import penlearn_mcp"])
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false)
     }).unwrap_or(false);
     out.push(DiagItem {
-        id: "penligent_mcp_imports".into(),
-        name: "Penligent MCP imports".into(),
+        id: "penlearn_mcp_imports".into(),
+        name: "Penlearn MCP imports".into(),
         ok: venv_ok,
         hint: match (&python, venv_ok) {
             (Some(p), true)  => format!("{}", p.display()),
-            (Some(p), false) => format!("`import penligent_mcp` failed under {}", p.display()),
+            (Some(p), false) => format!("`import penlearn_mcp` failed under {}", p.display()),
             (None, _)        => "venv not found — reinstall the .deb or run scripts/post-install.sh.".into(),
         },
         fix: "".into(),  // no in-app pip-install fix — needs system context
@@ -1715,18 +1715,18 @@ pub fn run_diagnostics() -> Vec<DiagItem> {
     });
 
     // 6. OpenVPN sudoers
-    let sudoers = std::path::Path::new("/etc/sudoers.d/penligent-openvpn").exists();
+    let sudoers = std::path::Path::new("/etc/sudoers.d/penlearn-openvpn").exists();
     out.push(DiagItem {
         id: "sudoers_rule".into(),
         name: "OpenVPN sudoers rule".into(),
         ok: sudoers,
-        hint: if sudoers { "/etc/sudoers.d/penligent-openvpn present.".into() }
+        hint: if sudoers { "/etc/sudoers.d/penlearn-openvpn present.".into() }
               else { "VPN connect will prompt for password each time.".into() },
         fix: if sudoers { "".into() } else { "install_sudoers".into() },
     });
 
     // 7. Data dir writable
-    let data_dir = home.join(".local/share/penligent-local");
+    let data_dir = home.join(".local/share/penlearn-local");
     let data_ok = data_dir.is_dir() && std::fs::metadata(&data_dir)
         .map(|m| !m.permissions().readonly()).unwrap_or(false);
     out.push(DiagItem {
@@ -1758,26 +1758,26 @@ pub fn htb_mcp_health_check() -> HtbMcpStatus {
 
 #[tauri::command]
 pub fn mcp_health_check() -> McpHealthStatus {
-    // First check: is penligent-local actually registered at user scope?
+    // First check: is penlearn-local actually registered at user scope?
     // The venv test below confirms the Python module imports, but claude
     // only sees the MCP if there's an entry in ~/.claude.json — and a
     // missing entry is the exact failure mode that produced false-green
-    // ticks while the agent silently ran with no Penligent tools.
+    // ticks while the agent silently ran with no Penlearn tools.
     if let Some(home) = dirs::home_dir() {
         let claude_json = home.join(".claude.json");
         let registered = std::fs::read_to_string(&claude_json)
             .ok()
             .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penligent-local")).cloned())
+            .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penlearn-local")).cloned())
             .is_some();
         if !registered {
             return McpHealthStatus {
                 ok: false,
                 tool_count: 0,
                 error: Some(
-                    "penligent-local is not registered at user scope in ~/.claude.json. \
-                     The agent will run with no Penligent tools. \
-                     Open Settings → Diagnostics → Fix next to \"Penligent MCP registered\"."
+                    "penlearn-local is not registered at user scope in ~/.claude.json. \
+                     The agent will run with no Penlearn tools. \
+                     Open Settings → Diagnostics → Fix next to \"Penlearn MCP registered\"."
                         .into(),
                 ),
             };
@@ -1786,7 +1786,7 @@ pub fn mcp_health_check() -> McpHealthStatus {
 
     // Prefer installed path; fall back to dev-build path relative to the exe.
     let mut candidates: Vec<PathBuf> = vec![
-        PathBuf::from("/usr/lib/penligent-local/mcp-server/.venv/bin/python"),
+        PathBuf::from("/usr/lib/penlearn-local/mcp-server/.venv/bin/python"),
     ];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -1804,7 +1804,7 @@ pub fn mcp_health_check() -> McpHealthStatus {
     };
 
     let out = std::process::Command::new(&python)
-        .args(["-c", "import penligent_mcp; print('ok')"])
+        .args(["-c", "import penlearn_mcp; print('ok')"])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .output();

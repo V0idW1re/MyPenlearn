@@ -2,7 +2,7 @@
 name: compliance-mappings
 description: Compliance control references for every confirmed finding — NIST, ISO, PCI, SOC, GDPR, OWASP, AI-specific
 tags: [methodology, compliance, nist, iso27001, pci-dss, soc2, gdpr, owasp, owasp-genai, nist-tevv]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Compliance Mappings

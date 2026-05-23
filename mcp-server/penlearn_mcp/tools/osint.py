@@ -88,7 +88,7 @@ async def _crt_sh(args: dict) -> list[TextContent]:
     q = f"%.{domain}" if wildcard else domain
     url = f"https://crt.sh/?q={urllib.parse.quote(q)}&output=json"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         entries = json.loads(await _http_get(req, timeout=30))
         names = sorted({e.get("name_value", "") for e in entries if e.get("name_value")})
         return _ok(f"crt.sh results for {domain} ({len(names)} unique names):\n" + "\n".join(names[:500]))
@@ -113,7 +113,7 @@ async def _github_search(args: dict) -> list[TextContent]:
     token = args.get("token", "")
     url = f"https://api.github.com/search/{search_type}?q={urllib.parse.quote(query)}&per_page=20"
     headers_list = [("Accept", "application/vnd.github.v3+json"),
-                    ("User-Agent", "penligent-local/0.1")]
+                    ("User-Agent", "penlearn-local/0.1")]
     if token:
         headers_list.append(("Authorization", f"token {token}"))
     try:
@@ -152,7 +152,7 @@ async def _shodan_query(args: dict) -> list[TextContent]:
         return _ok("Error: api_key is required. Get one from https://account.shodan.io")
     url = f"https://api.shodan.io/shodan/host/search?key={api_key}&query={urllib.parse.quote(query)}&minify=false"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=20))
         matches = data.get("matches", [])
         total = data.get("total", 0)
@@ -194,7 +194,7 @@ async def _censys_query(args: dict) -> list[TextContent]:
     req = urllib.request.Request(url, data=body, headers={
         "Authorization": f"Basic {auth}",
         "Content-Type": "application/json",
-        "User-Agent": "penligent-local/0.1",
+        "User-Agent": "penlearn-local/0.1",
     })
     try:
         data = json.loads(await _http_get(req, timeout=20))
@@ -225,7 +225,7 @@ async def _ip_geolocation(args: dict) -> list[TextContent]:
     ip = args.get("ip", "")
     url = f"https://ipinfo.io/{ip}/json"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=10))
         lines = [f"IP: {data.get('ip', ip)}"]
         for field in ("hostname", "city", "region", "country", "org", "timezone", "loc"):
@@ -249,7 +249,7 @@ async def _asn_info(args: dict) -> list[TextContent]:
     query = args.get("query", "")  # ASN number or IP
     url = f"https://ipinfo.io/{query}/json"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=10))
         return _ok(json.dumps(data, indent=2))
     except Exception as e:
@@ -307,7 +307,7 @@ async def _wayback_robots(args: dict) -> list[TextContent]:
     domain = args.get("domain", "")
     url = f"https://web.archive.org/web/0/{domain}/robots.txt"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = (await _http_get(req, timeout=20)).decode(errors="replace")
         return _ok(f"robots.txt for {domain} (via Wayback Machine):\n\n{data[:3000]}")
     except Exception as e:
@@ -358,7 +358,7 @@ async def _breach_check(args: dict) -> list[TextContent]:
     url = f"https://haveibeenpwned.com/api/v3/breachedaccount/{urllib.parse.quote(email)}?truncateResponse=false"
     try:
         req = urllib.request.Request(url, headers={
-            "User-Agent": "penligent-local/0.1",
+            "User-Agent": "penlearn-local/0.1",
             "hibp-api-key": "",  # key required; will 401 without one
         })
         data = json.loads(await _http_get(req, timeout=15))
@@ -390,7 +390,7 @@ async def _reverse_whois(args: dict) -> list[TextContent]:
     # Use viewdns.info free API
     url = f"https://viewdns.info/reversewhois/?q={urllib.parse.quote(query)}&output=json"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=20))
         domains = data.get("response", {}).get("domains", [])
         lines = [f"Reverse WHOIS for '{query}': {len(domains)} domains"]
@@ -417,7 +417,7 @@ async def _pastebin_search(args: dict) -> list[TextContent]:
     # Use Google dork via a search engine scrape is unreliable; use psbdmp.ws API
     url = f"https://psbdmp.ws/api/search/{urllib.parse.quote(query)}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=20))
         items = data if isinstance(data, list) else data.get("data", [])
         lines = [f"Pastebin search for '{query}': {len(items)} results (via psbdmp.ws)"]
@@ -448,7 +448,7 @@ async def _whois_history(args: dict) -> list[TextContent]:
     # Pure Python via RDAP
     url = f"https://rdap.org/domain/{domain}"
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+        req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
         data = json.loads(await _http_get(req, timeout=15))
         lines = [f"RDAP for {domain}:"]
         for event in data.get("events", []):
@@ -523,7 +523,7 @@ async def _ghunt_osint(args: dict) -> list[TextContent]:
         # crt.sh for email in certificate subjects
         try:
             crt_url = f"https://crt.sh/?q={urllib.parse.quote(email)}&output=json"
-            req = urllib.request.Request(crt_url, headers={"User-Agent": "penligent-local/0.1"})
+            req = urllib.request.Request(crt_url, headers={"User-Agent": "penlearn-local/0.1"})
             certs = json.loads(await _http_get(req, timeout=15))
             if certs:
                 domains = sorted(set(c.get("name_value", "") for c in certs[:50]))

@@ -2,7 +2,7 @@
 name: auth-session-testing
 description: Six-step protocol for every login / auth endpoint — brute-force, fixation, reuse, MFA, password policy, OAuth/OIDC
 tags: [methodology, authentication, session, brute-force, mfa, oauth, oidc, jwt]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Authentication & Session Testing

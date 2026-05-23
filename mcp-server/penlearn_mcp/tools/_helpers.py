@@ -1,5 +1,5 @@
 """
-Shared utilities for all penligent tool modules.
+Shared utilities for all penlearn tool modules.
 """
 import asyncio
 import hashlib
@@ -12,7 +12,7 @@ from mcp.types import TextContent
 
 from ..db import get_db
 
-ARTIFACTS_DIR = Path.home() / ".local" / "share" / "penligent-local" / "artifacts"
+ARTIFACTS_DIR = Path.home() / ".local" / "share" / "penlearn-local" / "artifacts"
 
 
 # ---------------------------------------------------------------------------

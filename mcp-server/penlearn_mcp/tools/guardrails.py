@@ -80,7 +80,7 @@ async def _approve_intent(args: dict) -> list[TextContent]:
     if intent in DENY_ALWAYS:
         return _ok(
             f"DENIED: Intent '{intent}' is in the unconditional deny list. "
-            "This operation is not permitted under any circumstances in Penligent Local."
+            "This operation is not permitted under any circumstances in Penlearn Local."
         )
 
     # Auto-approve passive / safe operations
@@ -130,7 +130,7 @@ async def _approve_intent(args: dict) -> list[TextContent]:
             else:
                 return _ok(
                     f"DENIED: Intent '{intent}' on HTB project requires HTB_APP_TOKEN. "
-                    "Set your HTB App Token in Penligent Local settings."
+                    "Set your HTB App Token in Penlearn Local settings."
                 )
 
         # Pentest / bug-bounty gate — record as pending, surface to user
@@ -157,13 +157,13 @@ async def _approve_intent(args: dict) -> list[TextContent]:
                 f"Scope: {scope_summary}\n"
                 f"Justification: {justification or '(none provided)'}\n\n"
                 "The approval request has been recorded. Do not proceed until the operator "
-                "explicitly grants approval in the Penligent Local UI or replies 'approved'."
+                "explicitly grants approval in the Penlearn Local UI or replies 'approved'."
             )
 
         # Unknown intent — deny by default
         return _ok(
             f"DENIED: Intent '{intent}' is not in any approved category for project kind '{project_kind}'. "
-            "Penligent Local operates on a deny-by-default policy. "
+            "Penlearn Local operates on a deny-by-default policy. "
             "If this operation is needed, request approval from the operator."
         )
 
@@ -272,7 +272,7 @@ register(
 # check_sensitive_paths — Crawlergo 40-path heuristic
 # ---------------------------------------------------------------------------
 
-# Verbatim 40-path list from the Penligent Local handoff specification
+# Verbatim 40-path list from the Penlearn Local handoff specification
 SENSITIVE_PATHS = [
     "/data/",
     "/json/",

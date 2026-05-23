@@ -13,7 +13,7 @@ from .register_all import register
 from ._helpers import _ok, _s, _run
 from ..db import get_db
 
-WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
+WORKSPACE_ROOT = Path.home() / "penlearn" / "projects"
 
 SEVERITY_ORDER = ("critical", "high", "medium", "low", "info")
 
@@ -62,7 +62,7 @@ def _build_exec_summary(project: dict, findings: list, ts_str: str) -> str:
     fp = sum(1 for f in findings if f.get("verify_status") == "false_positive")
 
     lines = [
-        f"# Penligent Engagement Report",
+        f"# Penlearn Engagement Report",
         f"",
         f"**Target:** {project['target']}",
         f"**Project:** {project['name']}",

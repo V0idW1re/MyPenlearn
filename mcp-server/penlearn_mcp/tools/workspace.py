@@ -1,6 +1,6 @@
 """
 Workspace / file management tools.
-Manages a per-project workspace under ~/penligent/projects/<name>/workspace/.
+Manages a per-project workspace under ~/penlearn/projects/<name>/workspace/.
 All paths are constrained to the workspace root (no path traversal).
 """
 import asyncio
@@ -23,7 +23,7 @@ from ._helpers import _ok, _s
 from ._cache import cached, invalidate as cache_invalidate
 from ..db import get_db
 
-WORKSPACE_ROOT = Path.home() / "penligent" / "projects"
+WORKSPACE_ROOT = Path.home() / "penlearn" / "projects"
 
 
 def _ws(project_name: str) -> Path:
@@ -284,7 +284,7 @@ async def _workspace_download(args: dict) -> list[TextContent]:
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
         def _fetch() -> bytes:
-            req = urllib.request.Request(url, headers={"User-Agent": "penligent-local/0.1"})
+            req = urllib.request.Request(url, headers={"User-Agent": "penlearn-local/0.1"})
             with urllib.request.urlopen(req, timeout=60) as r:
                 return r.read()
         data = await asyncio.to_thread(_fetch)

@@ -2,7 +2,7 @@
 name: detection-blind-spots
 description: Known weak spots in automated scanners — blind SQLi, DOM XSS, multi-turn LLM injection, mutation XSS
 tags: [methodology, scanner-limitations, blind-sqli, dom-xss, mutation-xss, manual-testing]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Detection Blind Spots — Where Automation Fails

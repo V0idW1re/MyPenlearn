@@ -2,7 +2,7 @@
 name: osint-pre-engagement
 description: Passive intelligence collection before any active scan — DNS, CT logs, code leaks, Google dorking
 tags: [methodology, osint, recon, passive, dns, certificate-transparency, github-leaks, dorking]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # OSINT & Pre-Engagement Recon

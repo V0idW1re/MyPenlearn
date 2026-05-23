@@ -490,7 +490,7 @@
     <div class="pl-empty-state">
       <div class="pl-empty-logo">
         <span class="pl-logo-bracket">[</span>
-        <span class="pl-logo-text">PENLIGENT</span>
+        <span class="pl-logo-text">PENLEARN</span>
         <span class="pl-logo-bracket">]</span>
       </div>
       <div class="pl-empty-tag">autonomous penetration testing</div>

@@ -2,7 +2,7 @@
 name: llm-attack-surface
 description: AI assistant / LLM target methodology — prompt injection, context execution, exfiltration, agentic attack chain
 tags: [methodology, llm, ai, prompt-injection, owasp-genai, nist-tevv, agentic, rag]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # AI Assistant & LLM Attack Surface

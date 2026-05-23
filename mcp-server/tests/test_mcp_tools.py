@@ -1,5 +1,5 @@
 """
-Comprehensive test suite for penligent-mcp tool layer.
+Comprehensive test suite for penlearn-mcp tool layer.
 
 Covers:
   1. Module imports — every module in register_all loads without error
@@ -37,30 +37,30 @@ class TestModuleImports(unittest.TestCase):
 
     def test_register_all_imports_cleanly(self):
         """register_all triggers every module's self-registration."""
-        from penligent_mcp.tools import register_all  # noqa: F401 — side-effects matter
+        from penlearn_mcp.tools import register_all  # noqa: F401 — side-effects matter
         self.assertIsNotNone(register_all)
 
     def test_individual_modules_import(self):
         modules = [
-            "penligent_mcp.tools.recon",
-            "penligent_mcp.tools.scanner",
-            "penligent_mcp.tools.findings",
-            "penligent_mcp.tools.web",
-            "penligent_mcp.tools.network",
-            "penligent_mcp.tools.exploit",
-            "penligent_mcp.tools.post_exploit",
-            "penligent_mcp.tools.passwords",
-            "penligent_mcp.tools.crypto",
-            "penligent_mcp.tools.osint",
-            "penligent_mcp.tools.workspace",
-            "penligent_mcp.tools.report",
-            "penligent_mcp.tools.guardrails",
-            "penligent_mcp.tools.plan",
-            "penligent_mcp.tools.utils",
-            "penligent_mcp.tools.execute",
-            "penligent_mcp.tools.cloud",
-            "penligent_mcp.tools.binary",
-            "penligent_mcp.tools.htb_machines",
+            "penlearn_mcp.tools.recon",
+            "penlearn_mcp.tools.scanner",
+            "penlearn_mcp.tools.findings",
+            "penlearn_mcp.tools.web",
+            "penlearn_mcp.tools.network",
+            "penlearn_mcp.tools.exploit",
+            "penlearn_mcp.tools.post_exploit",
+            "penlearn_mcp.tools.passwords",
+            "penlearn_mcp.tools.crypto",
+            "penlearn_mcp.tools.osint",
+            "penlearn_mcp.tools.workspace",
+            "penlearn_mcp.tools.report",
+            "penlearn_mcp.tools.guardrails",
+            "penlearn_mcp.tools.plan",
+            "penlearn_mcp.tools.utils",
+            "penlearn_mcp.tools.execute",
+            "penlearn_mcp.tools.cloud",
+            "penlearn_mcp.tools.binary",
+            "penlearn_mcp.tools.htb_machines",
         ]
         import importlib
         for name in modules:
@@ -69,11 +69,11 @@ class TestModuleImports(unittest.TestCase):
                 self.assertIsNotNone(mod)
 
     def test_db_module_imports(self):
-        from penligent_mcp import db  # noqa: F401
+        from penlearn_mcp import db  # noqa: F401
         self.assertIsNotNone(db)
 
     def test_helpers_import(self):
-        from penligent_mcp.tools._helpers import _ok, _need, _chk, _run, _artifact, _s
+        from penlearn_mcp.tools._helpers import _ok, _need, _chk, _run, _artifact, _s
         self.assertTrue(callable(_ok))
         self.assertTrue(callable(_need))
         self.assertTrue(callable(_chk))
@@ -88,7 +88,7 @@ class TestRegistration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Trigger all registrations
-        from penligent_mcp.tools.register_all import get_tool_definitions, get_handler, _definitions, _handlers
+        from penlearn_mcp.tools.register_all import get_tool_definitions, get_handler, _definitions, _handlers
         cls.definitions = get_tool_definitions()
         cls.get_handler = staticmethod(get_handler)
         cls.handler_map = _handlers
@@ -133,7 +133,7 @@ class TestHandlerContracts(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.register_all import get_tool_definitions, _handlers
+        from penlearn_mcp.tools.register_all import get_tool_definitions, _handlers
         cls.definitions = get_tool_definitions()
         cls.handler_map = _handlers
 
@@ -168,7 +168,7 @@ class TestSchemaValidity(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.register_all import get_tool_definitions
+        from penlearn_mcp.tools.register_all import get_tool_definitions
         cls.definitions = get_tool_definitions()
 
     def test_all_schemas_json_serialisable(self):
@@ -225,7 +225,7 @@ class TestSchemaValidity(unittest.TestCase):
 class TestHelpers(unittest.TestCase):
 
     def test_ok_returns_text_content_list(self):
-        from penligent_mcp.tools._helpers import _ok
+        from penlearn_mcp.tools._helpers import _ok
         from mcp.types import TextContent
         result = _ok("hello")
         self.assertIsInstance(result, list)
@@ -234,13 +234,13 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(result[0].text, "hello")
 
     def test_chk_returns_bool(self):
-        from penligent_mcp.tools._helpers import _chk
+        from penlearn_mcp.tools._helpers import _chk
         # 'ls' should always be present on Kali
         self.assertTrue(_chk("ls"))
         self.assertFalse(_chk("__nonexistent_binary_xyz__"))
 
     def test_s_builds_correct_schema(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(["target"], target=("string", "The target host"), port=("integer", "Port"))
         self.assertEqual(schema["type"], "object")
         self.assertEqual(schema["required"], ["target"])
@@ -248,12 +248,12 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(schema["properties"]["port"]["type"], "integer")
 
     def test_s_no_required(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(target=("string", "host"))
         self.assertNotIn("required", schema)
 
     def test_need_returns_tool_missing_message(self):
-        from penligent_mcp.tools._helpers import _need
+        from penlearn_mcp.tools._helpers import _need
         result = _need("nmap", "apt install nmap")
         self.assertTrue(any("[TOOL_MISSING]" in item.text for item in result))
         self.assertTrue(any("nmap" in item.text for item in result))
@@ -266,7 +266,7 @@ class TestClassify(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.utils import _classify
+        from penlearn_mcp.tools.utils import _classify
         cls.classify = staticmethod(_classify)
 
     def test_classify_url_http(self):
@@ -333,35 +333,35 @@ class TestReverseShell(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_requires_lhost(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({}))
         self.assertIn("Error", result)
 
     def test_all_shells_contain_lhost(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "10.10.10.1", "lport": 9001}))
         self.assertIn("10.10.10.1", result)
         self.assertIn("9001", result)
 
     def test_specific_shell_type(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "1.2.3.4", "lport": 4444, "shell_type": "bash"}))
         self.assertIn("bash", result.lower())
         self.assertIn("1.2.3.4", result)
 
     def test_python3_shell_contains_socket(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "1.2.3.4", "shell_type": "python3"}))
         self.assertIn("socket", result)
 
     def test_all_returns_multiple_shells(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "1.2.3.4", "shell_type": "all"}))
         for expected in ("BASH", "PYTHON3", "PHP", "NC", "PERL"):
             self.assertIn(expected, result)
 
     def test_listener_hint_included(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "1.2.3.4", "lport": 8888}))
         self.assertIn("8888", result)
 
@@ -375,34 +375,34 @@ class TestPhpWebshell(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_standard_shell_contains_system(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "standard"}))
         self.assertIn("system(", result)
         self.assertIn("<?php", result)
 
     def test_full_shell_no_triple_close_paren(self):
         """The bug that was fixed: extra ) produced if(isset($_REQUEST['cmd']))){"""
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "full"}))
         # After fix, should never have three consecutive ) before {
         self.assertNotIn("))){", result)
         self.assertIn("if(isset(", result)
 
     def test_password_protected_full_shell_valid_php(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "full", "password": "s3cr3t"}))
         self.assertNotIn("))){", result)
         self.assertIn("s3cr3t", result)
         self.assertIn("die()", result)
 
     def test_b64_shell_contains_eval(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "b64"}))
         self.assertIn("eval(", result)
         self.assertIn("base64_decode", result)
 
     def test_unknown_shell_type_returns_all(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "nonexistent_xyz"}))
         # Should fall through to listing all shells
         self.assertIn("STANDARD", result)
@@ -418,22 +418,22 @@ class TestBindShell(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_default_port_used(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({}))
         self.assertIn("4444", result)
 
     def test_custom_port(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({"lport": 7777}))
         self.assertIn("7777", result)
 
     def test_specific_shell_type_nc(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({"lport": 4444, "shell_type": "nc"}))
         self.assertIn("nc", result.lower())
 
     def test_all_shells_listed(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({}))
         self.assertIn("NC", result)
         self.assertIn("PYTHON3", result)
@@ -445,11 +445,11 @@ class TestBindShell(unittest.TestCase):
 class TestFindingsSeverity(unittest.TestCase):
 
     def test_severity_order_is_correct(self):
-        from penligent_mcp.tools.findings import SEVERITY_ORDER
+        from penlearn_mcp.tools.findings import SEVERITY_ORDER
         self.assertEqual(SEVERITY_ORDER, ("critical", "high", "medium", "low", "info"))
 
     def test_all_expected_severities_present(self):
-        from penligent_mcp.tools.findings import SEVERITY_ORDER
+        from penlearn_mcp.tools.findings import SEVERITY_ORDER
         for sev in ("critical", "high", "medium", "low", "info"):
             self.assertIn(sev, SEVERITY_ORDER)
 
@@ -460,12 +460,12 @@ class TestFindingsSeverity(unittest.TestCase):
 class TestGtfobinsData(unittest.TestCase):
 
     def test_common_binaries_present(self):
-        from penligent_mcp.tools.exploit import _GTFOBINS_COMMON
+        from penlearn_mcp.tools.exploit import _GTFOBINS_COMMON
         for binary in ("bash", "python3", "vim", "find", "nc", "nmap"):
             self.assertIn(binary, _GTFOBINS_COMMON)
 
     def test_all_entries_have_functions_list(self):
-        from penligent_mcp.tools.exploit import _GTFOBINS_COMMON
+        from penlearn_mcp.tools.exploit import _GTFOBINS_COMMON
         for binary, data in _GTFOBINS_COMMON.items():
             with self.subTest(binary=binary):
                 self.assertIn("functions", data)
@@ -473,7 +473,7 @@ class TestGtfobinsData(unittest.TestCase):
                 self.assertGreater(len(data["functions"]), 0)
 
     def test_payloads_reference_valid_binaries_and_functions(self):
-        from penligent_mcp.tools.exploit import _GTFOBINS_COMMON, _GTFOBINS_PAYLOADS
+        from penlearn_mcp.tools.exploit import _GTFOBINS_COMMON, _GTFOBINS_PAYLOADS
         for (binary, function), payload in _GTFOBINS_PAYLOADS.items():
             with self.subTest(binary=binary, function=function):
                 self.assertIn(binary, _GTFOBINS_COMMON,
@@ -490,7 +490,7 @@ class TestGtfobinsDuplicates(unittest.TestCase):
 
     def test_no_duplicate_keys_in_gtfobins_common(self):
         """python dict literals silently overwrite duplicate keys — verify none exist."""
-        from penligent_mcp.tools import exploit
+        from penlearn_mcp.tools import exploit
         import ast, inspect
         source = inspect.getsource(exploit)
         tree = ast.parse(source)
@@ -519,29 +519,29 @@ class TestPureHandlerSmoke(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_detect_input_type_ip(self):
-        from penligent_mcp.tools.utils import _detect_input_type
+        from penlearn_mcp.tools.utils import _detect_input_type
         from mcp.types import TextContent
         result = self._run(_detect_input_type({"value": "10.10.10.10"}))
         self.assertIsInstance(result, list)
         self.assertTrue(any("ip" in item.text.lower() for item in result if isinstance(item, TextContent)))
 
     def test_detect_input_type_domain(self):
-        from penligent_mcp.tools.utils import _detect_input_type
+        from penlearn_mcp.tools.utils import _detect_input_type
         result = self._run(_detect_input_type({"value": "example.com"}))
         self.assertTrue(any("domain" in item.text.lower() for item in result))
 
     def test_detect_input_type_missing_value(self):
-        from penligent_mcp.tools.utils import _detect_input_type
+        from penlearn_mcp.tools.utils import _detect_input_type
         result = self._run(_detect_input_type({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_reverse_shell_missing_lhost(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({}))
         self.assertIn("Error", result)
 
     def test_payload_php_webshell_standard(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "standard"}))
         self.assertIsInstance(result, str)
         self.assertIn("<?php", result)
@@ -596,7 +596,7 @@ class TestPythonSyntax(unittest.TestCase):
 
     def test_all_tool_py_files_compile(self):
         import py_compile
-        tools_dir = REPO_ROOT / "penligent_mcp" / "tools"
+        tools_dir = REPO_ROOT / "penlearn_mcp" / "tools"
         bad = []
         for pyfile in sorted(tools_dir.glob("*.py")):
             try:
@@ -608,7 +608,7 @@ class TestPythonSyntax(unittest.TestCase):
     def test_no_remaining_inline_imports(self):
         """No function-body-level import statements should exist in tool files."""
         import re
-        tools_dir = REPO_ROOT / "penligent_mcp" / "tools"
+        tools_dir = REPO_ROOT / "penlearn_mcp" / "tools"
         pattern = re.compile(r"^    +import |^    +from \S+ import ", re.MULTILINE)
         violations = []
         for pyfile in sorted(tools_dir.glob("*.py")):
@@ -627,7 +627,7 @@ class TestDBSchema(unittest.TestCase):
 
     def test_create_statements_are_valid_sql(self):
         import sqlite3
-        from penligent_mcp.db import CREATE_STATEMENTS, INDEXES
+        from penlearn_mcp.db import CREATE_STATEMENTS, INDEXES
         con = sqlite3.connect(":memory:")
         errors = []
         for stmt in CREATE_STATEMENTS:
@@ -645,7 +645,7 @@ class TestDBSchema(unittest.TestCase):
 
     def test_all_expected_tables_created(self):
         import sqlite3
-        from penligent_mcp.db import CREATE_STATEMENTS
+        from penlearn_mcp.db import CREATE_STATEMENTS
         con = sqlite3.connect(":memory:")
         for stmt in CREATE_STATEMENTS:
             con.execute(stmt)
@@ -663,7 +663,7 @@ class TestDBSchema(unittest.TestCase):
         self.assertEqual(missing, set(), f"Missing tables: {missing}")
 
     def test_schema_version_is_positive_int(self):
-        from penligent_mcp.db import SCHEMA_VERSION
+        from penlearn_mcp.db import SCHEMA_VERSION
         self.assertIsInstance(SCHEMA_VERSION, int)
         self.assertGreaterEqual(SCHEMA_VERSION, 1)
 
@@ -675,7 +675,7 @@ class TestRequiredArgsMissing(unittest.TestCase):
     """Every handler with required fields returns a list/str on empty-dict input (no crash)."""
 
     def test_no_handler_crashes_on_empty_input(self):
-        from penligent_mcp.tools.register_all import get_tool_definitions, _handlers
+        from penlearn_mcp.tools.register_all import get_tool_definitions, _handlers
         loop = asyncio.new_event_loop()
         tool_map = {t.name: t for t in get_tool_definitions()}
         failures = []
@@ -705,7 +705,7 @@ class TestCrunchSafety(unittest.TestCase):
     """crunch_wordlist rejects max_len > 8 before it can invoke the binary."""
 
     def _call(self, args: dict) -> list:
-        from penligent_mcp.tools.passwords import _crunch_wordlist
+        from penlearn_mcp.tools.passwords import _crunch_wordlist
         return asyncio.run(_crunch_wordlist(args))
 
     def test_max_len_9_rejected(self):
@@ -733,7 +733,7 @@ class TestCredentialCheckFtp(unittest.TestCase):
     """FTP path in credential_check returns a hydra_ftp redirect, not broken behavior."""
 
     def _call(self, args: dict) -> list:
-        from penligent_mcp.tools.passwords import _credential_check
+        from penlearn_mcp.tools.passwords import _credential_check
         return asyncio.run(_credential_check(args))
 
     def test_ftp_returns_hydra_redirect(self):
@@ -771,7 +771,7 @@ class TestCredentialCheckSsh(unittest.TestCase):
     def test_batchmode_not_in_source(self):
         """BatchMode=yes disables password prompts — it must not appear in _credential_check."""
         import inspect
-        from penligent_mcp.tools import passwords
+        from penlearn_mcp.tools import passwords
         src = inspect.getsource(passwords._credential_check)
         self.assertNotIn("BatchMode=yes", src,
             "BatchMode=yes prevents password auth testing — should use sshpass instead")
@@ -779,7 +779,7 @@ class TestCredentialCheckSsh(unittest.TestCase):
     def test_sshpass_used_in_source(self):
         """sshpass must be used when available to actually test password authentication."""
         import inspect
-        from penligent_mcp.tools import passwords
+        from penlearn_mcp.tools import passwords
         src = inspect.getsource(passwords._credential_check)
         self.assertIn("sshpass", src,
             "_credential_check must use sshpass for SSH password authentication")
@@ -787,12 +787,12 @@ class TestCredentialCheckSsh(unittest.TestCase):
     def test_ssh_no_sshpass_returns_informative_message(self):
         """When sshpass is not installed, return a helpful message rather than silently using key auth."""
         from unittest.mock import patch
-        from penligent_mcp.tools.passwords import _credential_check
+        from penlearn_mcp.tools.passwords import _credential_check
 
         def mock_chk(name):
             return name == "ssh"  # sshpass absent, ssh present
 
-        with patch("penligent_mcp.tools.passwords._chk", side_effect=mock_chk):
+        with patch("penlearn_mcp.tools.passwords._chk", side_effect=mock_chk):
             result = asyncio.run(_credential_check({
                 "target": "192.0.2.1",
                 "username": "admin",
@@ -803,7 +803,7 @@ class TestCredentialCheckSsh(unittest.TestCase):
         self.assertIn("sshpass", text.lower(), f"Expected sshpass mention, got: {text}")
 
     def test_ftp_unchanged_redirects_to_hydra(self):
-        from penligent_mcp.tools.passwords import _credential_check
+        from penlearn_mcp.tools.passwords import _credential_check
         result = asyncio.run(_credential_check({
             "target": "192.0.2.1",
             "username": "admin",
@@ -821,7 +821,7 @@ class TestHashIdentifyPatterns(unittest.TestCase):
 
     def _matches(self, sample: str) -> list:
         import re
-        from penligent_mcp.tools.passwords import _HASH_PATTERNS
+        from penlearn_mcp.tools.passwords import _HASH_PATTERNS
         return [name for pat, name in _HASH_PATTERNS if re.match(pat, sample, re.IGNORECASE)]
 
     def test_md5_length_32(self):
@@ -872,109 +872,109 @@ class TestBinaryToolArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_checksec_missing_binary(self):
-        from penligent_mcp.tools.binary import _checksec
+        from penlearn_mcp.tools.binary import _checksec
         r = self._run(_checksec({}))
         self.assertIn("binary", r.lower())
         self.assertIn("Error", r)
 
     def test_xxd_hexdump_missing_file(self):
-        from penligent_mcp.tools.binary import _xxd_hexdump
+        from penlearn_mcp.tools.binary import _xxd_hexdump
         r = self._run(_xxd_hexdump({}))
         self.assertIn("Error", r)
         self.assertIn("file_path", r)
 
     def test_objdump_missing_binary(self):
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
         r = self._run(_objdump_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("binary", r.lower())
 
     def test_gdb_missing_binary(self):
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         r = self._run(_gdb_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("binary", r.lower())
 
     def test_gdb_missing_commands(self):
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         r = self._run(_gdb_analyze({"binary": "/bin/ls"}))
         self.assertIn("Error", r)
         self.assertIn("commands", r.lower())
 
     def test_radare2_missing_binary(self):
-        from penligent_mcp.tools.binary import _radare2_analyze
+        from penlearn_mcp.tools.binary import _radare2_analyze
         r = self._run(_radare2_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("binary", r.lower())
 
     def test_ghidra_missing_binary(self):
-        from penligent_mcp.tools.binary import _ghidra_analyze
+        from penlearn_mcp.tools.binary import _ghidra_analyze
         r = self._run(_ghidra_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("binary", r.lower())
 
     def test_pwntools_missing_script(self):
-        from penligent_mcp.tools.binary import _pwntools_run
+        from penlearn_mcp.tools.binary import _pwntools_run
         r = self._run(_pwntools_run({}))
         self.assertIn("Error", r)
         self.assertIn("script_content", r)
 
     def test_volatility3_missing_memory_file(self):
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         r = self._run(_volatility3_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("memory_file", r)
 
     def test_volatility3_missing_plugin(self):
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         r = self._run(_volatility3_analyze({"memory_file": "/tmp/dump.raw"}))
         self.assertIn("Error", r)
         self.assertIn("plugin", r)
 
     def test_foremost_missing_input(self):
-        from penligent_mcp.tools.binary import _foremost_carve
+        from penlearn_mcp.tools.binary import _foremost_carve
         r = self._run(_foremost_carve({}))
         self.assertIn("Error", r)
         self.assertIn("input_file", r)
 
     def test_steghide_missing_cover(self):
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         r = self._run(_steghide_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("cover_file", r)
 
     def test_steghide_invalid_action(self):
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         r = self._run(_steghide_analyze({"cover_file": "/tmp/foo.jpg", "action": "invalid"}))
         self.assertIn("Error", r)
         self.assertIn("extract", r)
 
     def test_steghide_embed_requires_embed_file(self):
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         r = self._run(_steghide_analyze({"cover_file": "/tmp/foo.jpg", "action": "embed"}))
         self.assertIn("Error", r)
         self.assertIn("embed_file", r)
 
     def test_exiftool_missing_file(self):
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         r = self._run(_exiftool_extract({}))
         self.assertIn("Error", r)
         self.assertIn("file_path", r)
 
     def test_hashpump_all_required(self):
-        from penligent_mcp.tools.binary import _hashpump_attack
+        from penlearn_mcp.tools.binary import _hashpump_attack
         r = self._run(_hashpump_attack({}))
         self.assertIn("Error", r)
         self.assertIn("required", r)
 
     def test_ropgadget_missing_binary(self):
-        from penligent_mcp.tools.binary import _ropgadget_search
+        from penlearn_mcp.tools.binary import _ropgadget_search
         r = self._run(_ropgadget_search({}))
         self.assertIn("Error", r)
         self.assertIn("binary", r.lower())
 
     def test_binwalk_missing_file(self):
-        from penligent_mcp.tools.binary import _binwalk_analyze
+        from penlearn_mcp.tools.binary import _binwalk_analyze
         r = self._run(_binwalk_analyze({}))
         self.assertIn("Error", r)
         self.assertIn("file_path", r)
@@ -989,32 +989,32 @@ class TestCloudToolArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_trivy_missing_target(self):
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         r = self._run(_trivy_scan({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_clair_missing_image(self):
-        from penligent_mcp.tools.cloud import _clair_scan
+        from penlearn_mcp.tools.cloud import _clair_scan
         r = self._run(_clair_scan({}))
         self.assertIn("Error", r)
         self.assertIn("image", r)
 
     def test_pacu_missing_modules(self):
-        from penligent_mcp.tools.cloud import _pacu_exploit
+        from penlearn_mcp.tools.cloud import _pacu_exploit
         r = self._run(_pacu_exploit({}))
         self.assertIn("Error", r)
         self.assertIn("modules", r)
 
     def test_cloudmapper_missing_account(self):
-        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        from penlearn_mcp.tools.cloud import _cloudmapper_analyze
         r = self._run(_cloudmapper_analyze({"action": "collect"}))
         self.assertIn("Error", r)
         self.assertIn("account", r)
 
     def test_cloudmapper_webserver_no_account_needed(self):
         """webserver action doesn't require an account — should not return account error."""
-        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        from penlearn_mcp.tools.cloud import _cloudmapper_analyze
         r = self._run(_cloudmapper_analyze({"action": "webserver"}))
         self.assertNotIn("account is required", r)
 
@@ -1037,49 +1037,49 @@ class TestJwtDecode(unittest.TestCase):
     _NONE_JWT = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjMifQ."
 
     def test_missing_token(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({}))
         self.assertIn("Error", r)
         self.assertIn("token", r)
 
     def test_invalid_format_two_parts(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({"token": "only.two"}))
         self.assertIn("Error", r)
         self.assertIn("2", r)
 
     def test_valid_jwt_decodes_header_and_payload(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({"token": self._VALID_JWT}))
         self.assertIn("Header", r)
         self.assertIn("Payload", r)
         self.assertIn("HS256", r)
 
     def test_valid_jwt_suggests_cracking(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({"token": self._VALID_JWT}))
         self.assertIn("jwt_crack", r)
 
     def test_alg_none_flagged_as_vuln(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({"token": self._NONE_JWT}))
         self.assertIn("VULN", r)
         self.assertIn("none", r.lower())
 
     def test_alg_none_jwt_decodes_sub(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         r = self._run(_jwt_decode({"token": self._NONE_JWT}))
         self.assertIn("123", r)
 
     def test_jwt_crack_missing_token(self):
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
         r = self._run(_jwt_crack({}))
         self.assertIn("Error", r)
         self.assertIn("token", r)
 
     def test_jwt_crack_missing_wordlist(self):
         """With a non-existent wordlist the secret must not be reported as found."""
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
         r = self._run(_jwt_crack({
             "token": self._VALID_JWT,
             "wordlist": "/nonexistent_wordlist_xyz.txt",
@@ -1098,7 +1098,7 @@ class TestJwtDecode(unittest.TestCase):
         import tempfile
         import os
         from unittest.mock import patch
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
 
         secret = b"mysecret"
         header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
@@ -1112,7 +1112,7 @@ class TestJwtDecode(unittest.TestCase):
             wf.write(b"wrongpass\nanother\nmysecret\n")
             wl_path = wf.name
         try:
-            with patch("penligent_mcp.tools.web.shutil.which", return_value=None):
+            with patch("penlearn_mcp.tools.web.shutil.which", return_value=None):
                 r = self._run(_jwt_crack({"token": token, "wordlist": wl_path}))
         finally:
             os.unlink(wl_path)
@@ -1125,7 +1125,7 @@ class TestJwtDecode(unittest.TestCase):
         import hmac
         import tempfile
         import os
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
 
         secret = b"supersecretXYZ"
         header = base64.urlsafe_b64encode(b'{"alg":"HS256","typ":"JWT"}').rstrip(b"=").decode()
@@ -1156,49 +1156,49 @@ class TestNetworkNewToolArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_rustscan_missing_target(self):
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         r = self._run(_rustscan({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_masscan_missing_target(self):
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         r = self._run(_masscan({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_autorecon_missing_target(self):
-        from penligent_mcp.tools.network import _autorecon
+        from penlearn_mcp.tools.network import _autorecon
         r = self._run(_autorecon({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_smbmap_missing_target(self):
-        from penligent_mcp.tools.network import _smbmap_enum
+        from penlearn_mcp.tools.network import _smbmap_enum
         r = self._run(_smbmap_enum({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_netexec_missing_target(self):
-        from penligent_mcp.tools.network import _netexec_run
+        from penlearn_mcp.tools.network import _netexec_run
         r = self._run(_netexec_run({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_arp_scan_no_target_no_local(self):
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         r = self._run(_arp_scan_discover({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     def test_arp_scan_local_network_bypasses_target_check(self):
         """local_network=True should not return the target-required error."""
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         r = self._run(_arp_scan_discover({"local_network": True}))
         self.assertNotIn("target or local_network", r)
 
     def test_enum4linux_ng_missing_target(self):
-        from penligent_mcp.tools.network import _enum4linux_ng
+        from penlearn_mcp.tools.network import _enum4linux_ng
         r = self._run(_enum4linux_ng({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
@@ -1213,57 +1213,57 @@ class TestWebNewToolArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_feroxbuster_missing_url(self):
-        from penligent_mcp.tools.web import _feroxbuster_scan
+        from penlearn_mcp.tools.web import _feroxbuster_scan
         r = self._run(_feroxbuster_scan({}))
         self.assertIn("Error", r)
 
     def test_dirsearch_missing_url(self):
-        from penligent_mcp.tools.web import _dirsearch_scan
+        from penlearn_mcp.tools.web import _dirsearch_scan
         r = self._run(_dirsearch_scan({}))
         self.assertIn("Error", r)
 
     def test_katana_missing_url(self):
-        from penligent_mcp.tools.web import _katana_crawl
+        from penlearn_mcp.tools.web import _katana_crawl
         r = self._run(_katana_crawl({}))
         self.assertIn("Error", r)
 
     def test_gau_missing_domain(self):
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
         r = self._run(_gau_urls({}))
         self.assertIn("Error", r)
 
     def test_waybackurls_missing_domain(self):
-        from penligent_mcp.tools.web import _waybackurls_discover
+        from penlearn_mcp.tools.web import _waybackurls_discover
         r = self._run(_waybackurls_discover({}))
         self.assertIn("Error", r)
 
     def test_arjun_missing_url(self):
-        from penligent_mcp.tools.web import _arjun_params
+        from penlearn_mcp.tools.web import _arjun_params
         r = self._run(_arjun_params({}))
         self.assertIn("Error", r)
 
     def test_hakrawler_missing_url(self):
-        from penligent_mcp.tools.web import _hakrawler_crawl
+        from penlearn_mcp.tools.web import _hakrawler_crawl
         r = self._run(_hakrawler_crawl({}))
         self.assertIn("Error", r)
 
     def test_dalfox_missing_url(self):
-        from penligent_mcp.tools.web import _dalfox_xss
+        from penlearn_mcp.tools.web import _dalfox_xss
         r = self._run(_dalfox_xss({}))
         self.assertIn("Error", r)
 
     def test_wafw00f_missing_target(self):
-        from penligent_mcp.tools.web import _wafw00f_detect
+        from penlearn_mcp.tools.web import _wafw00f_detect
         r = self._run(_wafw00f_detect({}))
         self.assertIn("Error", r)
 
     def test_wfuzz_missing_url(self):
-        from penligent_mcp.tools.web import _wfuzz_scan
+        from penlearn_mcp.tools.web import _wfuzz_scan
         r = self._run(_wfuzz_scan({}))
         self.assertIn("Error", r)
 
     def test_csp_audit_missing_target(self):
-        from penligent_mcp.tools.web import _csp_audit
+        from penlearn_mcp.tools.web import _csp_audit
         r = self._run(_csp_audit({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
@@ -1276,7 +1276,7 @@ class TestCvssScoring(unittest.TestCase):
 
     def _score(self, **kwargs):
         """Return the base score float from the handler response."""
-        from penligent_mcp.tools.findings import _calculate_cvss_score
+        from penlearn_mcp.tools.findings import _calculate_cvss_score
         result = asyncio.run(_calculate_cvss_score(kwargs))
         text = result[0].text
         import re
@@ -1362,43 +1362,43 @@ class TestExecuteCommand(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_missing_command_returns_error(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_empty_command_returns_error(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({"command": "   "}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_echo_command_returns_output(self):
-        from penligent_mcp.tools.execute import _execute_command
-        result = self._run(_execute_command({"command": "echo penligent_test_ok"}))
+        from penlearn_mcp.tools.execute import _execute_command
+        result = self._run(_execute_command({"command": "echo penlearn_test_ok"}))
         text = result[0].text
-        self.assertIn("penligent_test_ok", text)
+        self.assertIn("penlearn_test_ok", text)
         self.assertIn("[exit 0]", text)
 
     def test_exit_code_captured(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({"command": "exit 42"}))
         text = result[0].text
         self.assertIn("[exit 42]", text)
 
     def test_stderr_captured(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({"command": "echo err_msg >&2"}))
         text = result[0].text
         self.assertIn("err_msg", text)
         self.assertIn("[stderr]", text)
 
     def test_timeout_returns_timeout_message(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({"command": "sleep 10", "timeout": 1}))
         text = result[0].text
         self.assertIn("timed out", text)
 
     def test_output_shows_prompt_prefix(self):
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         result = self._run(_execute_command({"command": "echo hello"}))
         self.assertIn("$ echo hello", result[0].text)
 
@@ -1414,14 +1414,14 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_write_empty_path_returns_error(self):
-        from penligent_mcp.tools.workspace import _workspace_write
+        from penlearn_mcp.tools.workspace import _workspace_write
         result = self._run(_workspace_write({
             "project_name": self._PROJECT, "path": "", "content": "data"
         }))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_write_empty_project_name_returns_error(self):
-        from penligent_mcp.tools.workspace import _workspace_write
+        from penlearn_mcp.tools.workspace import _workspace_write
         result = self._run(_workspace_write({
             "project_name": "", "path": "file.txt", "content": "data"
         }))
@@ -1429,7 +1429,7 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
 
     def test_write_directory_path_returns_error(self):
         """Writing to 'evidence' which _ws() always creates as a subdir."""
-        from penligent_mcp.tools.workspace import _workspace_write
+        from penlearn_mcp.tools.workspace import _workspace_write
         result = self._run(_workspace_write({
             "project_name": self._PROJECT,
             "path": "evidence",
@@ -1440,7 +1440,7 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
         self.assertIn("directory", text)
 
     def test_write_then_read_roundtrip(self):
-        from penligent_mcp.tools.workspace import _workspace_write, _workspace_read
+        from penlearn_mcp.tools.workspace import _workspace_write, _workspace_read
         content = "roundtrip_test_content_xyz"
         self._run(_workspace_write({
             "project_name": self._PROJECT,
@@ -1454,7 +1454,7 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
         self.assertIn(content, result[0].text)
 
     def test_read_directory_returns_dir_error(self):
-        from penligent_mcp.tools.workspace import _workspace_read
+        from penlearn_mcp.tools.workspace import _workspace_read
         result = self._run(_workspace_read({
             "project_name": self._PROJECT, "path": "evidence"
         }))
@@ -1462,7 +1462,7 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
         self.assertIn("directory", text.lower())
 
     def test_write_append_mode(self):
-        from penligent_mcp.tools.workspace import _workspace_write, _workspace_read
+        from penlearn_mcp.tools.workspace import _workspace_write, _workspace_read
         self._run(_workspace_write({
             "project_name": self._PROJECT,
             "path": "test_append.txt",
@@ -1483,7 +1483,7 @@ class TestWorkspaceEdgeCases(unittest.TestCase):
         self.assertIn("line2", text)
 
     def test_path_traversal_blocked(self):
-        from penligent_mcp.tools.workspace import _workspace_write
+        from penlearn_mcp.tools.workspace import _workspace_write
         result = self._run(_workspace_write({
             "project_name": self._PROJECT,
             "path": "../../etc/passwd",
@@ -1504,7 +1504,7 @@ class TestSaveBinaryArtifact(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_invalid_base64_returns_error(self):
-        from penligent_mcp.tools.workspace import _save_binary_artifact
+        from penlearn_mcp.tools.workspace import _save_binary_artifact
         result = self._run(_save_binary_artifact({
             "project_name": "_pytest_workspace_",
             "kind": "screenshot",
@@ -1516,7 +1516,7 @@ class TestSaveBinaryArtifact(unittest.TestCase):
 
     def test_valid_base64_saves_file_no_link(self):
         import base64
-        from penligent_mcp.tools.workspace import _save_binary_artifact
+        from penlearn_mcp.tools.workspace import _save_binary_artifact
         data = base64.b64encode(b"fake png data").decode()
         result = self._run(_save_binary_artifact({
             "project_name": "_pytest_workspace_",
@@ -1532,7 +1532,7 @@ class TestSaveBinaryArtifact(unittest.TestCase):
         """Before the fix, this would say 'linked to risk_item_id=999999' even though
         the risk_item doesn't exist. Now it must surface a warning."""
         import base64
-        from penligent_mcp.tools.workspace import _save_binary_artifact
+        from penlearn_mcp.tools.workspace import _save_binary_artifact
         data = base64.b64encode(b"fake data").decode()
         result = self._run(_save_binary_artifact({
             "project_name": "_pytest_workspace_",
@@ -1547,7 +1547,7 @@ class TestSaveBinaryArtifact(unittest.TestCase):
         self.assertNotIn("linked to risk_item_id=999999", text)
 
     def test_missing_required_args_returns_error(self):
-        from penligent_mcp.tools.workspace import _save_binary_artifact
+        from penlearn_mcp.tools.workspace import _save_binary_artifact
         result = self._run(_save_binary_artifact({}))
         text = result[0].text
         self.assertIn("Error", text)
@@ -1563,34 +1563,34 @@ class TestUtilsArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_detect_input_type_returns_text_content(self):
-        from penligent_mcp.tools.utils import _detect_input_type
+        from penlearn_mcp.tools.utils import _detect_input_type
         from mcp.types import TextContent
         result = self._run(_detect_input_type({"value": "10.0.0.1"}))
         self.assertIsInstance(result, list)
         self.assertIsInstance(result[0], TextContent)
 
     def test_check_domain_missing_domain(self):
-        from penligent_mcp.tools.utils import _check_domain
+        from penlearn_mcp.tools.utils import _check_domain
         result = self._run(_check_domain({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_check_ip_missing_ip(self):
-        from penligent_mcp.tools.utils import _check_ip
+        from penlearn_mcp.tools.utils import _check_ip
         result = self._run(_check_ip({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_check_ip_invalid_ip(self):
-        from penligent_mcp.tools.utils import _check_ip
+        from penlearn_mcp.tools.utils import _check_ip
         result = self._run(_check_ip({"ip": "not_an_ip"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_auth_replay_missing_endpoint(self):
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
         result = self._run(_auth_replay({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_auth_replay_missing_token(self):
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
         result = self._run(_auth_replay({"endpoint": "https://example.com/api"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
@@ -1603,7 +1603,7 @@ class TestClassifyOrdering(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.utils import _classify
+        from penlearn_mcp.tools.utils import _classify
         cls.c = staticmethod(_classify)
 
     def test_bare_ipv4_is_ip_not_cidr(self):
@@ -1646,7 +1646,7 @@ class TestParseNmap(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.recon import _parse_nmap, _nmap_summary
+        from penlearn_mcp.tools.recon import _parse_nmap, _nmap_summary
         cls.parse = staticmethod(_parse_nmap)
         cls.summary = staticmethod(_nmap_summary)
 
@@ -1780,7 +1780,7 @@ class TestNucleiParsing(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl, _nuclei_summary
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl, _nuclei_summary
         cls.parse = staticmethod(_parse_nuclei_jsonl)
         cls.summary = staticmethod(_nuclei_summary)
 
@@ -1875,7 +1875,7 @@ class TestSafeArg(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.scanner import _safe_arg
+        from penlearn_mcp.tools.scanner import _safe_arg
         cls.safe = staticmethod(_safe_arg)
 
     def test_clean_hostname_allowed(self):
@@ -1925,7 +1925,7 @@ class TestGuardrailsPolicy(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.guardrails import (
+        from penlearn_mcp.tools.guardrails import (
             DENY_ALWAYS, HTB_AUTO_APPROVE, PENTEST_GATE, AUTO_APPROVE,
             _approve_intent,
         )
@@ -1998,7 +1998,7 @@ class TestEmailVerify(unittest.TestCase):
         return asyncio.run(coro)
 
     def _call(self, email):
-        from penligent_mcp.tools.osint import _email_verify
+        from penlearn_mcp.tools.osint import _email_verify
         result = self._run(_email_verify({"email": email}))
         return " ".join(item.text for item in result)
 
@@ -2037,62 +2037,62 @@ class TestPasswordsArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_john_crack_missing_hash(self):
-        from penligent_mcp.tools.passwords import _john_crack
+        from penlearn_mcp.tools.passwords import _john_crack
         result = self._run(_john_crack({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hashcat_crack_missing_hash(self):
-        from penligent_mcp.tools.passwords import _hashcat_crack
+        from penlearn_mcp.tools.passwords import _hashcat_crack
         result = self._run(_hashcat_crack({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hashcat_crack_missing_mode(self):
-        from penligent_mcp.tools.passwords import _hashcat_crack
+        from penlearn_mcp.tools.passwords import _hashcat_crack
         result = self._run(_hashcat_crack({"hash_value": "abc123"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hashcat_rules_missing_hash(self):
-        from penligent_mcp.tools.passwords import _hashcat_rules
+        from penlearn_mcp.tools.passwords import _hashcat_rules
         result = self._run(_hashcat_rules({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hashcat_rules_missing_mode(self):
-        from penligent_mcp.tools.passwords import _hashcat_rules
+        from penlearn_mcp.tools.passwords import _hashcat_rules
         result = self._run(_hashcat_rules({"hash_value": "abc123"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hydra_ssh_missing_target(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         result = self._run(_hydra_ssh({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hydra_ftp_missing_target(self):
-        from penligent_mcp.tools.passwords import _hydra_ftp
+        from penlearn_mcp.tools.passwords import _hydra_ftp
         result = self._run(_hydra_ftp({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hydra_smb_missing_target(self):
-        from penligent_mcp.tools.passwords import _hydra_smb
+        from penlearn_mcp.tools.passwords import _hydra_smb
         result = self._run(_hydra_smb({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hydra_rdp_missing_target(self):
-        from penligent_mcp.tools.passwords import _hydra_rdp
+        from penlearn_mcp.tools.passwords import _hydra_rdp
         result = self._run(_hydra_rdp({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_spray_smb_missing_target(self):
-        from penligent_mcp.tools.passwords import _spray_smb
+        from penlearn_mcp.tools.passwords import _spray_smb
         result = self._run(_spray_smb({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_spray_http_missing_url(self):
-        from penligent_mcp.tools.passwords import _spray_http
+        from penlearn_mcp.tools.passwords import _spray_http
         result = self._run(_spray_http({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_cewl_wordlist_missing_url(self):
-        from penligent_mcp.tools.passwords import _cewl_wordlist
+        from penlearn_mcp.tools.passwords import _cewl_wordlist
         result = self._run(_cewl_wordlist({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
@@ -2106,33 +2106,33 @@ class TestOsintArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_shodan_query_missing_api_key(self):
-        from penligent_mcp.tools.osint import _shodan_query
+        from penlearn_mcp.tools.osint import _shodan_query
         result = self._run(_shodan_query({"query": "apache"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_censys_query_missing_credentials(self):
-        from penligent_mcp.tools.osint import _censys_query
+        from penlearn_mcp.tools.osint import _censys_query
         result = self._run(_censys_query({"query": "services.port: 22"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_censys_query_partial_credentials_rejected(self):
-        from penligent_mcp.tools.osint import _censys_query
+        from penlearn_mcp.tools.osint import _censys_query
         result = self._run(_censys_query({"query": "foo", "api_id": "id_only"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_ghunt_osint_missing_both_email_and_gaia_id(self):
-        from penligent_mcp.tools.osint import _ghunt_osint
+        from penlearn_mcp.tools.osint import _ghunt_osint
         result = self._run(_ghunt_osint({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_ghunt_osint_empty_strings_rejected(self):
-        from penligent_mcp.tools.osint import _ghunt_osint
+        from penlearn_mcp.tools.osint import _ghunt_osint
         result = self._run(_ghunt_osint({"email": "", "gaia_id": ""}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_breach_check_proceeds_without_error_crash(self):
         """_breach_check with a valid email should not crash even without an API key."""
-        from penligent_mcp.tools.osint import _breach_check
+        from penlearn_mcp.tools.osint import _breach_check
         result = self._run(_breach_check({"email": "test@example.com"}))
         # Will get an HTTP 401 (no API key) or similar — must return a list, not raise
         self.assertIsInstance(result, list)
@@ -2155,87 +2155,87 @@ class TestCryptoPureFunctions(unittest.TestCase):
     # --- base64 ---
 
     def test_base64_encode_decode_roundtrip(self):
-        from penligent_mcp.tools.crypto import _base64_encode, _base64_decode
+        from penlearn_mcp.tools.crypto import _base64_encode, _base64_decode
         encoded = self._text(_base64_encode({"text": "Hello, World!"}))
         decoded = self._text(_base64_decode({"data": encoded.strip()}))
         self.assertEqual(decoded.strip(), "Hello, World!")
 
     def test_base64_decode_auto_fixes_missing_padding(self):
-        from penligent_mcp.tools.crypto import _base64_decode
+        from penlearn_mcp.tools.crypto import _base64_decode
         # "Hello" in base64 is "SGVsbG8=" — drop the = to test padding repair
         result = self._text(_base64_decode({"data": "SGVsbG8"}))
         self.assertIn("Hello", result)
 
     def test_base64_decode_urlsafe_variant(self):
-        from penligent_mcp.tools.crypto import _base64_decode
+        from penlearn_mcp.tools.crypto import _base64_decode
         import base64
         data = base64.urlsafe_b64encode(b"url/safe+test").decode()
         result = self._text(_base64_decode({"data": data, "variant": "urlsafe"}))
         self.assertIn("url/safe+test", result)
 
     def test_base64_empty_string_returns_empty(self):
-        from penligent_mcp.tools.crypto import _base64_decode
+        from penlearn_mcp.tools.crypto import _base64_decode
         result = self._text(_base64_decode({"data": ""}))
         self.assertNotIn("Error", result)
 
     # --- hex ---
 
     def test_hex_encode_decode_roundtrip(self):
-        from penligent_mcp.tools.crypto import _hex_encode, _hex_decode
+        from penlearn_mcp.tools.crypto import _hex_encode, _hex_decode
         encoded = self._text(_hex_encode({"text": "pentest"}))
         decoded = self._text(_hex_decode({"data": encoded.strip()}))
         self.assertEqual(decoded.strip(), "pentest")
 
     def test_hex_decode_strips_0x_prefix(self):
-        from penligent_mcp.tools.crypto import _hex_decode
+        from penlearn_mcp.tools.crypto import _hex_decode
         result = self._text(_hex_decode({"data": "0x48656c6c6f"}))
         self.assertIn("Hello", result)
 
     def test_hex_decode_strips_backslash_x_escapes(self):
-        from penligent_mcp.tools.crypto import _hex_decode
+        from penlearn_mcp.tools.crypto import _hex_decode
         result = self._text(_hex_decode({"data": r"\x48\x69"}))
         self.assertIn("Hi", result)
 
     def test_hex_encode_0x_format(self):
-        from penligent_mcp.tools.crypto import _hex_encode
+        from penlearn_mcp.tools.crypto import _hex_encode
         result = self._text(_hex_encode({"text": "A", "format": "0x"}))
         self.assertTrue(result.strip().startswith("0x"))
         self.assertIn("41", result)  # 'A' = 0x41
 
     def test_hex_encode_escaped_format(self):
-        from penligent_mcp.tools.crypto import _hex_encode
+        from penlearn_mcp.tools.crypto import _hex_encode
         result = self._text(_hex_encode({"text": "A", "format": "escaped"}))
         self.assertIn(r"\x41", result)
 
     def test_hex_decode_invalid_input_returns_error(self):
-        from penligent_mcp.tools.crypto import _hex_decode
+        from penlearn_mcp.tools.crypto import _hex_decode
         result = self._text(_hex_decode({"data": "zz"}))
         self.assertIn("Error", result)
 
     # --- rot13 ---
 
     def test_rot13_double_application_is_identity(self):
-        from penligent_mcp.tools.crypto import _rot13
+        from penlearn_mcp.tools.crypto import _rot13
         original = "Hello, CTF!"
         once = self._text(_rot13({"text": original}))
         twice = self._text(_rot13({"text": once.strip()}))
         self.assertEqual(twice.strip(), original)
 
     def test_rot13_known_value(self):
-        from penligent_mcp.tools.crypto import _rot13
+        from penlearn_mcp.tools.crypto import _rot13
         result = self._text(_rot13({"text": "Uryyb"}))
         self.assertIn("Hello", result)
 
     # --- caesar_brute ---
 
     def test_caesar_brute_produces_26_lines(self):
-        from penligent_mcp.tools.crypto import _caesar_brute
+        from penlearn_mcp.tools.crypto import _caesar_brute
         result = self._text(_caesar_brute({"text": "abc"}))
         lines = [l for l in result.strip().splitlines() if l.strip()]
         self.assertEqual(len(lines), 26)
 
     def test_caesar_brute_rot00_is_identity(self):
-        from penligent_mcp.tools.crypto import _caesar_brute
+        from penlearn_mcp.tools.crypto import _caesar_brute
         result = self._text(_caesar_brute({"text": "Hello"}))
         first_line = result.strip().splitlines()[0]
         self.assertIn("ROT00", first_line)
@@ -2243,14 +2243,14 @@ class TestCryptoPureFunctions(unittest.TestCase):
 
     def test_caesar_brute_rot13_matches_codecs(self):
         import codecs
-        from penligent_mcp.tools.crypto import _caesar_brute
+        from penlearn_mcp.tools.crypto import _caesar_brute
         result = self._text(_caesar_brute({"text": "Hello"}))
         rot13_line = result.strip().splitlines()[13]
         self.assertIn("ROT13", rot13_line)
         self.assertIn(codecs.encode("Hello", "rot_13"), rot13_line)
 
     def test_caesar_brute_preserves_non_alpha(self):
-        from penligent_mcp.tools.crypto import _caesar_brute
+        from penlearn_mcp.tools.crypto import _caesar_brute
         result = self._text(_caesar_brute({"text": "A1!"}))
         for line in result.strip().splitlines():
             self.assertIn("1!", line)
@@ -2259,7 +2259,7 @@ class TestCryptoPureFunctions(unittest.TestCase):
 
     def test_xor_single_byte_identity_key_found(self):
         """XOR with key 0x00 is identity; if input is printable text, key=0x00 should appear."""
-        from penligent_mcp.tools.crypto import _xor_single_byte
+        from penlearn_mcp.tools.crypto import _xor_single_byte
         import binascii
         plaintext = "AAAAAAAAAA"  # highly printable, key 0x00 = identity
         hex_input = binascii.hexlify(plaintext.encode()).decode()
@@ -2268,7 +2268,7 @@ class TestCryptoPureFunctions(unittest.TestCase):
 
     def test_xor_single_byte_no_result_for_binary(self):
         """Fully non-printable input should report no high-confidence key."""
-        from penligent_mcp.tools.crypto import _xor_single_byte
+        from penlearn_mcp.tools.crypto import _xor_single_byte
         # 10 null bytes XOR'd with anything 0x00-0x1f → still non-printable
         null_hex = "00" * 10
         result = self._text(_xor_single_byte({"data": null_hex}))
@@ -2278,14 +2278,14 @@ class TestCryptoPureFunctions(unittest.TestCase):
     # --- url encode/decode ---
 
     def test_url_encode_decode_roundtrip(self):
-        from penligent_mcp.tools.crypto import _url_encode, _url_decode
+        from penlearn_mcp.tools.crypto import _url_encode, _url_decode
         original = "hello world & foo=bar"
         encoded = self._text(_url_encode({"text": original}))
         decoded = self._text(_url_decode({"text": encoded.strip()}))
         self.assertEqual(decoded.strip(), original)
 
     def test_url_encode_safe_chars_preserved(self):
-        from penligent_mcp.tools.crypto import _url_encode
+        from penlearn_mcp.tools.crypto import _url_encode
         result = self._text(_url_encode({"text": "/path/to/page", "safe": "/"}))
         self.assertIn("/path/to/page", result)
 
@@ -2293,13 +2293,13 @@ class TestCryptoPureFunctions(unittest.TestCase):
 
     def test_hash_text_sha256_known_value(self):
         import hashlib
-        from penligent_mcp.tools.crypto import _hash_text
+        from penlearn_mcp.tools.crypto import _hash_text
         expected = hashlib.sha256(b"abc").hexdigest()
         result = self._text(_hash_text({"text": "abc", "algorithm": "sha256"}))
         self.assertIn(expected, result)
 
     def test_hash_text_all_returns_four_hashes(self):
-        from penligent_mcp.tools.crypto import _hash_text
+        from penlearn_mcp.tools.crypto import _hash_text
         result = self._text(_hash_text({"text": "test"}))
         self.assertIn("md5:", result)
         self.assertIn("sha1:", result)
@@ -2308,12 +2308,12 @@ class TestCryptoPureFunctions(unittest.TestCase):
 
     def test_hash_text_unknown_algorithm_returns_error(self):
         """Regression: hashlib.new('bad') raised ValueError — now returns Error message."""
-        from penligent_mcp.tools.crypto import _hash_text
+        from penlearn_mcp.tools.crypto import _hash_text
         result = self._text(_hash_text({"text": "x", "algorithm": "notahashalgo"}))
         self.assertIn("Error", result)
 
     def test_hash_text_md5_known_value(self):
-        from penligent_mcp.tools.crypto import _hash_text
+        from penlearn_mcp.tools.crypto import _hash_text
         result = self._text(_hash_text({"text": "", "algorithm": "md5"}))
         self.assertIn("d41d8cd98f00b204e9800998ecf8427e", result)
 
@@ -2329,34 +2329,34 @@ class TestExploitPayloads(unittest.TestCase):
     # --- reverse_shell ---
 
     def test_reverse_shell_missing_lhost_returns_error(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({}))
         self.assertIn("Error", result)
 
     def test_reverse_shell_all_shells_contain_lhost(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "10.10.14.1", "lport": 4444}))
         self.assertIn("10.10.14.1", result)
         self.assertIn("4444", result)
 
     def test_reverse_shell_specific_type_bash(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "10.0.0.1", "shell_type": "bash"}))
         self.assertIn("/dev/tcp/10.0.0.1", result)
         self.assertNotIn("[PYTHON3]", result)
 
     def test_reverse_shell_specific_type_python3(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "10.0.0.1", "shell_type": "python3"}))
         self.assertIn("python3", result)
 
     def test_reverse_shell_all_includes_listener_hint(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = self._run(_reverse_shell({"lhost": "10.0.0.1", "lport": 9001}))
         self.assertIn("nc -lvnp 9001", result)
 
     def test_reverse_shell_unknown_type_returns_all(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         # unknown shell_type falls through to "all"
         result = self._run(_reverse_shell({"lhost": "10.0.0.1", "shell_type": "cobol"}))
         self.assertIn("[BASH]", result)
@@ -2365,55 +2365,55 @@ class TestExploitPayloads(unittest.TestCase):
     # --- bind_shell ---
 
     def test_bind_shell_contains_port(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({"lport": 5555}))
         self.assertIn("5555", result)
 
     def test_bind_shell_default_port(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = self._run(_bind_shell({}))
         self.assertIn("4444", result)
 
     # --- payload_php_webshell ---
 
     def test_php_webshell_standard_contains_php_tag(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "standard"}))
         self.assertIn("<?php", result)
         self.assertIn("system", result)
 
     def test_php_webshell_password_protection(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "standard", "password": "s3cr3t"}))
         self.assertIn("s3cr3t", result)
         self.assertIn("die", result)
 
     def test_php_webshell_all_shells_returned_when_unknown_type(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "invalid"}))
         self.assertIn("[STANDARD]", result)
         self.assertIn("[EXEC]", result)
 
     def test_php_webshell_b64_variant(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = self._run(_payload_php_webshell({"shell_type": "b64"}))
         self.assertIn("base64_decode", result)
 
     # --- payload_aspx ---
 
     def test_aspx_standard_contains_csharp(self):
-        from penligent_mcp.tools.exploit import _payload_aspx
+        from penlearn_mcp.tools.exploit import _payload_aspx
         result = self._run(_payload_aspx({"shell_type": "standard"}))
         self.assertIn("ProcessStartInfo", result)
         self.assertIn("cmd.exe", result)
 
     def test_aspx_powershell_variant(self):
-        from penligent_mcp.tools.exploit import _payload_aspx
+        from penlearn_mcp.tools.exploit import _payload_aspx
         result = self._run(_payload_aspx({"shell_type": "powershell"}))
         self.assertIn("powershell.exe", result)
 
     def test_aspx_unknown_type_returns_all(self):
-        from penligent_mcp.tools.exploit import _payload_aspx
+        from penlearn_mcp.tools.exploit import _payload_aspx
         result = self._run(_payload_aspx({"shell_type": "invalid"}))
         self.assertIn("[STANDARD]", result)
         self.assertIn("[POWERSHELL]", result)
@@ -2426,7 +2426,7 @@ class TestIsPassive(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.execute import _is_passive
+        from penlearn_mcp.tools.execute import _is_passive
         cls.p = staticmethod(_is_passive)
 
     # True-positive passives
@@ -2511,7 +2511,7 @@ class TestReportPureFunctions(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.report import (
+        from penlearn_mcp.tools.report import (
             _severity_table, _build_exec_summary, _build_finding_md,
             _build_fix_list, _build_controls_json,
         )
@@ -2699,28 +2699,28 @@ class TestTTPMappings(unittest.TestCase):
     # --- _map_mitre_attack ---
 
     def test_mitre_sqli_returns_t1190(self):
-        from penligent_mcp.tools.findings import _map_mitre_attack
+        from penlearn_mcp.tools.findings import _map_mitre_attack
         result = self._text(_map_mitre_attack({"ttp_category": "sqli"}))
         self.assertIn("T1190", result)
 
     def test_mitre_xss_returns_t1059(self):
-        from penligent_mcp.tools.findings import _map_mitre_attack
+        from penlearn_mcp.tools.findings import _map_mitre_attack
         result = self._text(_map_mitre_attack({"ttp_category": "xss"}))
         self.assertIn("T1059", result)
 
     def test_mitre_brute_returns_t1110(self):
-        from penligent_mcp.tools.findings import _map_mitre_attack
+        from penlearn_mcp.tools.findings import _map_mitre_attack
         result = self._text(_map_mitre_attack({"ttp_category": "brute"}))
         self.assertIn("T1110", result)
 
     def test_mitre_unknown_ttp_lists_known_categories(self):
-        from penligent_mcp.tools.findings import _map_mitre_attack
+        from penlearn_mcp.tools.findings import _map_mitre_attack
         result = self._text(_map_mitre_attack({"ttp_category": "nonexistent_ttp"}))
         self.assertIn("sqli", result)
         self.assertIn("xss", result)
 
     def test_mitre_url_contains_technique_id(self):
-        from penligent_mcp.tools.findings import _map_mitre_attack
+        from penlearn_mcp.tools.findings import _map_mitre_attack
         result = self._text(_map_mitre_attack({"ttp_category": "privesc"}))
         self.assertIn("T1068", result)
         self.assertIn("attack.mitre.org", result)
@@ -2728,39 +2728,39 @@ class TestTTPMappings(unittest.TestCase):
     # --- _map_owasp_asvs ---
 
     def test_asvs_sqli_returns_v5(self):
-        from penligent_mcp.tools.findings import _map_owasp_asvs
+        from penlearn_mcp.tools.findings import _map_owasp_asvs
         result = self._text(_map_owasp_asvs({"ttp_category": "sqli"}))
         self.assertIn("V5", result)
 
     def test_asvs_auth_bypass_returns_v2(self):
-        from penligent_mcp.tools.findings import _map_owasp_asvs
+        from penlearn_mcp.tools.findings import _map_owasp_asvs
         result = self._text(_map_owasp_asvs({"ttp_category": "auth_bypass"}))
         self.assertIn("V2", result)
 
     def test_asvs_unknown_ttp_lists_known_categories(self):
-        from penligent_mcp.tools.findings import _map_owasp_asvs
+        from penlearn_mcp.tools.findings import _map_owasp_asvs
         result = self._text(_map_owasp_asvs({"ttp_category": "notareal_ttp"}))
         self.assertIn("sqli", result)
 
     # --- _map_owasp_top10 ---
 
     def test_top10_sqli_returns_a03(self):
-        from penligent_mcp.tools.findings import _map_owasp_top10
+        from penlearn_mcp.tools.findings import _map_owasp_top10
         result = self._text(_map_owasp_top10({"ttp_category": "sqli"}))
         self.assertIn("A03:2021", result)
 
     def test_top10_ssrf_returns_a10(self):
-        from penligent_mcp.tools.findings import _map_owasp_top10
+        from penlearn_mcp.tools.findings import _map_owasp_top10
         result = self._text(_map_owasp_top10({"ttp_category": "ssrf"}))
         self.assertIn("A10:2021", result)
 
     def test_top10_broken_access_control_returns_a01(self):
-        from penligent_mcp.tools.findings import _map_owasp_top10
+        from penlearn_mcp.tools.findings import _map_owasp_top10
         result = self._text(_map_owasp_top10({"ttp_category": "broken_access_control"}))
         self.assertIn("A01:2021", result)
 
     def test_top10_unknown_ttp_returns_full_mapping(self):
-        from penligent_mcp.tools.findings import _map_owasp_top10
+        from penlearn_mcp.tools.findings import _map_owasp_top10
         result = self._text(_map_owasp_top10({"ttp_category": "notreal"}))
         self.assertIn("A01:2021", result)
         self.assertIn("A03:2021", result)
@@ -2776,77 +2776,77 @@ class TestNetworkArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_smb_enum_missing_target(self):
-        from penligent_mcp.tools.network import _smb_enum
+        from penlearn_mcp.tools.network import _smb_enum
         result = self._run(_smb_enum({}))
         self.assertIn("Error", result)
 
     def test_smb_shares_missing_target(self):
-        from penligent_mcp.tools.network import _smb_shares
+        from penlearn_mcp.tools.network import _smb_shares
         result = self._run(_smb_shares({}))
         self.assertIn("Error", result)
 
     def test_smb_null_session_missing_target(self):
-        from penligent_mcp.tools.network import _smb_null_session
+        from penlearn_mcp.tools.network import _smb_null_session
         result = self._run(_smb_null_session({}))
         self.assertIn("Error", result)
 
     def test_ldap_anonymous_missing_target(self):
-        from penligent_mcp.tools.network import _ldap_anonymous
+        from penlearn_mcp.tools.network import _ldap_anonymous
         result = self._run(_ldap_anonymous({}))
         self.assertIn("Error", result)
 
     def test_ldap_users_missing_target(self):
-        from penligent_mcp.tools.network import _ldap_users
+        from penlearn_mcp.tools.network import _ldap_users
         result = self._run(_ldap_users({}))
         self.assertIn("Error", result)
 
     def test_snmp_walk_missing_target(self):
-        from penligent_mcp.tools.network import _snmp_walk
+        from penlearn_mcp.tools.network import _snmp_walk
         result = self._run(_snmp_walk({}))
         self.assertIn("Error", result)
 
     def test_ftp_anon_missing_target(self):
-        from penligent_mcp.tools.network import _ftp_anon
+        from penlearn_mcp.tools.network import _ftp_anon
         result = self._run(_ftp_anon({}))
         self.assertIn("Error", result)
 
     def test_ssh_audit_missing_target(self):
-        from penligent_mcp.tools.network import _ssh_audit
+        from penlearn_mcp.tools.network import _ssh_audit
         result = self._run(_ssh_audit({}))
         self.assertIn("Error", result)
 
     def test_rdp_check_missing_target(self):
-        from penligent_mcp.tools.network import _rdp_check
+        from penlearn_mcp.tools.network import _rdp_check
         result = self._run(_rdp_check({}))
         self.assertIn("Error", result)
 
     def test_smtp_enum_missing_target(self):
-        from penligent_mcp.tools.network import _smtp_enum
+        from penlearn_mcp.tools.network import _smtp_enum
         result = self._run(_smtp_enum({}))
         self.assertIn("Error", result)
 
     def test_mysql_probe_missing_target(self):
-        from penligent_mcp.tools.network import _mysql_probe
+        from penlearn_mcp.tools.network import _mysql_probe
         result = self._run(_mysql_probe({}))
         self.assertIn("Error", result)
 
     def test_redis_check_missing_target(self):
-        from penligent_mcp.tools.network import _redis_check
+        from penlearn_mcp.tools.network import _redis_check
         result = self._run(_redis_check({}))
         self.assertIn("Error", result)
 
     def test_rustscan_missing_target(self):
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         result = self._run(_rustscan({}))
         self.assertIn("Error", result)
 
     def test_masscan_missing_target(self):
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         result = self._run(_masscan({}))
         self.assertIn("Error", result)
 
     def test_kerberos_enum_missing_target(self):
-        from penligent_mcp.tools.network import _kerberos_enum
+        from penlearn_mcp.tools.network import _kerberos_enum
         result = self._run(_kerberos_enum({}))
         self.assertIn("Error", result)
 
@@ -2860,112 +2860,112 @@ class TestWebCoreArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_http_probe_missing_target(self):
-        from penligent_mcp.tools.web import _http_probe
+        from penlearn_mcp.tools.web import _http_probe
         result = self._run(_http_probe({}))
         self.assertIn("Error", result)
 
     def test_tech_detect_missing_target(self):
-        from penligent_mcp.tools.web import _tech_detect
+        from penlearn_mcp.tools.web import _tech_detect
         result = self._run(_tech_detect({}))
         self.assertIn("Error", result)
 
     def test_ssl_check_missing_target(self):
-        from penligent_mcp.tools.web import _ssl_check
+        from penlearn_mcp.tools.web import _ssl_check
         result = self._run(_ssl_check({}))
         self.assertIn("Error", result)
 
     def test_security_headers_missing_target(self):
-        from penligent_mcp.tools.web import _security_headers
+        from penlearn_mcp.tools.web import _security_headers
         result = self._run(_security_headers({}))
         self.assertIn("Error", result)
 
     def test_cors_check_missing_target(self):
-        from penligent_mcp.tools.web import _cors_check
+        from penlearn_mcp.tools.web import _cors_check
         result = self._run(_cors_check({}))
         self.assertIn("Error", result)
 
     def test_sqli_error_missing_target(self):
-        from penligent_mcp.tools.web import _sqli_error
+        from penlearn_mcp.tools.web import _sqli_error
         result = self._run(_sqli_error({}))
         self.assertIn("Error", result)
 
     def test_sqli_blind_missing_target(self):
-        from penligent_mcp.tools.web import _sqli_blind
+        from penlearn_mcp.tools.web import _sqli_blind
         result = self._run(_sqli_blind({}))
         self.assertIn("Error", result)
 
     def test_ssrf_probe_missing_target(self):
-        from penligent_mcp.tools.web import _ssrf_probe
+        from penlearn_mcp.tools.web import _ssrf_probe
         result = self._run(_ssrf_probe({}))
         self.assertIn("Error", result)
 
     def test_lfi_probe_missing_target(self):
-        from penligent_mcp.tools.web import _lfi_probe
+        from penlearn_mcp.tools.web import _lfi_probe
         result = self._run(_lfi_probe({}))
         self.assertIn("Error", result)
 
     def test_xxe_probe_missing_target(self):
-        from penligent_mcp.tools.web import _xxe_probe
+        from penlearn_mcp.tools.web import _xxe_probe
         result = self._run(_xxe_probe({}))
         self.assertIn("Error", result)
 
     def test_cmdi_probe_missing_target(self):
-        from penligent_mcp.tools.web import _cmdi_probe
+        from penlearn_mcp.tools.web import _cmdi_probe
         result = self._run(_cmdi_probe({}))
         self.assertIn("Error", result)
 
     def test_path_traversal_missing_target(self):
-        from penligent_mcp.tools.web import _path_traversal
+        from penlearn_mcp.tools.web import _path_traversal
         result = self._run(_path_traversal({}))
         self.assertIn("Error", result)
 
     def test_ssti_probe_missing_target(self):
-        from penligent_mcp.tools.web import _ssti_probe
+        from penlearn_mcp.tools.web import _ssti_probe
         result = self._run(_ssti_probe({}))
         self.assertIn("Error", result)
 
     def test_csrf_check_missing_target(self):
-        from penligent_mcp.tools.web import _csrf_check
+        from penlearn_mcp.tools.web import _csrf_check
         result = self._run(_csrf_check({}))
         self.assertIn("Error", result)
 
     def test_waf_detect_missing_target(self):
-        from penligent_mcp.tools.web import _waf_detect
+        from penlearn_mcp.tools.web import _waf_detect
         result = self._run(_waf_detect({}))
         self.assertIn("Error", result)
 
     def test_graphql_probe_missing_target(self):
-        from penligent_mcp.tools.web import _graphql_probe
+        from penlearn_mcp.tools.web import _graphql_probe
         result = self._run(_graphql_probe({}))
         self.assertIn("Error", result)
 
     def test_http_smuggle_missing_target(self):
-        from penligent_mcp.tools.web import _http_smuggle
+        from penlearn_mcp.tools.web import _http_smuggle
         result = self._run(_http_smuggle({}))
         self.assertIn("Error", result)
 
     def test_clickjack_check_missing_target(self):
-        from penligent_mcp.tools.web import _clickjack_check
+        from penlearn_mcp.tools.web import _clickjack_check
         result = self._run(_clickjack_check({}))
         self.assertIn("Error", result)
 
     def test_rate_limit_check_missing_target(self):
-        from penligent_mcp.tools.web import _rate_limit_check
+        from penlearn_mcp.tools.web import _rate_limit_check
         result = self._run(_rate_limit_check({}))
         self.assertIn("Error", result)
 
     def test_open_redirect_check_missing_target(self):
-        from penligent_mcp.tools.web import _open_redirect_check
+        from penlearn_mcp.tools.web import _open_redirect_check
         result = self._run(_open_redirect_check({}))
         self.assertIn("Error", result)
 
     def test_idor_check_missing_target(self):
-        from penligent_mcp.tools.web import _idor_check
+        from penlearn_mcp.tools.web import _idor_check
         result = self._run(_idor_check({}))
         self.assertIn("Error", result)
 
     def test_file_upload_check_missing_target(self):
-        from penligent_mcp.tools.web import _file_upload_check
+        from penlearn_mcp.tools.web import _file_upload_check
         result = self._run(_file_upload_check({}))
         self.assertIn("Error", result)
 
@@ -2980,7 +2980,7 @@ class TestPlanValidation(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.plan import VALID_VERBS, VALID_STEP_STATUSES
+        from penlearn_mcp.tools.plan import VALID_VERBS, VALID_STEP_STATUSES
         cls.VALID_VERBS = VALID_VERBS
         cls.VALID_STEP_STATUSES = VALID_STEP_STATUSES
 
@@ -3000,41 +3000,41 @@ class TestPlanValidation(unittest.TestCase):
     # --- _plan_create arg guards (fire before DB) ---
 
     def test_plan_create_missing_project_id(self):
-        from penligent_mcp.tools.plan import _plan_create
+        from penlearn_mcp.tools.plan import _plan_create
         result = self._run(_plan_create({"objective": "test"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_plan_create_missing_objective(self):
-        from penligent_mcp.tools.plan import _plan_create
+        from penlearn_mcp.tools.plan import _plan_create
         result = self._run(_plan_create({"project_id": 1}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     # --- _plan_update_step — status validated before any DB access ---
 
     def test_plan_update_step_missing_step_id(self):
-        from penligent_mcp.tools.plan import _plan_update_step
+        from penlearn_mcp.tools.plan import _plan_update_step
         result = self._run(_plan_update_step({"status": "done"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_plan_update_step_invalid_status(self):
-        from penligent_mcp.tools.plan import _plan_update_step
+        from penlearn_mcp.tools.plan import _plan_update_step
         result = self._run(_plan_update_step({"step_id": 1, "status": "flying"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_plan_update_step_empty_status(self):
-        from penligent_mcp.tools.plan import _plan_update_step
+        from penlearn_mcp.tools.plan import _plan_update_step
         result = self._run(_plan_update_step({"step_id": 1, "status": ""}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_plan_update_step_none_status(self):
-        from penligent_mcp.tools.plan import _plan_update_step
+        from penlearn_mcp.tools.plan import _plan_update_step
         result = self._run(_plan_update_step({"step_id": 1}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     # --- _plan_get arg guard ---
 
     def test_plan_get_missing_plan_id_and_project_id(self):
-        from penligent_mcp.tools.plan import _plan_get
+        from penlearn_mcp.tools.plan import _plan_get
         result = self._run(_plan_get({}))
         self.assertTrue(any("Error" in item.text for item in result))
 
@@ -3047,57 +3047,57 @@ class TestMiscPureFunctions(unittest.TestCase):
     # --- _ip_in_network ---
 
     def test_ip_in_rfc1918_10_slash_8(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertTrue(_ip_in_network("10.10.10.10", "10.0.0.0/8"))
 
     def test_ip_not_in_unrelated_network(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertFalse(_ip_in_network("192.168.1.1", "10.0.0.0/8"))
 
     def test_ip_in_network_host_boundary(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertTrue(_ip_in_network("10.0.0.0", "10.0.0.0/24"))
         self.assertTrue(_ip_in_network("10.0.0.255", "10.0.0.0/24"))
         self.assertFalse(_ip_in_network("10.0.1.0", "10.0.0.0/24"))
 
     def test_ip_in_network_ipv6(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertTrue(_ip_in_network("::1", "::1/128"))
         self.assertFalse(_ip_in_network("::2", "::1/128"))
 
     def test_ip_in_network_invalid_ip_returns_false(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertFalse(_ip_in_network("not_an_ip", "10.0.0.0/8"))
 
     def test_ip_in_network_invalid_cidr_returns_false(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.assertFalse(_ip_in_network("10.0.0.1", "not_a_cidr"))
 
     # --- _helpers._s schema builder ---
 
     def test_s_builds_required_list(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(["target", "port"], target=("string", "Host"), port=("integer", "Port"))
         self.assertEqual(schema["required"], ["target", "port"])
 
     def test_s_builds_properties_dict(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(["x"], x=("string", "X value"))
         self.assertEqual(schema["properties"]["x"]["type"], "string")
         self.assertEqual(schema["properties"]["x"]["description"], "X value")
 
     def test_s_no_required_omits_key(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(None, x=("string", "X"))
         self.assertNotIn("required", schema)
 
     def test_s_empty_required_omits_key(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s([], x=("string", "X"))
         self.assertNotIn("required", schema)
 
     def test_s_allows_raw_dict_property(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         raw_prop = {"type": "array", "items": {"type": "string"}}
         schema = _s(None, tags=raw_prop)
         self.assertEqual(schema["properties"]["tags"], raw_prop)
@@ -3106,25 +3106,25 @@ class TestMiscPureFunctions(unittest.TestCase):
 
     def test_file_identify_magic_elf(self):
         """_MAGIC table must recognize ELF header bytes as fallback."""
-        from penligent_mcp.tools.crypto import _MAGIC
+        from penlearn_mcp.tools.crypto import _MAGIC
         elf_header = b"\x7fELF\x02\x01\x01\x00"
         matches = [label for magic, label in _MAGIC if elf_header.startswith(magic)]
         self.assertIn("ELF executable", matches)
 
     def test_file_identify_magic_png(self):
-        from penligent_mcp.tools.crypto import _MAGIC
+        from penlearn_mcp.tools.crypto import _MAGIC
         png_header = b"\x89PNG\r\n\x1a\n"
         matches = [label for magic, label in _MAGIC if png_header.startswith(magic)]
         self.assertIn("PNG image", matches)
 
     def test_file_identify_magic_pdf(self):
-        from penligent_mcp.tools.crypto import _MAGIC
+        from penlearn_mcp.tools.crypto import _MAGIC
         pdf_header = b"%PDF-1.4"
         matches = [label for magic, label in _MAGIC if pdf_header.startswith(magic)]
         self.assertIn("PDF document", matches)
 
     def test_file_identify_magic_zip(self):
-        from penligent_mcp.tools.crypto import _MAGIC
+        from penlearn_mcp.tools.crypto import _MAGIC
         zip_header = b"PK\x03\x04"
         matches = [label for magic, label in _MAGIC if zip_header.startswith(magic)]
         self.assertIn("ZIP archive", matches)
@@ -3154,59 +3154,59 @@ class TestHtbTokenGuard(unittest.TestCase):
         self.assertTrue(result.startswith("Error:"), repr(result))
 
     def test_machines_list_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_list
+        from penlearn_mcp.tools.htb_machines import _htb_machines_list
         r = self._run(_htb_machines_list({}))
         self._assert_token_error(r)
 
     def test_machines_get_active_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_get_active
+        from penlearn_mcp.tools.htb_machines import _htb_machines_get_active
         r = self._run(_htb_machines_get_active({}))
         self._assert_token_error(r)
 
     def test_machines_spawn_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_spawn
+        from penlearn_mcp.tools.htb_machines import _htb_machines_spawn
         r = self._run(_htb_machines_spawn({"machine_id": 1}))
         self._assert_token_error(r)
 
     def test_machines_stop_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_stop
+        from penlearn_mcp.tools.htb_machines import _htb_machines_stop
         r = self._run(_htb_machines_stop({"machine_id": 1}))
         self._assert_token_error(r)
 
     def test_machines_submit_flag_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_submit_flag
+        from penlearn_mcp.tools.htb_machines import _htb_machines_submit_flag
         r = self._run(_htb_machines_submit_flag({"machine_id": 1, "flag": "abc"}))
         self._assert_token_error(r)
 
     def test_machines_search_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machines_search
+        from penlearn_mcp.tools.htb_machines import _htb_machines_search
         r = self._run(_htb_machines_search({}))
         self._assert_token_error(r)
 
     def test_machine_info_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_machine_info
+        from penlearn_mcp.tools.htb_machines import _htb_machine_info
         r = self._run(_htb_machine_info({"machine_id": 1}))
         self._assert_token_error(r)
 
     def test_htb_profile_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_profile
+        from penlearn_mcp.tools.htb_machines import _htb_profile
         r = self._run(_htb_profile({}))
         self._assert_token_error(r)
 
     def test_challenges_list_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_challenges_list
+        from penlearn_mcp.tools.htb_machines import _htb_challenges_list
         r = self._run(_htb_challenges_list({}))
         self._assert_token_error(r)
 
     def test_activity_no_token(self):
-        from penligent_mcp.tools.htb_machines import _htb_activity
+        from penlearn_mcp.tools.htb_machines import _htb_activity
         r = self._run(_htb_activity({}))
         self._assert_token_error(r)
 
     def test_token_whitespace_only_is_rejected(self):
         """A token that is only whitespace must be treated as missing."""
         os.environ["HTB_APP_TOKEN"] = "   "
-        from penligent_mcp.tools.htb_machines import _htb_machines_list
+        from penlearn_mcp.tools.htb_machines import _htb_machines_list
         r = self._run(_htb_machines_list({}))
         self._assert_token_error(r)
 
@@ -3219,7 +3219,7 @@ class TestClassifyPureFunction(unittest.TestCase):
     """_classify must correctly label IPs, CIDRs, domains, URLs, and unknown."""
 
     def setUp(self):
-        from penligent_mcp.tools.utils import _classify
+        from penlearn_mcp.tools.utils import _classify
         self.classify = _classify
 
     def test_ipv4(self):
@@ -3326,7 +3326,7 @@ class TestScopeMatchingNoFalsePositives(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _run_scope_check(self, target):
-        from penligent_mcp.tools import workspace as ws_mod
+        from penlearn_mcp.tools import workspace as ws_mod
         old_root = ws_mod.WORKSPACE_ROOT
         from pathlib import Path
         ws_mod.WORKSPACE_ROOT = Path(self.tmpdir)
@@ -3385,7 +3385,7 @@ class TestWorkspaceSearchRegexGuard(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _run_search(self, pattern):
-        from penligent_mcp.tools import workspace as ws_mod
+        from penlearn_mcp.tools import workspace as ws_mod
         from pathlib import Path
         old_root = ws_mod.WORKSPACE_ROOT
         ws_mod.WORKSPACE_ROOT = Path(self.tmpdir)
@@ -3421,7 +3421,7 @@ class TestHashPatterns(unittest.TestCase):
     """_HASH_PATTERNS regexes must match known hash examples."""
 
     def _matches(self, hash_value):
-        from penligent_mcp.tools.passwords import _HASH_PATTERNS
+        from penlearn_mcp.tools.passwords import _HASH_PATTERNS
         return [name for pattern, name in _HASH_PATTERNS if re.match(pattern, hash_value, re.IGNORECASE)]
 
     def test_md5_identified(self):
@@ -3473,7 +3473,7 @@ class TestInferKind(unittest.TestCase):
     """_infer_kind must return the correct document kind for each filename pattern."""
 
     def setUp(self):
-        from penligent_mcp.tools.workspace import _infer_kind
+        from penlearn_mcp.tools.workspace import _infer_kind
         self.infer = _infer_kind
 
     def test_nda(self):
@@ -3528,7 +3528,7 @@ class TestSafePath(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _safe(self, rel):
-        from penligent_mcp.tools.workspace import _safe_path
+        from penlearn_mcp.tools.workspace import _safe_path
         return _safe_path(self.ws, rel)
 
     def test_simple_relative_path_allowed(self):
@@ -3569,7 +3569,7 @@ class TestIpInNetwork(unittest.TestCase):
     """_ip_in_network must correctly test IP membership in CIDR ranges."""
 
     def setUp(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self.fn = _ip_in_network
 
     def test_ip_in_range(self):
@@ -3644,7 +3644,7 @@ class TestSudoCheckQuoting(unittest.TestCase):
     def test_post_exploit_uses_shlex_import(self):
         """Verify shlex is actually imported in post_exploit module."""
         import importlib
-        import penligent_mcp.tools.post_exploit as pe
+        import penlearn_mcp.tools.post_exploit as pe
         self.assertIn("shlex", dir(pe) or [])
         # Confirm shlex.quote is used, not repr
         import inspect
@@ -3661,7 +3661,7 @@ class TestParseNucleiJsonl(unittest.TestCase):
     """_parse_nuclei_jsonl must correctly parse nuclei JSONL output."""
 
     def setUp(self):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl
         self.parse = _parse_nuclei_jsonl
 
     def test_empty_string_returns_empty(self):
@@ -3730,7 +3730,7 @@ class TestNucleiSummary(unittest.TestCase):
     """_nuclei_summary must group findings by severity and format correctly."""
 
     def setUp(self):
-        from penligent_mcp.tools.scanner import _nuclei_summary
+        from penlearn_mcp.tools.scanner import _nuclei_summary
         self.summarize = _nuclei_summary
 
     def _make_finding(self, sev, tid="t1", name="N", url="http://x", desc=""):
@@ -3788,7 +3788,7 @@ class TestFindingsMaps(unittest.TestCase):
     """MITRE, ASVS, and OWASP Top10 maps must be consistent and complete."""
 
     def setUp(self):
-        from penligent_mcp.tools.findings import _MITRE_MAP, _ASVS_MAP, _TOP10_MAP
+        from penlearn_mcp.tools.findings import _MITRE_MAP, _ASVS_MAP, _TOP10_MAP
         self.mitre = _MITRE_MAP
         self.asvs = _ASVS_MAP
         self.top10 = _TOP10_MAP
@@ -3848,7 +3848,7 @@ class TestPlanConstants(unittest.TestCase):
     """VALID_VERBS and VALID_STEP_STATUSES must contain the documented values."""
 
     def setUp(self):
-        from penligent_mcp.tools.plan import VALID_VERBS, VALID_STEP_STATUSES
+        from penlearn_mcp.tools.plan import VALID_VERBS, VALID_STEP_STATUSES
         self.verbs = VALID_VERBS
         self.statuses = VALID_STEP_STATUSES
 
@@ -3873,7 +3873,7 @@ class TestPlanConstants(unittest.TestCase):
     def test_update_step_rejects_unknown_status(self):
         """plan_update_step must return an error for unknown statuses."""
         result = asyncio.run(
-            __import__("penligent_mcp.tools.plan", fromlist=["_plan_update_step"])
+            __import__("penlearn_mcp.tools.plan", fromlist=["_plan_update_step"])
             ._plan_update_step({"step_id": 1, "status": "not_a_real_status"})
         )
         text = result[0].text
@@ -3889,12 +3889,12 @@ class TestBruteForceWordlistCap(unittest.TestCase):
     """_LOCKOUT_WORDLIST must have at most 12 entries and max_attempts is capped."""
 
     def test_lockout_wordlist_length(self):
-        from penligent_mcp.tools.scanner import _LOCKOUT_WORDLIST
+        from penlearn_mcp.tools.scanner import _LOCKOUT_WORDLIST
         self.assertLessEqual(len(_LOCKOUT_WORDLIST), 12,
             "_LOCKOUT_WORDLIST has more than 12 entries — brute_force_test cap would be bypassed")
 
     def test_lockout_wordlist_all_strings(self):
-        from penligent_mcp.tools.scanner import _LOCKOUT_WORDLIST
+        from penlearn_mcp.tools.scanner import _LOCKOUT_WORDLIST
         for w in _LOCKOUT_WORDLIST:
             self.assertIsInstance(w, str, f"Expected string, got {type(w)}: {w!r}")
 
@@ -3902,13 +3902,13 @@ class TestBruteForceWordlistCap(unittest.TestCase):
         """The hard cap of 12 must be applied even if caller passes a larger value."""
         # Verify the cap logic: min(int(args.get("max_attempts", 8)), 12)
         import inspect
-        from penligent_mcp.tools import scanner
+        from penlearn_mcp.tools import scanner
         src = inspect.getsource(scanner._brute_force_test)
         self.assertIn("min(", src, "Expected min() cap expression in _brute_force_test")
         self.assertIn("12", src, "Expected hard cap of 12 in _brute_force_test")
 
     def test_lockout_wordlist_no_duplicates(self):
-        from penligent_mcp.tools.scanner import _LOCKOUT_WORDLIST
+        from penlearn_mcp.tools.scanner import _LOCKOUT_WORDLIST
         self.assertEqual(len(_LOCKOUT_WORDLIST), len(set(_LOCKOUT_WORDLIST)),
             "_LOCKOUT_WORDLIST has duplicate entries")
 
@@ -3921,29 +3921,29 @@ class TestScannerPureData(unittest.TestCase):
     """_PARSING_DIFF_PAYLOADS and _DOM_SINKS/_DOM_SOURCES must be non-empty and correct type."""
 
     def test_parsing_diff_payloads_non_empty(self):
-        from penligent_mcp.tools.scanner import _PARSING_DIFF_PAYLOADS
+        from penlearn_mcp.tools.scanner import _PARSING_DIFF_PAYLOADS
         self.assertGreater(len(_PARSING_DIFF_PAYLOADS), 0)
         for p in _PARSING_DIFF_PAYLOADS:
             self.assertIsInstance(p, str)
 
     def test_dom_sinks_contains_dangerous_sinks(self):
-        from penligent_mcp.tools.scanner import _DOM_SINKS
+        from penlearn_mcp.tools.scanner import _DOM_SINKS
         for sink in ("innerHTML", "eval", "document.write"):
             self.assertIn(sink, _DOM_SINKS, f"Dangerous DOM sink {sink!r} missing")
 
     def test_dom_sources_contains_common_sources(self):
-        from penligent_mcp.tools.scanner import _DOM_SOURCES
+        from penlearn_mcp.tools.scanner import _DOM_SOURCES
         for source in ("location.hash", "location.search", "document.referrer"):
             self.assertIn(source, _DOM_SOURCES, f"DOM source {source!r} missing")
 
     def test_parsing_diff_has_svg_and_script_payloads(self):
-        from penligent_mcp.tools.scanner import _PARSING_DIFF_PAYLOADS
+        from penlearn_mcp.tools.scanner import _PARSING_DIFF_PAYLOADS
         combined = "\n".join(_PARSING_DIFF_PAYLOADS)
         self.assertIn("<svg>", combined, "Missing SVG-based XSS payload")
         self.assertIn("alert", combined, "Missing alert() in payloads")
 
     def test_html_sanitizers_list(self):
-        from penligent_mcp.tools.scanner import _HTML_SANITIZERS
+        from penlearn_mcp.tools.scanner import _HTML_SANITIZERS
         self.assertIsInstance(_HTML_SANITIZERS, list)
         self.assertIn("DOMPurify", _HTML_SANITIZERS)
 
@@ -3956,7 +3956,7 @@ class TestGuardrailsConstants(unittest.TestCase):
     """DENY_ALWAYS, AUTO_APPROVE, HTB_AUTO_APPROVE, PENTEST_GATE must be frozensets with correct members."""
 
     def setUp(self):
-        from penligent_mcp.tools.guardrails import (
+        from penlearn_mcp.tools.guardrails import (
             DENY_ALWAYS, AUTO_APPROVE, HTB_AUTO_APPROVE, PENTEST_GATE,
             SENSITIVE_PATHS, INTERESTING_CODES, API_PREFIXES,
         )
@@ -4020,7 +4020,7 @@ class TestClassifyGuardrails(unittest.TestCase):
     """_classify(status, content_type) maps status codes to security annotation strings."""
 
     def setUp(self):
-        from penligent_mcp.tools.guardrails import _classify
+        from penlearn_mcp.tools.guardrails import _classify
         self.classify = _classify
 
     def test_401_is_auth_gated(self):
@@ -4160,7 +4160,7 @@ class TestHashPatternsExtended(unittest.TestCase):
 
     def _match(self, hash_value: str) -> list[str]:
         import re
-        from penligent_mcp.tools.passwords import _HASH_PATTERNS
+        from penlearn_mcp.tools.passwords import _HASH_PATTERNS
         return [name for pattern, name in _HASH_PATTERNS
                 if re.match(pattern, hash_value, re.IGNORECASE)]
 
@@ -4207,12 +4207,12 @@ class TestHashPatternsExtended(unittest.TestCase):
         self.assertEqual(matches, [], f"Expected no match, got {matches}")
 
     def test_patterns_list_non_empty(self):
-        from penligent_mcp.tools.passwords import _HASH_PATTERNS
+        from penlearn_mcp.tools.passwords import _HASH_PATTERNS
         self.assertGreater(len(_HASH_PATTERNS), 10)
 
     def test_all_patterns_are_valid_regex(self):
         import re
-        from penligent_mcp.tools.passwords import _HASH_PATTERNS
+        from penlearn_mcp.tools.passwords import _HASH_PATTERNS
         for pattern, name in _HASH_PATTERNS:
             try:
                 re.compile(pattern)
@@ -4228,7 +4228,7 @@ class TestSafeArgInputValidation(unittest.TestCase):
     """_safe_arg must reject shell metacharacters and accept clean values."""
 
     def setUp(self):
-        from penligent_mcp.tools.scanner import _safe_arg
+        from penlearn_mcp.tools.scanner import _safe_arg
         self.safe = _safe_arg
 
     def test_clean_url_is_safe(self):
@@ -4266,19 +4266,19 @@ class TestSqlmapBlockedFlags(unittest.TestCase):
     """_SQLMAP_BLOCKED_FLAGS must contain the most dangerous sqlmap options."""
 
     def test_os_shell_blocked(self):
-        from penligent_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
+        from penlearn_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
         self.assertIn("--os-shell", _SQLMAP_BLOCKED_FLAGS)
 
     def test_dump_all_blocked(self):
-        from penligent_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
+        from penlearn_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
         self.assertIn("--dump-all", _SQLMAP_BLOCKED_FLAGS)
 
     def test_passwords_blocked(self):
-        from penligent_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
+        from penlearn_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
         self.assertIn("--passwords", _SQLMAP_BLOCKED_FLAGS)
 
     def test_is_set(self):
-        from penligent_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
+        from penlearn_mcp.tools.scanner import _SQLMAP_BLOCKED_FLAGS
         self.assertIsInstance(_SQLMAP_BLOCKED_FLAGS, (set, frozenset))
 
 
@@ -4339,7 +4339,7 @@ class TestPortRe(unittest.TestCase):
     """_PORT_RE must parse nmap output lines and _parse_nmap must return correct dicts."""
 
     def setUp(self):
-        from penligent_mcp.tools.recon import _PORT_RE, _parse_nmap, _nmap_summary
+        from penlearn_mcp.tools.recon import _PORT_RE, _parse_nmap, _nmap_summary
         self.re = _PORT_RE
         self.parse = _parse_nmap
         self.summary = _nmap_summary
@@ -4433,7 +4433,7 @@ class TestGtfobinsDataStructure(unittest.TestCase):
     """_GTFOBINS_COMMON must have critical binaries; _GTFOBINS_PAYLOADS must have valid payloads."""
 
     def setUp(self):
-        from penligent_mcp.tools.exploit import _GTFOBINS_COMMON, _GTFOBINS_PAYLOADS
+        from penlearn_mcp.tools.exploit import _GTFOBINS_COMMON, _GTFOBINS_PAYLOADS
         self.common = _GTFOBINS_COMMON
         self.payloads = _GTFOBINS_PAYLOADS
 
@@ -4577,7 +4577,7 @@ class TestReverseShellOutput(unittest.TestCase):
     """_reverse_shell is pure Python (no subprocess/DB). Output must embed LHOST:LPORT."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         return asyncio.run(_reverse_shell(kwargs))
 
     def test_lhost_required(self):
@@ -4636,7 +4636,7 @@ class TestSteghideValidation(unittest.TestCase):
     """_steghide_analyze must validate inputs before the binary check."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         return asyncio.run(_steghide_analyze(kwargs))
 
     def test_missing_cover_file_errors(self):
@@ -4682,7 +4682,7 @@ class TestCvssCalculator(unittest.TestCase):
 
     def _score(self, **kwargs) -> tuple[float, str]:
         result = asyncio.run(
-            __import__("penligent_mcp.tools.findings", fromlist=["_calculate_cvss_score"])
+            __import__("penlearn_mcp.tools.findings", fromlist=["_calculate_cvss_score"])
             ._calculate_cvss_score(kwargs)
         )
         text = result[0].text
@@ -4742,7 +4742,7 @@ class TestCvssCalculator(unittest.TestCase):
 
     def test_vector_string_in_output(self):
         result = asyncio.run(
-            __import__("penligent_mcp.tools.findings", fromlist=["_calculate_cvss_score"])
+            __import__("penlearn_mcp.tools.findings", fromlist=["_calculate_cvss_score"])
             ._calculate_cvss_score({"attack_vector": "N"})
         )
         text = result[0].text
@@ -4758,7 +4758,7 @@ class TestCvssValidation(unittest.TestCase):
     return an Error string (not silently use a fallback value)."""
 
     def _raw(self, **kwargs) -> str:
-        from penligent_mcp.tools.findings import _calculate_cvss_score
+        from penlearn_mcp.tools.findings import _calculate_cvss_score
         result = asyncio.run(_calculate_cvss_score(kwargs))
         return result[0].text
 
@@ -4812,7 +4812,7 @@ class TestCvssValidation(unittest.TestCase):
 
     def test_lowercase_valid_input_normalizes_and_computes(self):
         """Lowercase 'n', 'l', 'h' should be accepted after .upper() normalization."""
-        from penligent_mcp.tools.findings import _calculate_cvss_score
+        from penlearn_mcp.tools.findings import _calculate_cvss_score
         import re
         result = asyncio.run(_calculate_cvss_score({
             "attack_vector": "n", "attack_complexity": "l",
@@ -4832,7 +4832,7 @@ class TestCvssValidation(unittest.TestCase):
 
     def test_empty_string_falls_back_to_default(self):
         """Empty string is treated as falsy → falls back to default ('N', 'L', etc.) — valid."""
-        from penligent_mcp.tools.findings import _calculate_cvss_score
+        from penlearn_mcp.tools.findings import _calculate_cvss_score
         result = asyncio.run(_calculate_cvss_score({"attack_vector": ""}))
         text = result[0].text
         self.assertNotIn("Error", text)
@@ -4856,7 +4856,7 @@ class TestFindingsMapsValidation(unittest.TestCase):
     """MITRE, ASVS, and Top10 maps must have correctly formatted IDs and non-empty names."""
 
     def setUp(self):
-        from penligent_mcp.tools.findings import _MITRE_MAP, _ASVS_MAP, _TOP10_MAP, SEVERITY_ORDER
+        from penlearn_mcp.tools.findings import _MITRE_MAP, _ASVS_MAP, _TOP10_MAP, SEVERITY_ORDER
         self.mitre = _MITRE_MAP
         self.asvs = _ASVS_MAP
         self.top10 = _TOP10_MAP
@@ -4922,7 +4922,7 @@ class TestLolbasData(unittest.TestCase):
     """_LOLBAS_COMMON must contain key Windows LotL binaries with functions and examples."""
 
     def setUp(self):
-        from penligent_mcp.tools.exploit import _LOLBAS_COMMON
+        from penlearn_mcp.tools.exploit import _LOLBAS_COMMON
         self.lolbas = _LOLBAS_COMMON
 
     def test_critical_binaries_present(self):
@@ -4969,7 +4969,7 @@ class TestHelperFunctions(unittest.TestCase):
     """_ok, _need, and _s are pure; verify their output contracts."""
 
     def test_ok_returns_list_of_one_textcontent(self):
-        from penligent_mcp.tools._helpers import _ok
+        from penlearn_mcp.tools._helpers import _ok
         from mcp.types import TextContent
         result = _ok("hello world")
         self.assertIsInstance(result, list)
@@ -4979,28 +4979,28 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertEqual(result[0].type, "text")
 
     def test_ok_empty_string(self):
-        from penligent_mcp.tools._helpers import _ok
+        from penlearn_mcp.tools._helpers import _ok
         result = _ok("")
         self.assertEqual(result[0].text, "")
 
     def test_need_missing_binary(self):
-        from penligent_mcp.tools._helpers import _need
+        from penlearn_mcp.tools._helpers import _need
         result = _need("nmap")
         self.assertIn("TOOL_MISSING", result[0].text)
         self.assertIn("nmap", result[0].text)
 
     def test_need_with_install_hint(self):
-        from penligent_mcp.tools._helpers import _need
+        from penlearn_mcp.tools._helpers import _need
         result = _need("nmap", "apt install nmap")
         self.assertIn("apt install nmap", result[0].text)
 
     def test_need_without_hint(self):
-        from penligent_mcp.tools._helpers import _need
+        from penlearn_mcp.tools._helpers import _need
         result = _need("sqlmap")
         self.assertNotIn("Install:", result[0].text)
 
     def test_s_required_fields(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(["target", "port"], target=("string", "IP"), port=("integer", "Port"))
         self.assertEqual(schema["type"], "object")
         self.assertIn("required", schema)
@@ -5008,12 +5008,12 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertIn("port", schema["required"])
 
     def test_s_no_required(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s(None, target=("string", "IP"))
         self.assertNotIn("required", schema)
 
     def test_s_property_type_and_description(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s([], timeout=("integer", "Timeout seconds"))
         props = schema["properties"]
         self.assertIn("timeout", props)
@@ -5021,23 +5021,23 @@ class TestHelperFunctions(unittest.TestCase):
         self.assertEqual(props["timeout"]["description"], "Timeout seconds")
 
     def test_s_empty_required_list(self):
-        from penligent_mcp.tools._helpers import _s
+        from penlearn_mcp.tools._helpers import _s
         schema = _s([], target=("string", "IP"))
         # empty required list should not appear or be empty
         if "required" in schema:
             self.assertEqual(schema["required"], [])
 
     def test_chk_returns_bool(self):
-        from penligent_mcp.tools._helpers import _chk
+        from penlearn_mcp.tools._helpers import _chk
         result = _chk("python3")
         self.assertIsInstance(result, bool)
 
     def test_chk_python3_found(self):
-        from penligent_mcp.tools._helpers import _chk
+        from penlearn_mcp.tools._helpers import _chk
         self.assertTrue(_chk("python3"), "python3 must be on PATH in the test environment")
 
     def test_chk_nonexistent_binary(self):
-        from penligent_mcp.tools._helpers import _chk
+        from penlearn_mcp.tools._helpers import _chk
         self.assertFalse(_chk("definitely_not_a_real_binary_xyzzy_12345"))
 
 
@@ -5049,7 +5049,7 @@ class TestIsPassiveEdgeCases(unittest.TestCase):
     """_is_passive must use exact-or-space/tab matching to prevent prefix collisions."""
 
     def setUp(self):
-        from penligent_mcp.tools.execute import _is_passive
+        from penlearn_mcp.tools.execute import _is_passive
         self.passive = _is_passive
 
     # Exact-match commands (no args)
@@ -5131,7 +5131,7 @@ class TestReportSortingRegressions(unittest.TestCase):
     ]
 
     def test_build_fix_list_critical_first(self):
-        from penligent_mcp.tools.report import _build_fix_list
+        from penlearn_mcp.tools.report import _build_fix_list
         result = _build_fix_list(self.FINDINGS)
         # The first data row after the header should be a critical finding
         lines = result.splitlines()
@@ -5141,7 +5141,7 @@ class TestReportSortingRegressions(unittest.TestCase):
 
     def test_build_fix_list_verified_before_open_within_severity(self):
         """Within same severity, verified (status_rank=0) must precede open (status_rank=1)."""
-        from penligent_mcp.tools.report import _build_fix_list
+        from penlearn_mcp.tools.report import _build_fix_list
         result = _build_fix_list(self.FINDINGS)
         lines = result.splitlines()
         data_rows = [l for l in lines if l.startswith("| ") and not l.startswith("| #") and not l.startswith("|---")]
@@ -5155,14 +5155,14 @@ class TestReportSortingRegressions(unittest.TestCase):
             "Verified critical finding should precede open critical finding in fix list")
 
     def test_build_fix_list_contains_all_findings(self):
-        from penligent_mcp.tools.report import _build_fix_list
+        from penlearn_mcp.tools.report import _build_fix_list
         result = _build_fix_list(self.FINDINGS)
         for f in self.FINDINGS:
             self.assertIn(f["title"], result)
 
     def test_build_exec_summary_no_keyerror_on_missing_verify_status(self):
         """_build_exec_summary must not raise KeyError when verify_status is absent (regression)."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings_no_status = [
             {"id": 1, "title": "Test", "severity": "high",
              "attack_chain_position": None},
@@ -5173,7 +5173,7 @@ class TestReportSortingRegressions(unittest.TestCase):
         self.assertIn("1", result)  # total count
 
     def test_build_exec_summary_counts_by_verify_status(self):
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         project = {"name": "proj", "target": "target.com", "kind": "authorized_pentest"}
         result = _build_exec_summary(project, self.FINDINGS, "2026-05-19")
         self.assertIn("4", result)  # total findings
@@ -5181,7 +5181,7 @@ class TestReportSortingRegressions(unittest.TestCase):
         self.assertIn("Open", result)
 
     def test_severity_table_counts_correctly(self):
-        from penligent_mcp.tools.report import _severity_table
+        from penlearn_mcp.tools.report import _severity_table
         result = _severity_table(self.FINDINGS)
         self.assertIn("CRITICAL", result)
         self.assertIn("HIGH", result)
@@ -5190,7 +5190,7 @@ class TestReportSortingRegressions(unittest.TestCase):
         self.assertIn("2", result)
 
     def test_build_finding_md_renders_title(self):
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         finding = {
             "id": 1, "title": "SQL Injection", "severity": "critical",
             "verify_status": "verified", "description": "Login form is vulnerable.",
@@ -5207,14 +5207,14 @@ class TestReportSortingRegressions(unittest.TestCase):
         self.assertIn("CVE-2024-1234", result)
 
     def test_priority_dict_maps_all_severities(self):
-        from penligent_mcp.tools.report import PRIORITY, SEVERITY_ORDER
+        from penlearn_mcp.tools.report import PRIORITY, SEVERITY_ORDER
         for sev in SEVERITY_ORDER:
             self.assertIn(sev, PRIORITY, f"Severity {sev!r} missing from PRIORITY map")
             self.assertTrue(PRIORITY[sev].startswith("P"),
                 f"Priority for {sev!r} should start with 'P', got {PRIORITY[sev]!r}")
 
     def test_priority_order_correct(self):
-        from penligent_mcp.tools.report import PRIORITY
+        from penlearn_mcp.tools.report import PRIORITY
         # P0 < P1 < P2 < P3 < P4 numerically
         num = {sev: int(p[1]) for sev, p in PRIORITY.items()}
         self.assertLess(num["critical"], num["high"])
@@ -5231,7 +5231,7 @@ class TestPhpWebshellPayloads(unittest.TestCase):
     """_payload_php_webshell is pure Python — no subprocess/DB."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         return asyncio.run(_payload_php_webshell(kwargs))
 
     def test_standard_contains_system(self):
@@ -5276,7 +5276,7 @@ class TestAspxWebshellPayloads(unittest.TestCase):
     """_payload_aspx is pure Python — generates ASPX shell code."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _payload_aspx
+        from penlearn_mcp.tools.exploit import _payload_aspx
         return asyncio.run(_payload_aspx(kwargs))
 
     def test_standard_uses_cmd_exe(self):
@@ -5302,7 +5302,7 @@ class TestBindShellOutput(unittest.TestCase):
     """_bind_shell is pure Python — generates bind shell one-liners with port/rhost."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         return asyncio.run(_bind_shell(kwargs))
 
     def test_all_mode_contains_nc(self):
@@ -5336,7 +5336,7 @@ class TestUtilsClassify(unittest.TestCase):
     """_classify must correctly identify IP, CIDR, domain, URL, and unknown inputs."""
 
     def _classify(self, value: str) -> dict:
-        from penligent_mcp.tools.utils import _classify
+        from penlearn_mcp.tools.utils import _classify
         return _classify(value)
 
     def test_ipv4_address(self):
@@ -5432,7 +5432,7 @@ class TestSafePathGuard(unittest.TestCase):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def _safe(self, relative: str):
-        from penligent_mcp.tools.workspace import _safe_path
+        from penlearn_mcp.tools.workspace import _safe_path
         return _safe_path(self.workspace, relative)
 
     def test_normal_relative_path_accepted(self):
@@ -5482,7 +5482,7 @@ class TestPhpFilterChain(unittest.TestCase):
     """_php_filter_chain generates a PHP filter chain without subprocess (fallback path)."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _php_filter_chain
+        from penlearn_mcp.tools.exploit import _php_filter_chain
         return asyncio.run(_php_filter_chain(kwargs))
 
     def test_chain_contains_php_filter(self):
@@ -5537,7 +5537,7 @@ class TestJwtDecodeExtended(unittest.TestCase):
         return f"{b64url(header)}.{b64url(payload)}.{sig}"
 
     def _run(self, token: str) -> str:
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         return asyncio.run(_jwt_decode({"token": token}))
 
     def test_empty_token_errors(self):
@@ -5686,7 +5686,7 @@ class TestWebPayloadLists(unittest.TestCase):
 
     def _get_payloads(self) -> list[str]:
         import inspect
-        from penligent_mcp.tools.web import _path_traversal
+        from penlearn_mcp.tools.web import _path_traversal
         src = inspect.getsource(_path_traversal)
         # Extract the payloads list from source
         import ast
@@ -5735,11 +5735,11 @@ class TestCryptoBase64(unittest.TestCase):
     """_base64_encode/_base64_decode are pure Python — round-trip and variant tests."""
 
     def _encode(self, text, variant="standard") -> str:
-        from penligent_mcp.tools.crypto import _base64_encode
+        from penlearn_mcp.tools.crypto import _base64_encode
         return asyncio.run(_base64_encode({"text": text, "variant": variant}))[0].text
 
     def _decode(self, data, variant="standard") -> str:
-        from penligent_mcp.tools.crypto import _base64_decode
+        from penlearn_mcp.tools.crypto import _base64_decode
         return asyncio.run(_base64_decode({"data": data, "variant": variant}))[0].text
 
     def test_encode_hello(self):
@@ -5758,7 +5758,7 @@ class TestCryptoBase64(unittest.TestCase):
         self.assertEqual(self._decode("aGVsbG8"), "hello")
 
     def test_roundtrip(self):
-        original = "penligent-local test 123!"
+        original = "penlearn-local test 123!"
         encoded = self._encode(original)
         decoded = self._decode(encoded)
         self.assertEqual(decoded, original)
@@ -5774,11 +5774,11 @@ class TestCryptoHex(unittest.TestCase):
     """_hex_encode/_hex_decode round-trip tests."""
 
     def _encode(self, text, fmt="plain") -> str:
-        from penligent_mcp.tools.crypto import _hex_encode
+        from penlearn_mcp.tools.crypto import _hex_encode
         return asyncio.run(_hex_encode({"text": text, "format": fmt}))[0].text
 
     def _decode(self, data) -> str:
-        from penligent_mcp.tools.crypto import _hex_decode
+        from penlearn_mcp.tools.crypto import _hex_decode
         return asyncio.run(_hex_decode({"data": data}))[0].text
 
     def test_encode_plain(self):
@@ -5820,7 +5820,7 @@ class TestCryptoRot13(unittest.TestCase):
     """_rot13 applies ROT13."""
 
     def _rot13(self, text) -> str:
-        from penligent_mcp.tools.crypto import _rot13
+        from penlearn_mcp.tools.crypto import _rot13
         return asyncio.run(_rot13({"text": text}))[0].text
 
     def test_hello_rot13(self):
@@ -5842,7 +5842,7 @@ class TestCryptoCaesarBrute(unittest.TestCase):
     """_caesar_brute returns all 26 ROT shifts."""
 
     def _caesar(self, text) -> str:
-        from penligent_mcp.tools.crypto import _caesar_brute
+        from penlearn_mcp.tools.crypto import _caesar_brute
         return asyncio.run(_caesar_brute({"text": text}))[0].text
 
     def test_exactly_26_lines(self):
@@ -5872,11 +5872,11 @@ class TestCryptoUrlEncoding(unittest.TestCase):
     """_url_encode/_url_decode round-trips."""
 
     def _encode(self, text, safe="") -> str:
-        from penligent_mcp.tools.crypto import _url_encode
+        from penlearn_mcp.tools.crypto import _url_encode
         return asyncio.run(_url_encode({"text": text, "safe": safe}))[0].text
 
     def _decode(self, text) -> str:
-        from penligent_mcp.tools.crypto import _url_decode
+        from penlearn_mcp.tools.crypto import _url_decode
         return asyncio.run(_url_decode({"text": text}))[0].text
 
     def test_encode_space(self):
@@ -5907,7 +5907,7 @@ class TestCryptoHashText(unittest.TestCase):
     """_hash_text produces correct hashes — uses dynamic values for FIPS compatibility."""
 
     def _hash(self, text, algo="all") -> str:
-        from penligent_mcp.tools.crypto import _hash_text
+        from penlearn_mcp.tools.crypto import _hash_text
         return asyncio.run(_hash_text({"text": text, "algorithm": algo}))[0].text
 
     def test_sha256_correct(self):
@@ -5942,7 +5942,7 @@ class TestCryptoMagicBytes(unittest.TestCase):
     """_MAGIC list must cover common file types."""
 
     def setUp(self):
-        from penligent_mcp.tools.crypto import _MAGIC
+        from penlearn_mcp.tools.crypto import _MAGIC
         self.magic = _MAGIC
 
     def test_elf_magic_present(self):
@@ -5982,7 +5982,7 @@ class TestCryptoHashFile(unittest.TestCase):
     """_hash_file must handle invalid algorithms and non-existent paths gracefully."""
 
     def _run_hash(self, **kwargs) -> str:
-        from penligent_mcp.tools.crypto import _hash_file
+        from penlearn_mcp.tools.crypto import _hash_file
         return asyncio.run(_hash_file(kwargs))[0].text
 
     def test_valid_sha256_hashes_correctly(self):
@@ -6050,7 +6050,7 @@ class TestWorkspaceDownload(unittest.TestCase):
 
     def test_asyncio_to_thread_in_source(self):
         import inspect
-        from penligent_mcp.tools.workspace import _workspace_download
+        from penlearn_mcp.tools.workspace import _workspace_download
         src = inspect.getsource(_workspace_download)
         self.assertIn("asyncio.to_thread", src,
             "_workspace_download must use asyncio.to_thread to avoid blocking the event loop")
@@ -6058,7 +6058,7 @@ class TestWorkspaceDownload(unittest.TestCase):
     def test_urlopen_not_called_directly_in_async_body(self):
         """urlopen must be inside a nested sync function, not at the top level of the async fn."""
         import inspect
-        from penligent_mcp.tools.workspace import _workspace_download
+        from penlearn_mcp.tools.workspace import _workspace_download
         src = inspect.getsource(_workspace_download)
         # The _fetch nested function should contain urlopen
         self.assertIn("def _fetch", src)
@@ -6067,12 +6067,12 @@ class TestWorkspaceDownload(unittest.TestCase):
     def test_successful_download(self):
         import tempfile
         from unittest.mock import patch, MagicMock
-        from penligent_mcp.tools.workspace import _workspace_download
+        from penlearn_mcp.tools.workspace import _workspace_download
 
-        fake_data = b"hello penligent"  # 15 bytes
+        fake_data = b"hello penlearn"  # 15 bytes
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("penligent_mcp.tools.workspace.WORKSPACE_ROOT",
+            with patch("penlearn_mcp.tools.workspace.WORKSPACE_ROOT",
                        new=Path(tmpdir)):
                 with patch("urllib.request.urlopen") as mock_urlopen:
                     mock_response = MagicMock()
@@ -6090,10 +6090,10 @@ class TestWorkspaceDownload(unittest.TestCase):
     def test_download_error_returns_error_message(self):
         import tempfile
         from unittest.mock import patch
-        from penligent_mcp.tools.workspace import _workspace_download
+        from penlearn_mcp.tools.workspace import _workspace_download
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("penligent_mcp.tools.workspace.WORKSPACE_ROOT",
+            with patch("penlearn_mcp.tools.workspace.WORKSPACE_ROOT",
                        new=Path(tmpdir)):
                 with patch("urllib.request.urlopen",
                            side_effect=ConnectionRefusedError("connection refused")):
@@ -6114,20 +6114,20 @@ class TestOsintNonBlocking(unittest.TestCase):
 
     def test_http_get_helper_uses_to_thread(self):
         import inspect
-        from penligent_mcp.tools import osint
+        from penlearn_mcp.tools import osint
         src = inspect.getsource(osint._http_get)
         self.assertIn("asyncio.to_thread", src)
 
     def test_http_get_with_status_helper_uses_to_thread(self):
         import inspect
-        from penligent_mcp.tools import osint
+        from penlearn_mcp.tools import osint
         src = inspect.getsource(osint._http_get_with_status)
         self.assertIn("asyncio.to_thread", src)
 
     def test_osint_async_fns_use_http_get_not_urlopen(self):
         """Key osint async functions must call _http_get/_http_get_with_status, not urlopen directly."""
         import inspect
-        from penligent_mcp.tools import osint
+        from penlearn_mcp.tools import osint
         fns_to_check = [
             osint._wayback_urls, osint._crt_sh, osint._github_search,
             osint._shodan_query, osint._censys_query, osint._ip_geolocation,
@@ -6141,28 +6141,28 @@ class TestOsintNonBlocking(unittest.TestCase):
 
     def test_wayback_urls_uses_http_get(self):
         import inspect
-        from penligent_mcp.tools.osint import _wayback_urls
+        from penlearn_mcp.tools.osint import _wayback_urls
         src = inspect.getsource(_wayback_urls)
         self.assertIn("_http_get", src)
         self.assertNotIn("urlopen", src)
 
     def test_crt_sh_uses_http_get(self):
         import inspect
-        from penligent_mcp.tools.osint import _crt_sh
+        from penlearn_mcp.tools.osint import _crt_sh
         src = inspect.getsource(_crt_sh)
         self.assertIn("_http_get", src)
         self.assertNotIn("urlopen", src)
 
     def test_check_ip_geolocation_uses_to_thread(self):
         import inspect
-        from penligent_mcp.tools.utils import _check_ip
+        from penlearn_mcp.tools.utils import _check_ip
         src = inspect.getsource(_check_ip)
         self.assertIn("asyncio.to_thread", src)
         self.assertNotIn("urlopen(", src.split("def _geo_fetch")[0])
 
     def test_crawler_login_uses_to_thread(self):
         import inspect
-        from penligent_mcp.tools.web import _crawler_login
+        from penlearn_mcp.tools.web import _crawler_login
         src = inspect.getsource(_crawler_login)
         self.assertIn("asyncio.to_thread", src)
 
@@ -6176,13 +6176,13 @@ class TestCspAuditRedirectParsing(unittest.TestCase):
 
     def _run_csp_audit(self, curl_output: str) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _csp_audit
+        from penlearn_mcp.tools.web import _csp_audit
 
         async def fake_run_subprocess(cmd, timeout=60):
             return curl_output, "", 0
 
-        with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
-            with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
+            with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                 result = asyncio.run(_csp_audit({"target": "http://example.com"}))
         return result
 
@@ -6238,7 +6238,7 @@ class TestSprayHttpFailureString(unittest.TestCase):
     def _run_spray(self, curl_output: str, failure_string: str = "Invalid") -> str:
         import tempfile, os
         from unittest.mock import patch
-        from penligent_mcp.tools.passwords import _spray_http
+        from penlearn_mcp.tools.passwords import _spray_http
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("alice\nbob\n")
@@ -6251,7 +6251,7 @@ class TestSprayHttpFailureString(unittest.TestCase):
             return curl_output, "", 0
 
         try:
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run):
                 result_list = asyncio.run(_spray_http({
                     "url": "http://target/login",
                     "password": "P@ssw0rd",
@@ -6298,7 +6298,7 @@ class TestCspCheckRedirect(unittest.TestCase):
 
     def _run_csp_check(self, curl_output: str) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _csp_check
+        from penlearn_mcp.tools.web import _csp_check
 
         captured_cmd = []
 
@@ -6306,8 +6306,8 @@ class TestCspCheckRedirect(unittest.TestCase):
             captured_cmd.extend(cmd)
             return curl_output, "", 0
 
-        with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
-            with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
+            with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                 result = asyncio.run(_csp_check({"target": "http://example.com"}))
         return result, captured_cmd
 
@@ -6357,7 +6357,7 @@ class TestClickjackCheckRedirect(unittest.TestCase):
 
     def _run_clickjack_check(self, curl_output: str) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _clickjack_check
+        from penlearn_mcp.tools.web import _clickjack_check
 
         captured_cmd = []
 
@@ -6365,8 +6365,8 @@ class TestClickjackCheckRedirect(unittest.TestCase):
             captured_cmd.extend(cmd)
             return curl_output, "", 0
 
-        with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
-            with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run_subprocess):
+            with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                 result = asyncio.run(_clickjack_check({"target": "http://example.com"}))
         return result, captured_cmd
 
@@ -6467,8 +6467,8 @@ class TestExportFindingsMarkdownSqliteRow(unittest.TestCase):
         cm.__aenter__ = AsyncMock(return_value=mock_db)
         cm.__aexit__ = AsyncMock(return_value=None)
 
-        from penligent_mcp.tools.findings import _export_findings_markdown
-        with patch("penligent_mcp.tools.findings.get_db", return_value=cm):
+        from penlearn_mcp.tools.findings import _export_findings_markdown
+        with patch("penlearn_mcp.tools.findings.get_db", return_value=cm):
             result = asyncio.run(_export_findings_markdown({"project_id": 1}))
         return " ".join(item.text for item in result)
 
@@ -6515,7 +6515,7 @@ class TestToolRegistry(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        from penligent_mcp.tools.register_all import get_tool_definitions, get_handler
+        from penlearn_mcp.tools.register_all import get_tool_definitions, get_handler
         cls.tools = get_tool_definitions()
         cls.get_handler = staticmethod(get_handler)
 
@@ -6587,28 +6587,28 @@ class TestNetworkNewToolBinaryGuards(unittest.TestCase):
         return patch("shutil.which", return_value=None)
 
     def test_rustscan_binary_not_found(self):
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         with self._no_which():
             r = self._run(_rustscan({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("rustscan", r)
 
     def test_masscan_binary_not_found(self):
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         with self._no_which():
             r = self._run(_masscan({"target": "10.10.10.0/24"}))
         self.assertIn("Error", r)
         self.assertIn("masscan", r)
 
     def test_autorecon_binary_not_found(self):
-        from penligent_mcp.tools.network import _autorecon
+        from penlearn_mcp.tools.network import _autorecon
         with self._no_which():
             r = self._run(_autorecon({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("autorecon", r)
 
     def test_smbmap_binary_not_found(self):
-        from penligent_mcp.tools.network import _smbmap_enum
+        from penlearn_mcp.tools.network import _smbmap_enum
         with self._no_which():
             r = self._run(_smbmap_enum({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
@@ -6616,28 +6616,28 @@ class TestNetworkNewToolBinaryGuards(unittest.TestCase):
 
     def test_netexec_all_binaries_not_found(self):
         """Error when none of nxc / netexec / crackmapexec is in PATH."""
-        from penligent_mcp.tools.network import _netexec_run
+        from penlearn_mcp.tools.network import _netexec_run
         with self._no_which():
             r = self._run(_netexec_run({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("nxc", r.lower())
 
     def test_responder_binary_not_found(self):
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         with self._no_which():
             r = self._run(_responder_capture({}))
         self.assertIn("Error", r)
         self.assertIn("responder", r)
 
     def test_arp_scan_binary_not_found(self):
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         with self._no_which():
             r = self._run(_arp_scan_discover({"target": "192.168.1.0/24"}))
         self.assertIn("Error", r)
         self.assertIn("arp-scan", r)
 
     def test_enum4linux_ng_binary_not_found(self):
-        from penligent_mcp.tools.network import _enum4linux_ng
+        from penlearn_mcp.tools.network import _enum4linux_ng
         with self._no_which():
             r = self._run(_enum4linux_ng({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
@@ -6659,70 +6659,70 @@ class TestWebNewToolBinaryGuards(unittest.TestCase):
         return patch("shutil.which", return_value=None)
 
     def test_feroxbuster_binary_not_found(self):
-        from penligent_mcp.tools.web import _feroxbuster_scan
+        from penlearn_mcp.tools.web import _feroxbuster_scan
         with self._no_which():
             r = self._run(_feroxbuster_scan({"url": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("feroxbuster", r)
 
     def test_dirsearch_binary_not_found(self):
-        from penligent_mcp.tools.web import _dirsearch_scan
+        from penlearn_mcp.tools.web import _dirsearch_scan
         with self._no_which():
             r = self._run(_dirsearch_scan({"url": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("dirsearch", r)
 
     def test_katana_binary_not_found(self):
-        from penligent_mcp.tools.web import _katana_crawl
+        from penlearn_mcp.tools.web import _katana_crawl
         with self._no_which():
             r = self._run(_katana_crawl({"url": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("katana", r)
 
     def test_gau_binary_not_found(self):
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
         with self._no_which():
             r = self._run(_gau_urls({"domain": "example.com"}))
         self.assertIn("Error", r)
         self.assertIn("gau", r)
 
     def test_waybackurls_binary_not_found(self):
-        from penligent_mcp.tools.web import _waybackurls_discover
+        from penlearn_mcp.tools.web import _waybackurls_discover
         with self._no_which():
             r = self._run(_waybackurls_discover({"domain": "example.com"}))
         self.assertIn("Error", r)
         self.assertIn("waybackurls", r)
 
     def test_arjun_binary_not_found(self):
-        from penligent_mcp.tools.web import _arjun_params
+        from penlearn_mcp.tools.web import _arjun_params
         with self._no_which():
             r = self._run(_arjun_params({"url": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("arjun", r)
 
     def test_hakrawler_binary_not_found(self):
-        from penligent_mcp.tools.web import _hakrawler_crawl
+        from penlearn_mcp.tools.web import _hakrawler_crawl
         with self._no_which():
             r = self._run(_hakrawler_crawl({"url": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("hakrawler", r)
 
     def test_dalfox_binary_not_found(self):
-        from penligent_mcp.tools.web import _dalfox_xss
+        from penlearn_mcp.tools.web import _dalfox_xss
         with self._no_which():
             r = self._run(_dalfox_xss({"url": "http://10.10.10.1/?q=test"}))
         self.assertIn("Error", r)
         self.assertIn("dalfox", r)
 
     def test_wafw00f_binary_not_found(self):
-        from penligent_mcp.tools.web import _wafw00f_detect
+        from penlearn_mcp.tools.web import _wafw00f_detect
         with self._no_which():
             r = self._run(_wafw00f_detect({"target": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("wafw00f", r)
 
     def test_wfuzz_binary_not_found(self):
-        from penligent_mcp.tools.web import _wfuzz_scan
+        from penlearn_mcp.tools.web import _wfuzz_scan
         with self._no_which():
             r = self._run(_wfuzz_scan({"url": "http://10.10.10.1/FUZZ"}))
         self.assertIn("Error", r)
@@ -6749,14 +6749,14 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
             return "output", "", 0
 
         with patch("shutil.which", return_value=which_val):
-            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.network._persist", new_callable=AsyncMock):
                     result = self._run(handler_coro)
         return result, captured
 
     def test_rustscan_run_scripts_appends_nmap_flags(self):
         """run_scripts=True must append -- -sC -sV so Nmap performs service detection."""
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         _, cmd = self._capture(_rustscan({"target": "10.10.10.1", "run_scripts": True}))
         self.assertIn("--", cmd)
         self.assertIn("-sC", cmd)
@@ -6764,39 +6764,39 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_rustscan_no_scripts_by_default(self):
         """Default run_scripts=False must not add -- -sC -sV."""
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         _, cmd = self._capture(_rustscan({"target": "10.10.10.1"}))
         self.assertNotIn("-sC", cmd)
         self.assertNotIn("-sV", cmd)
 
     def test_rustscan_ports_flag(self):
         """Explicit ports must be passed with -p."""
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         _, cmd = self._capture(_rustscan({"target": "10.10.10.1", "ports": "80,443,8080"}))
         self.assertIn("-p", cmd)
         self.assertIn("80,443,8080", cmd)
 
     def test_masscan_banners_flag(self):
         """banners=True must append --banners."""
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         _, cmd = self._capture(_masscan({"target": "10.10.10.0/24", "banners": True}))
         self.assertIn("--banners", cmd)
 
     def test_masscan_no_banners_by_default(self):
         """Default banners=False must not add --banners."""
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         _, cmd = self._capture(_masscan({"target": "10.10.10.0/24"}))
         self.assertNotIn("--banners", cmd)
 
     def test_masscan_rate_in_cmd(self):
         """Custom rate must appear as --rate=N."""
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         _, cmd = self._capture(_masscan({"target": "10.10.10.0/24", "rate": 5000}))
         self.assertIn("--rate=5000", cmd)
 
     def test_responder_uses_timeout_wrapper(self):
         """responder_capture must use the 'timeout' binary to limit capture duration."""
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         _, cmd = self._capture(_responder_capture({"duration": 30, "interface": "eth0"}))
         self.assertEqual(cmd[0], "timeout")
         self.assertEqual(cmd[1], "30")
@@ -6804,44 +6804,44 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_responder_analyze_mode_adds_flag(self):
         """analyze=True must pass -A to enable passive-only mode."""
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         _, cmd = self._capture(_responder_capture({"analyze": True}))
         self.assertIn("-A", cmd)
 
     def test_responder_analyze_false_no_flag(self):
         """analyze=False must NOT add -A."""
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         _, cmd = self._capture(_responder_capture({"analyze": False}))
         self.assertNotIn("-A", cmd)
 
     def test_responder_wpad_adds_flag(self):
         """wpad=True (default) must add -w."""
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         _, cmd = self._capture(_responder_capture({}))
         self.assertIn("-w", cmd)
 
     def test_responder_wpad_false_no_flag(self):
         """wpad=False must not add -w."""
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         _, cmd = self._capture(_responder_capture({"wpad": False}))
         self.assertNotIn("-w", cmd)
 
     def test_arp_scan_local_network_flag(self):
         """local_network=True must use -l (scan local segment) instead of an explicit target."""
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         _, cmd = self._capture(_arp_scan_discover({"local_network": True}))
         self.assertIn("-l", cmd)
 
     def test_arp_scan_explicit_target_in_cmd(self):
         """Explicit target must appear in the command args."""
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         _, cmd = self._capture(_arp_scan_discover({"target": "192.168.1.0/24"}))
         self.assertIn("192.168.1.0/24", cmd)
         self.assertNotIn("-l", cmd)
 
     def test_enum4linux_ng_always_uses_A_flag(self):
         """enum4linux-ng must always pass -A for full enumeration mode."""
-        from penligent_mcp.tools.network import _enum4linux_ng
+        from penlearn_mcp.tools.network import _enum4linux_ng
         _, cmd = self._capture(
             _enum4linux_ng({"target": "10.10.10.1"}),
             which_val="/usr/bin/enum4linux-ng",
@@ -6850,7 +6850,7 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_enum4linux_ng_yaml_output_flag(self):
         """yaml_output=True must add -oY."""
-        from penligent_mcp.tools.network import _enum4linux_ng
+        from penlearn_mcp.tools.network import _enum4linux_ng
         _, cmd = self._capture(
             _enum4linux_ng({"target": "10.10.10.1", "yaml_output": True}),
             which_val="/usr/bin/enum4linux-ng",
@@ -6859,7 +6859,7 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_smbmap_credentials_in_cmd(self):
         """Username and password must be passed with -u and -p."""
-        from penligent_mcp.tools.network import _smbmap_enum
+        from penlearn_mcp.tools.network import _smbmap_enum
         _, cmd = self._capture(_smbmap_enum({
             "target": "10.10.10.1", "username": "admin", "password": "P@ssw0rd"
         }))
@@ -6870,7 +6870,7 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_netexec_protocol_in_cmd(self):
         """Protocol must be the second argument after the binary name."""
-        from penligent_mcp.tools.network import _netexec_run
+        from penlearn_mcp.tools.network import _netexec_run
         _, cmd = self._capture(
             _netexec_run({"target": "10.10.10.1", "protocol": "winrm"}),
             which_val="/usr/bin/nxc",
@@ -6879,7 +6879,7 @@ class TestNetworkNewToolCmdConstruction(unittest.TestCase):
 
     def test_netexec_hash_flag(self):
         """NTLM hash must be passed with -H."""
-        from penligent_mcp.tools.network import _netexec_run
+        from penlearn_mcp.tools.network import _netexec_run
         _, cmd = self._capture(
             _netexec_run({"target": "10.10.10.1", "hash": "aad3b435b51404eeaad3b435b51404ee:abc"}),
             which_val="/usr/bin/nxc",
@@ -6908,55 +6908,55 @@ class TestWebNewToolCmdConstruction(unittest.TestCase):
             return fake_stdout, "", 0
 
         with patch("shutil.which", return_value=which_val):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = self._run(handler_coro)
         return result, captured
 
     def test_gau_include_subs_adds_flag(self):
         """include_subs=True must pass --subs."""
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
         _, cmd = self._capture(_gau_urls({"domain": "example.com", "include_subs": True}))
         self.assertIn("--subs", cmd)
 
     def test_gau_include_subs_false_no_flag(self):
         """include_subs=False must NOT pass --subs."""
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
         _, cmd = self._capture(_gau_urls({"domain": "example.com", "include_subs": False}))
         self.assertNotIn("--subs", cmd)
 
     def test_gau_output_truncated_at_5000(self):
         """Output longer than 5000 chars must include '... (truncated)'."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
         big_output = "https://example.com/url\n" * 300  # well over 5000 chars
 
         async def fake_sub(cmd, timeout=120):
             return big_output, "", 0
 
         with patch("shutil.which", return_value="/usr/bin/gau"):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = self._run(_gau_urls({"domain": "example.com"}))
         self.assertIn("truncated", result)
 
     def test_gau_output_not_truncated_under_5000(self):
         """Short output must not add the truncation marker."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _gau_urls
+        from penlearn_mcp.tools.web import _gau_urls
 
         async def fake_sub(cmd, timeout=120):
             return "https://example.com/short\n", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/gau"):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = self._run(_gau_urls({"domain": "example.com"}))
         self.assertNotIn("truncated", result)
 
     def test_waybackurls_get_versions_flag(self):
         """get_versions=True must pass --get-versions."""
-        from penligent_mcp.tools.web import _waybackurls_discover
+        from penlearn_mcp.tools.web import _waybackurls_discover
         _, cmd = self._capture(_waybackurls_discover({
             "domain": "example.com", "get_versions": True
         }))
@@ -6964,45 +6964,45 @@ class TestWebNewToolCmdConstruction(unittest.TestCase):
 
     def test_waybackurls_no_versions_flag_by_default(self):
         """Default get_versions=False must not add --get-versions."""
-        from penligent_mcp.tools.web import _waybackurls_discover
+        from penlearn_mcp.tools.web import _waybackurls_discover
         _, cmd = self._capture(_waybackurls_discover({"domain": "example.com"}))
         self.assertNotIn("--get-versions", cmd)
 
     def test_wfuzz_missing_url_error_mentions_fuzz_placeholder(self):
         """The missing-URL error must mention FUZZ so users know the expected format."""
-        from penligent_mcp.tools.web import _wfuzz_scan
+        from penlearn_mcp.tools.web import _wfuzz_scan
         r = self._run(_wfuzz_scan({}))
         self.assertIn("Error", r)
         self.assertIn("FUZZ", r)
 
     def test_wfuzz_filter_code_uses_hc_flag(self):
         """filter_code must be passed with --hc."""
-        from penligent_mcp.tools.web import _wfuzz_scan
+        from penlearn_mcp.tools.web import _wfuzz_scan
         _, cmd = self._capture(_wfuzz_scan({"url": "http://target/FUZZ", "filter_code": "404,403"}))
         self.assertIn("--hc", cmd)
         self.assertIn("404,403", cmd)
 
     def test_wfuzz_url_appended_last(self):
         """URL must be the last argument in the wfuzz command."""
-        from penligent_mcp.tools.web import _wfuzz_scan
+        from penlearn_mcp.tools.web import _wfuzz_scan
         _, cmd = self._capture(_wfuzz_scan({"url": "http://target/FUZZ"}))
         self.assertEqual(cmd[-1], "http://target/FUZZ")
 
     def test_dalfox_mining_dom_flag(self):
         """mining_dom=True must include --mining-dom."""
-        from penligent_mcp.tools.web import _dalfox_xss
+        from penlearn_mcp.tools.web import _dalfox_xss
         _, cmd = self._capture(_dalfox_xss({"url": "http://target/?q=test", "mining_dom": True}))
         self.assertIn("--mining-dom", cmd)
 
     def test_dalfox_mining_dom_false_no_flag(self):
         """mining_dom=False must NOT include --mining-dom."""
-        from penligent_mcp.tools.web import _dalfox_xss
+        from penlearn_mcp.tools.web import _dalfox_xss
         _, cmd = self._capture(_dalfox_xss({"url": "http://target/?q=test", "mining_dom": False}))
         self.assertNotIn("--mining-dom", cmd)
 
     def test_dalfox_custom_payload_flag(self):
         """custom_payload must be passed with --custom-payload."""
-        from penligent_mcp.tools.web import _dalfox_xss
+        from penlearn_mcp.tools.web import _dalfox_xss
         _, cmd = self._capture(_dalfox_xss({
             "url": "http://target/?q=test",
             "custom_payload": "<script>alert(1)</script>",
@@ -7012,19 +7012,19 @@ class TestWebNewToolCmdConstruction(unittest.TestCase):
 
     def test_wafw00f_find_all_adds_flag(self):
         """find_all=True must pass -a."""
-        from penligent_mcp.tools.web import _wafw00f_detect
+        from penlearn_mcp.tools.web import _wafw00f_detect
         _, cmd = self._capture(_wafw00f_detect({"target": "http://target", "find_all": True}))
         self.assertIn("-a", cmd)
 
     def test_wafw00f_find_all_false_no_flag(self):
         """Default find_all=False must not add -a."""
-        from penligent_mcp.tools.web import _wafw00f_detect
+        from penlearn_mcp.tools.web import _wafw00f_detect
         _, cmd = self._capture(_wafw00f_detect({"target": "http://target"}))
         self.assertNotIn("-a", cmd)
 
     def test_katana_output_includes_url_count(self):
         """Result string must include the count of discovered URLs."""
-        from penligent_mcp.tools.web import _katana_crawl
+        from penlearn_mcp.tools.web import _katana_crawl
         result, _ = self._capture(
             _katana_crawl({"url": "http://target"}),
             fake_stdout="https://target/page1\nhttps://target/page2\nhttps://target/page3",
@@ -7034,7 +7034,7 @@ class TestWebNewToolCmdConstruction(unittest.TestCase):
 
     def test_feroxbuster_extensions_flag(self):
         """extensions must be passed with -x."""
-        from penligent_mcp.tools.web import _feroxbuster_scan
+        from penlearn_mcp.tools.web import _feroxbuster_scan
         _, cmd = self._capture(_feroxbuster_scan({
             "url": "http://target", "extensions": "php,html,txt"
         }))
@@ -7043,38 +7043,38 @@ class TestWebNewToolCmdConstruction(unittest.TestCase):
 
     def test_feroxbuster_no_extension_flag_when_omitted(self):
         """No -x flag when extensions is not provided."""
-        from penligent_mcp.tools.web import _feroxbuster_scan
+        from penlearn_mcp.tools.web import _feroxbuster_scan
         _, cmd = self._capture(_feroxbuster_scan({"url": "http://target"}))
         self.assertNotIn("-x", cmd)
 
     def test_dirsearch_recursive_adds_flag(self):
         """recursive=True must pass -r."""
-        from penligent_mcp.tools.web import _dirsearch_scan
+        from penlearn_mcp.tools.web import _dirsearch_scan
         _, cmd = self._capture(_dirsearch_scan({"url": "http://target", "recursive": True}))
         self.assertIn("-r", cmd)
 
     def test_dirsearch_recursive_false_no_flag(self):
         """Default recursive=False must not add -r."""
-        from penligent_mcp.tools.web import _dirsearch_scan
+        from penlearn_mcp.tools.web import _dirsearch_scan
         _, cmd = self._capture(_dirsearch_scan({"url": "http://target"}))
         self.assertNotIn("-r", cmd)
 
     def test_arjun_method_in_cmd(self):
         """HTTP method must be passed with -m."""
-        from penligent_mcp.tools.web import _arjun_params
+        from penlearn_mcp.tools.web import _arjun_params
         _, cmd = self._capture(_arjun_params({"url": "http://target", "method": "POST"}))
         self.assertIn("-m", cmd)
         self.assertIn("POST", cmd)
 
     def test_arjun_stable_flag(self):
         """stable=True must add --stable."""
-        from penligent_mcp.tools.web import _arjun_params
+        from penlearn_mcp.tools.web import _arjun_params
         _, cmd = self._capture(_arjun_params({"url": "http://target", "stable": True}))
         self.assertIn("--stable", cmd)
 
     def test_arjun_stable_false_no_flag(self):
         """Default stable=False must not add --stable."""
-        from penligent_mcp.tools.web import _arjun_params
+        from penlearn_mcp.tools.web import _arjun_params
         _, cmd = self._capture(_arjun_params({"url": "http://target"}))
         self.assertNotIn("--stable", cmd)
 
@@ -7088,7 +7088,7 @@ class TestHakrawlerStdinUrl(unittest.TestCase):
 
     def test_url_sent_via_stdin_not_cmd_arg(self):
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _hakrawler_crawl
+        from penlearn_mcp.tools.web import _hakrawler_crawl
 
         captured_args = []
         communicate_inputs = []
@@ -7106,7 +7106,7 @@ class TestHakrawlerStdinUrl(unittest.TestCase):
 
         with patch("shutil.which", return_value="/usr/bin/hakrawler"):
             with patch("asyncio.create_subprocess_exec", side_effect=fake_create):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = asyncio.run(_hakrawler_crawl({"url": "http://example.com"}))
 
         # The URL must be in stdin, not as a positional CLI arg
@@ -7119,7 +7119,7 @@ class TestHakrawlerStdinUrl(unittest.TestCase):
     def test_hakrawler_depth_in_cmd(self):
         """Custom depth must be passed with -d; stray -u flag must not be present."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _hakrawler_crawl
+        from penlearn_mcp.tools.web import _hakrawler_crawl
 
         captured_args = []
 
@@ -7135,7 +7135,7 @@ class TestHakrawlerStdinUrl(unittest.TestCase):
 
         with patch("shutil.which", return_value="/usr/bin/hakrawler"):
             with patch("asyncio.create_subprocess_exec", side_effect=fake_create):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     asyncio.run(_hakrawler_crawl({"url": "http://example.com", "depth": 5}))
 
         self.assertIn("-d", captured_args)
@@ -7158,14 +7158,14 @@ class TestNonBlockingSourceGuards(unittest.TestCase):
 
     def test_check_domain_dns_uses_to_thread(self):
         """utils._check_domain must wrap socket.getaddrinfo in asyncio.to_thread."""
-        from penligent_mcp.tools.utils import _check_domain
+        from penlearn_mcp.tools.utils import _check_domain
         src = self._src(_check_domain)
         self.assertIn("asyncio.to_thread", src,
             "_check_domain must use asyncio.to_thread for DNS lookups")
 
     def test_check_domain_no_bare_getaddrinfo(self):
         """socket.getaddrinfo must only appear inside an asyncio.to_thread call, not bare."""
-        from penligent_mcp.tools.utils import _check_domain
+        from penlearn_mcp.tools.utils import _check_domain
         src = self._src(_check_domain)
         # The call should be wrapped: asyncio.to_thread(socket.getaddrinfo, ...)
         self.assertIn("socket.getaddrinfo", src)
@@ -7174,7 +7174,7 @@ class TestNonBlockingSourceGuards(unittest.TestCase):
 
     def test_check_ip_reverse_dns_uses_to_thread(self):
         """utils._check_ip must wrap socket.gethostbyaddr in asyncio.to_thread."""
-        from penligent_mcp.tools.utils import _check_ip
+        from penlearn_mcp.tools.utils import _check_ip
         src = self._src(_check_ip)
         self.assertIn("asyncio.to_thread", src,
             "_check_ip must use asyncio.to_thread for reverse DNS (gethostbyaddr)")
@@ -7182,14 +7182,14 @@ class TestNonBlockingSourceGuards(unittest.TestCase):
 
     def test_dns_resolve_uses_to_thread(self):
         """recon._dns_resolve must wrap socket.getaddrinfo in asyncio.to_thread."""
-        from penligent_mcp.tools.recon import _dns_resolve
+        from penlearn_mcp.tools.recon import _dns_resolve
         src = self._src(_dns_resolve)
         self.assertIn("asyncio.to_thread", src,
             "_dns_resolve must use asyncio.to_thread to avoid blocking the event loop")
 
     def test_cloudflare_check_dns_uses_to_thread(self):
         """osint._cloudflare_check must wrap socket.gethostbyname_ex in asyncio.to_thread."""
-        from penligent_mcp.tools.osint import _cloudflare_check
+        from penlearn_mcp.tools.osint import _cloudflare_check
         src = self._src(_cloudflare_check)
         self.assertIn("asyncio.to_thread", src,
             "_cloudflare_check must use asyncio.to_thread for gethostbyname_ex")
@@ -7197,7 +7197,7 @@ class TestNonBlockingSourceGuards(unittest.TestCase):
 
     def test_execute_command_uses_async_subprocess(self):
         """execute._execute_command must use asyncio.create_subprocess_shell, not subprocess.run."""
-        from penligent_mcp.tools.execute import _execute_command
+        from penlearn_mcp.tools.execute import _execute_command
         src = self._src(_execute_command)
         self.assertIn("create_subprocess_shell", src,
             "_execute_command must use asyncio.create_subprocess_shell (non-blocking)")
@@ -7206,7 +7206,7 @@ class TestNonBlockingSourceGuards(unittest.TestCase):
 
     def test_workspace_note_uses_get_running_loop(self):
         """workspace._workspace_note must use asyncio.get_running_loop(), not get_event_loop()."""
-        from penligent_mcp.tools.workspace import _workspace_note
+        from penlearn_mcp.tools.workspace import _workspace_note
         src = self._src(_workspace_note)
         self.assertIn("get_running_loop", src,
             "_workspace_note must use asyncio.get_running_loop() (safe in async context)")
@@ -7232,7 +7232,7 @@ class TestWorkspaceNote(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _run_note(self, note: str, tag: str = "") -> str:
-        from penligent_mcp.tools import workspace as ws_mod
+        from penlearn_mcp.tools import workspace as ws_mod
         from pathlib import Path
         old_root = ws_mod.WORKSPACE_ROOT
         ws_mod.WORKSPACE_ROOT = Path(self.tmpdir)
@@ -7299,7 +7299,7 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
 
     def test_objdump_not_installed_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
 
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_objdump_analyze({"binary": "/bin/ls"}))
@@ -7309,7 +7309,7 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
     def test_objdump_disassemble_flag_used(self):
         """When disassemble=True (default) the -d flag must be in the command."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
 
         captured = []
 
@@ -7318,8 +7318,8 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
             return "disassembly output", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/objdump"):
-            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
-                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penlearn_mcp.tools.binary._persist", new_callable=AsyncMock):
                     asyncio.run(_objdump_analyze({"binary": "/bin/ls"}))
 
         self.assertIn("-d", captured)
@@ -7328,7 +7328,7 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
     def test_objdump_headers_flag_when_no_disassemble(self):
         """When disassemble=False the -x flag must replace -d."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
 
         captured = []
 
@@ -7337,8 +7337,8 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
             return "header output", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/objdump"):
-            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
-                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penlearn_mcp.tools.binary._persist", new_callable=AsyncMock):
                     asyncio.run(_objdump_analyze({"binary": "/bin/ls", "disassemble": False}))
 
         self.assertIn("-x", captured)
@@ -7347,7 +7347,7 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
     def test_objdump_section_flag(self):
         """When section is specified, -j <section> must appear in the command."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
 
         captured = []
 
@@ -7356,8 +7356,8 @@ class TestObjdumpBinaryGuard(unittest.TestCase):
             return "section output", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/objdump"):
-            with patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run):
-                with patch("penligent_mcp.tools.binary._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run):
+                with patch("penlearn_mcp.tools.binary._persist", new_callable=AsyncMock):
                     asyncio.run(_objdump_analyze({"binary": "/bin/ls", "section": ".text"}))
 
         self.assertIn("-j", captured)
@@ -7389,17 +7389,17 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_checksec_file_eq_format(self):
         """`checksec --file=<binary>` format must be used (not --file <binary>)."""
-        from penligent_mcp.tools.binary import _checksec
+        from penlearn_mcp.tools.binary import _checksec
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/checksec"):
-            cmd = self._capture(_checksec({"binary": "/tmp/vuln"}), "penligent_mcp.tools.binary")
+            cmd = self._capture(_checksec({"binary": "/tmp/vuln"}), "penlearn_mcp.tools.binary")
         self.assertIn("--file=/tmp/vuln", cmd)
 
     def test_xxd_hexdump_offset_flag(self):
         """-s offset must appear when offset is supplied."""
-        from penligent_mcp.tools.binary import _xxd_hexdump
+        from penlearn_mcp.tools.binary import _xxd_hexdump
         cmd = self._capture(
             _xxd_hexdump({"file_path": "/tmp/f.bin", "offset": 16}),
-            "penligent_mcp.tools.binary",
+            "penlearn_mcp.tools.binary",
         )
         self.assertIn("-s", cmd)
         s_idx = cmd.index("-s")
@@ -7407,10 +7407,10 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_xxd_hexdump_length_flag(self):
         """-l length must appear when length is supplied."""
-        from penligent_mcp.tools.binary import _xxd_hexdump
+        from penlearn_mcp.tools.binary import _xxd_hexdump
         cmd = self._capture(
             _xxd_hexdump({"file_path": "/tmp/f.bin", "length": 64}),
-            "penligent_mcp.tools.binary",
+            "penlearn_mcp.tools.binary",
         )
         self.assertIn("-l", cmd)
         l_idx = cmd.index("-l")
@@ -7418,40 +7418,40 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_xxd_hexdump_no_length_flag_when_omitted(self):
         """-l must not appear when length is not provided."""
-        from penligent_mcp.tools.binary import _xxd_hexdump
+        from penlearn_mcp.tools.binary import _xxd_hexdump
         cmd = self._capture(
             _xxd_hexdump({"file_path": "/tmp/f.bin"}),
-            "penligent_mcp.tools.binary",
+            "penlearn_mcp.tools.binary",
         )
         self.assertNotIn("-l", cmd)
 
     def test_binwalk_extract_flag(self):
         """-e must appear when extract=True."""
-        from penligent_mcp.tools.binary import _binwalk_analyze
+        from penlearn_mcp.tools.binary import _binwalk_analyze
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/binwalk"):
             cmd = self._capture(
                 _binwalk_analyze({"file_path": "/tmp/fw.bin", "extract": True}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("-e", cmd)
 
     def test_binwalk_no_extract_flag_when_false(self):
         """-e must NOT appear when extract=False."""
-        from penligent_mcp.tools.binary import _binwalk_analyze
+        from penlearn_mcp.tools.binary import _binwalk_analyze
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/binwalk"):
             cmd = self._capture(
                 _binwalk_analyze({"file_path": "/tmp/fw.bin", "extract": False}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertNotIn("-e", cmd)
 
     def test_ropgadget_binary_flag(self):
         """ROPgadget must use --binary flag."""
-        from penligent_mcp.tools.binary import _ropgadget_search
+        from penlearn_mcp.tools.binary import _ropgadget_search
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/ROPgadget"):
             cmd = self._capture(
                 _ropgadget_search({"binary": "/tmp/vuln"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("--binary", cmd)
         b_idx = cmd.index("--binary")
@@ -7459,11 +7459,11 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_ropgadget_only_filter(self):
         """--only filter must appear when only= is specified."""
-        from penligent_mcp.tools.binary import _ropgadget_search
+        from penlearn_mcp.tools.binary import _ropgadget_search
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/ROPgadget"):
             cmd = self._capture(
                 _ropgadget_search({"binary": "/tmp/vuln", "only": "pop|ret"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("--only", cmd)
         o_idx = cmd.index("--only")
@@ -7471,11 +7471,11 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_steghide_extract_command(self):
         """extract action must build `steghide extract -sf cover -p passphrase` command."""
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/steghide"):
             cmd = self._capture(
                 _steghide_analyze({"cover_file": "/tmp/img.jpg", "action": "extract", "passphrase": "secret"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("extract", cmd)
         self.assertIn("-sf", cmd)
@@ -7485,11 +7485,11 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_steghide_info_command(self):
         """info action must build `steghide info cover` command."""
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/steghide"):
             cmd = self._capture(
                 _steghide_analyze({"cover_file": "/tmp/img.jpg", "action": "info"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("info", cmd)
         self.assertNotIn("embed", cmd)
@@ -7497,31 +7497,31 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_exiftool_json_format(self):
         """output_format='json' must produce -json flag."""
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
             cmd = self._capture(
                 _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "json"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("-json", cmd)
 
     def test_exiftool_xml_format(self):
         """output_format='xml' must produce -xml flag."""
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
             cmd = self._capture(
                 _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "xml"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("-xml", cmd)
 
     def test_exiftool_no_format_flag_for_unknown(self):
         """output_format='txt' (not in json/xml/csv) must produce NO format flag."""
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/exiftool"):
             cmd = self._capture(
                 _exiftool_extract({"file_path": "/tmp/img.jpg", "output_format": "txt"}),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertNotIn("-txt", cmd)
         self.assertNotIn("-json", cmd)
@@ -7529,7 +7529,7 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
 
     def test_hashpump_all_flags(self):
         """hashpump must receive -s, -d, -k, -a flags with correct values."""
-        from penligent_mcp.tools.binary import _hashpump_attack
+        from penlearn_mcp.tools.binary import _hashpump_attack
         with __import__("unittest.mock", fromlist=["patch"]).patch("shutil.which", return_value="/usr/bin/hashpump"):
             cmd = self._capture(
                 _hashpump_attack({
@@ -7538,7 +7538,7 @@ class TestBinaryToolCmdConstruction(unittest.TestCase):
                     "key_length": 8,
                     "append_data": "admin",
                 }),
-                "penligent_mcp.tools.binary",
+                "penlearn_mcp.tools.binary",
             )
         self.assertIn("-s", cmd)
         self.assertEqual(cmd[cmd.index("-s") + 1], "deadbeef")
@@ -7565,7 +7565,7 @@ class TestReportNullDescription(unittest.TestCase):
 
     def test_no_typeerror_when_description_is_none(self):
         """Chained finding with description=None must not raise TypeError."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings = [
             {"id": 1, "title": "SQLi", "severity": "critical",
              "verify_status": "verified", "attack_chain_position": 1,
@@ -7578,7 +7578,7 @@ class TestReportNullDescription(unittest.TestCase):
 
     def test_description_truncated_to_120_chars_when_present(self):
         """When description is set, only the first 120 characters should appear in the chain."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         long_desc = "X" * 200
         findings = [
             {"id": 1, "title": "RCE", "severity": "high",
@@ -7592,7 +7592,7 @@ class TestReportNullDescription(unittest.TestCase):
 
     def test_empty_string_description_handled_cleanly(self):
         """Empty string description must also not crash."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings = [
             {"id": 1, "title": "XSS", "severity": "medium",
              "verify_status": "open", "attack_chain_position": 2,
@@ -7610,18 +7610,18 @@ class TestReportBuildControlsJson(unittest.TestCase):
     """_build_controls_json aggregates compliance controls across findings."""
 
     def test_empty_findings_returns_empty_dict(self):
-        from penligent_mcp.tools.report import _build_controls_json
+        from penlearn_mcp.tools.report import _build_controls_json
         self.assertEqual(_build_controls_json([]), {})
 
     def test_finding_without_controls_skipped(self):
-        from penligent_mcp.tools.report import _build_controls_json
+        from penlearn_mcp.tools.report import _build_controls_json
         findings = [{"id": 1, "title": "Test", "severity": "high",
                      "compliance_controls_json": None}]
         self.assertEqual(_build_controls_json(findings), {})
 
     def test_single_finding_with_controls_indexed(self):
         import json
-        from penligent_mcp.tools.report import _build_controls_json
+        from penlearn_mcp.tools.report import _build_controls_json
         findings = [
             {"id": 1, "title": "SQLi", "severity": "critical",
              "compliance_controls_json": json.dumps({
@@ -7637,7 +7637,7 @@ class TestReportBuildControlsJson(unittest.TestCase):
     def test_two_findings_same_control_merged(self):
         """Multiple findings mapped to the same control must be listed under that control."""
         import json
-        from penligent_mcp.tools.report import _build_controls_json
+        from penlearn_mcp.tools.report import _build_controls_json
         findings = [
             {"id": 1, "title": "SQLi", "severity": "critical",
              "compliance_controls_json": json.dumps({"OWASP": ["A03:2021"]})},
@@ -7653,7 +7653,7 @@ class TestReportBuildControlsJson(unittest.TestCase):
 
     def test_malformed_json_skipped_gracefully(self):
         """Findings with invalid JSON in compliance_controls_json must be skipped."""
-        from penligent_mcp.tools.report import _build_controls_json
+        from penlearn_mcp.tools.report import _build_controls_json
         findings = [
             {"id": 1, "title": "Bad JSON", "severity": "low",
              "compliance_controls_json": "not-valid-json"},
@@ -7687,7 +7687,7 @@ class TestReportFindingMdStructures(unittest.TestCase):
 
     def test_repro_steps_list_rendered_as_numbered_list(self):
         import json
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         f = self._finding(repro_steps_json=json.dumps([
             "Browse to /api/users/1",
             "Change 1 to 2 in the URL",
@@ -7700,7 +7700,7 @@ class TestReportFindingMdStructures(unittest.TestCase):
 
     def test_remediation_dict_renders_owner_and_actions(self):
         import json
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         rem = {
             "owner": "backend-team",
             "priority": "P1",
@@ -7715,7 +7715,7 @@ class TestReportFindingMdStructures(unittest.TestCase):
 
     def test_compliance_controls_rendered(self):
         import json
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         ctrl = {"OWASP_ASVS": ["V4.2.1"], "PCI_DSS": ["6.2.4"]}
         f = self._finding(compliance_controls_json=json.dumps(ctrl))
         result = _build_finding_md(f, 1)
@@ -7726,7 +7726,7 @@ class TestReportFindingMdStructures(unittest.TestCase):
 
     def test_evidence_json_dict_formatted_as_code_block(self):
         import json
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         evidence = {"method": "GET", "url": "/api/users/2", "status": 200}
         f = self._finding(evidence_json=json.dumps(evidence))
         result = _build_finding_md(f, 1)
@@ -7736,7 +7736,7 @@ class TestReportFindingMdStructures(unittest.TestCase):
 
     def test_missing_optional_fields_no_crash(self):
         """Finding with only required fields must render without raising."""
-        from penligent_mcp.tools.report import _build_finding_md
+        from penlearn_mcp.tools.report import _build_finding_md
         minimal = {
             "id": 99, "title": "Minimal Finding", "severity": "info",
             "verify_status": "open",
@@ -7766,10 +7766,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_trivy_scan_type_and_format(self):
         """trivy must use the scan_type as a positional arg and --format."""
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         cmd = self._capture(
             _trivy_scan({"target": "ubuntu:20.04", "scan_type": "image", "output_format": "json"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/trivy",
+            "penlearn_mcp.tools.cloud", "/usr/bin/trivy",
         )
         self.assertIn("image", cmd)
         self.assertIn("--format", cmd)
@@ -7778,10 +7778,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_trivy_severity_filter(self):
         """--severity must appear when severity is specified."""
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         cmd = self._capture(
             _trivy_scan({"target": "nginx:latest", "severity": "CRITICAL,HIGH"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/trivy",
+            "penlearn_mcp.tools.cloud", "/usr/bin/trivy",
         )
         self.assertIn("--severity", cmd)
         sev_idx = cmd.index("--severity")
@@ -7789,10 +7789,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_kube_hunter_remote_target(self):
         """When target is given, --remote flag must be used."""
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         cmd = self._capture(
             _kube_hunter({"target": "10.10.10.1"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+            "penlearn_mcp.tools.cloud", "/usr/bin/kube-hunter",
         )
         self.assertIn("--remote", cmd)
         r_idx = cmd.index("--remote")
@@ -7800,10 +7800,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_kube_hunter_cidr_mode(self):
         """When cidr is given (and no target), --cidr must be used."""
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         cmd = self._capture(
             _kube_hunter({"cidr": "10.0.0.0/24"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+            "penlearn_mcp.tools.cloud", "/usr/bin/kube-hunter",
         )
         self.assertIn("--cidr", cmd)
         self.assertNotIn("--remote", cmd)
@@ -7811,37 +7811,37 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_kube_hunter_pod_mode_when_no_target_no_cidr(self):
         """When neither target nor cidr is given, --pod fallback must be used."""
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         cmd = self._capture(
             _kube_hunter({}),
-            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+            "penlearn_mcp.tools.cloud", "/usr/bin/kube-hunter",
         )
         self.assertIn("--pod", cmd)
 
     def test_kube_hunter_active_flag(self):
         """--active must appear when active=True."""
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         cmd = self._capture(
             _kube_hunter({"active": True}),
-            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+            "penlearn_mcp.tools.cloud", "/usr/bin/kube-hunter",
         )
         self.assertIn("--active", cmd)
 
     def test_kube_hunter_no_active_flag_by_default(self):
         """--active must NOT appear when active is False (default)."""
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         cmd = self._capture(
             _kube_hunter({}),
-            "penligent_mcp.tools.cloud", "/usr/bin/kube-hunter",
+            "penlearn_mcp.tools.cloud", "/usr/bin/kube-hunter",
         )
         self.assertNotIn("--active", cmd)
 
     def test_checkov_directory_flag(self):
         """checkov must use -d for the directory argument."""
-        from penligent_mcp.tools.cloud import _checkov_scan
+        from penlearn_mcp.tools.cloud import _checkov_scan
         cmd = self._capture(
             _checkov_scan({"directory": "/app/terraform"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/checkov",
+            "penlearn_mcp.tools.cloud", "/usr/bin/checkov",
         )
         self.assertIn("-d", cmd)
         d_idx = cmd.index("-d")
@@ -7849,10 +7849,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_checkov_framework_flag(self):
         """--framework must appear when framework is specified."""
-        from penligent_mcp.tools.cloud import _checkov_scan
+        from penlearn_mcp.tools.cloud import _checkov_scan
         cmd = self._capture(
             _checkov_scan({"framework": "terraform"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/checkov",
+            "penlearn_mcp.tools.cloud", "/usr/bin/checkov",
         )
         self.assertIn("--framework", cmd)
         fw_idx = cmd.index("--framework")
@@ -7860,10 +7860,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_falco_monitor_uses_timeout_wrapper(self):
         """falco_monitor must wrap falco in `timeout <duration>` to enforce monitoring limit."""
-        from penligent_mcp.tools.cloud import _falco_monitor
+        from penlearn_mcp.tools.cloud import _falco_monitor
         cmd = self._capture(
             _falco_monitor({"duration": 30}),
-            "penligent_mcp.tools.cloud", "/usr/bin/falco",
+            "penlearn_mcp.tools.cloud", "/usr/bin/falco",
         )
         self.assertEqual(cmd[0], "timeout")
         self.assertEqual(cmd[1], "30")
@@ -7871,10 +7871,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_falco_rules_file_flag(self):
         """--rules must appear when rules_file is specified."""
-        from penligent_mcp.tools.cloud import _falco_monitor
+        from penlearn_mcp.tools.cloud import _falco_monitor
         cmd = self._capture(
             _falco_monitor({"rules_file": "/etc/falco/custom.yaml"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/falco",
+            "penlearn_mcp.tools.cloud", "/usr/bin/falco",
         )
         self.assertIn("--rules", cmd)
         r_idx = cmd.index("--rules")
@@ -7882,10 +7882,10 @@ class TestCloudToolCmdConstruction(unittest.TestCase):
 
     def test_terrascan_iac_type_and_dir(self):
         """terrascan must pass -t iac_type and -d iac_dir."""
-        from penligent_mcp.tools.cloud import _terrascan_scan
+        from penlearn_mcp.tools.cloud import _terrascan_scan
         cmd = self._capture(
             _terrascan_scan({"iac_type": "terraform", "iac_dir": "/app/infra"}),
-            "penligent_mcp.tools.cloud", "/usr/bin/terrascan",
+            "penlearn_mcp.tools.cloud", "/usr/bin/terrascan",
         )
         self.assertIn("-t", cmd)
         t_idx = cmd.index("-t")
@@ -7901,7 +7901,7 @@ class TestSprayHttpEdgeCases(unittest.TestCase):
     def _run_spray(self, curl_output: str, failure_string: str = "Invalid") -> str:
         import tempfile, os
         from unittest.mock import patch
-        from penligent_mcp.tools.passwords import _spray_http
+        from penlearn_mcp.tools.passwords import _spray_http
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
             f.write("alice\n")
@@ -7911,7 +7911,7 @@ class TestSprayHttpEdgeCases(unittest.TestCase):
             return curl_output, "", 0
 
         try:
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run):
                 result_list = asyncio.run(_spray_http({
                     "url": "http://target/login",
                     "password": "P@ssw0rd",
@@ -7974,8 +7974,8 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
             return "ok", "", 0
 
         with patch("shutil.which", return_value=which_val):
-            with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.exploit._persist", new_callable=AsyncMock):
                     result = self._run(handler_coro)
         return result, captured
 
@@ -7983,20 +7983,20 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
 
     def test_msfvenom_linux_no_binary_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.exploit import _msfvenom_linux
+        from penlearn_mcp.tools.exploit import _msfvenom_linux
         with patch("shutil.which", return_value=None):
             result = self._run(_msfvenom_linux({"lhost": "10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("msfvenom", result)
 
     def test_msfvenom_linux_missing_lhost_returns_error(self):
-        from penligent_mcp.tools.exploit import _msfvenom_linux
+        from penlearn_mcp.tools.exploit import _msfvenom_linux
         result, _ = self._capture_exploit(_msfvenom_linux({}))
         self.assertIn("Error", result)
         self.assertIn("lhost", result)
 
     def test_msfvenom_linux_cmd_has_payload_and_lhost(self):
-        from penligent_mcp.tools.exploit import _msfvenom_linux
+        from penlearn_mcp.tools.exploit import _msfvenom_linux
         _, cmd = self._capture_exploit(_msfvenom_linux({"lhost": "10.0.0.1", "lport": 9001}))
         self.assertIn("linux/x64/shell_reverse_tcp", cmd)
         self.assertIn("LHOST=10.0.0.1", cmd)
@@ -8004,13 +8004,13 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
 
     def test_msfvenom_windows_no_binary_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.exploit import _msfvenom_windows
+        from penlearn_mcp.tools.exploit import _msfvenom_windows
         with patch("shutil.which", return_value=None):
             result = self._run(_msfvenom_windows({"lhost": "10.0.0.1"}))
         self.assertIn("Error", result)
 
     def test_msfvenom_windows_encoder_adds_e_flag(self):
-        from penligent_mcp.tools.exploit import _msfvenom_windows
+        from penlearn_mcp.tools.exploit import _msfvenom_windows
         _, cmd = self._capture_exploit(
             _msfvenom_windows({"lhost": "10.0.0.1", "encoder": "x64/xor"})
         )
@@ -8019,19 +8019,19 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
         self.assertIn("-i", cmd)
 
     def test_msfvenom_windows_no_encoder_no_e_flag(self):
-        from penligent_mcp.tools.exploit import _msfvenom_windows
+        from penlearn_mcp.tools.exploit import _msfvenom_windows
         _, cmd = self._capture_exploit(_msfvenom_windows({"lhost": "10.0.0.1"}))
         self.assertNotIn("-e", cmd)
 
     def test_msfvenom_php_no_binary_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.exploit import _msfvenom_php
+        from penlearn_mcp.tools.exploit import _msfvenom_php
         with patch("shutil.which", return_value=None):
             result = self._run(_msfvenom_php({"lhost": "10.0.0.1"}))
         self.assertIn("Error", result)
 
     def test_msfvenom_php_cmd_uses_raw_format(self):
-        from penligent_mcp.tools.exploit import _msfvenom_php
+        from penlearn_mcp.tools.exploit import _msfvenom_php
         _, cmd = self._capture_exploit(_msfvenom_php({"lhost": "10.0.0.1"}))
         self.assertIn("php/reverse_php", cmd)
         self.assertIn("-f", cmd)
@@ -8041,19 +8041,19 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
 
     def test_impacket_psexec_no_binary_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         with patch("shutil.which", return_value=None):
             result = self._run(_impacket_psexec({"target": "10.0.0.1", "username": "admin"}))
         self.assertIn("Error", result)
         self.assertIn("impacket", result)
 
     def test_impacket_psexec_missing_target_returns_error(self):
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         result, _ = self._capture_exploit(_impacket_psexec({"username": "admin"}))
         self.assertIn("Error", result)
 
     def test_impacket_psexec_nt_hash_uses_hashes_flag(self):
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         _, cmd = self._capture_exploit(
             _impacket_psexec({
                 "target": "10.0.0.1", "username": "admin",
@@ -8065,7 +8065,7 @@ class TestExploitSubprocessToolGuards(unittest.TestCase):
         self.assertIn(":aad3b435b51404eeaad3b435b51404ee", cmd)
 
     def test_impacket_psexec_no_hash_no_hashes_flag(self):
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         _, cmd = self._capture_exploit(
             _impacket_psexec({"target": "10.0.0.1", "username": "admin", "password": "pass"}),
             which_val="/usr/bin/impacket-psexec",
@@ -8081,7 +8081,7 @@ class TestChiselTunnel(unittest.TestCase):
     """_chisel_tunnel generates correct command strings for each tunnel type."""
 
     def _run(self, **kwargs) -> str:
-        from penligent_mcp.tools.exploit import _chisel_tunnel
+        from penlearn_mcp.tools.exploit import _chisel_tunnel
         return asyncio.run(_chisel_tunnel(kwargs))
 
     def test_socks5_uses_local_port_in_r_socks(self):
@@ -8132,18 +8132,18 @@ class TestGtfobinsLookup(unittest.TestCase):
 
     def _lookup(self, binary, function="", curl_rc=1) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.exploit import _gtfobins_lookup
+        from penlearn_mcp.tools.exploit import _gtfobins_lookup
 
         async def fake_sub(cmd, timeout=10):
             # Simulate curl failure so offline path is used
             return "", "curl: (6) Could not resolve host", curl_rc
 
-        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.exploit._persist", new_callable=AsyncMock):
                 return asyncio.run(_gtfobins_lookup({"binary": binary, "function": function}))
 
     def test_missing_binary_returns_error(self):
-        from penligent_mcp.tools.exploit import _gtfobins_lookup
+        from penlearn_mcp.tools.exploit import _gtfobins_lookup
         result = asyncio.run(_gtfobins_lookup({}))
         self.assertIn("Error", result)
         self.assertIn("binary", result)
@@ -8176,17 +8176,17 @@ class TestLolbasLookup(unittest.TestCase):
 
     def _lookup(self, binary, function="") -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.exploit import _lolbas_lookup
+        from penlearn_mcp.tools.exploit import _lolbas_lookup
 
         async def fake_sub(cmd, timeout=10):
             return "", "curl error", 1
 
-        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.exploit._persist", new_callable=AsyncMock):
                 return asyncio.run(_lolbas_lookup({"binary": binary, "function": function}))
 
     def test_missing_binary_returns_error(self):
-        from penligent_mcp.tools.exploit import _lolbas_lookup
+        from penlearn_mcp.tools.exploit import _lolbas_lookup
         result = asyncio.run(_lolbas_lookup({}))
         self.assertIn("Error", result)
 
@@ -8218,7 +8218,7 @@ class TestLinpeasOutputFileQuoting(unittest.TestCase):
     def test_output_file_with_spaces_is_quoted(self):
         """A path with spaces must be shell-quoted so tee receives it as one token."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.exploit import _linpeas_run
+        from penlearn_mcp.tools.exploit import _linpeas_run
 
         captured_cmds = []
 
@@ -8226,8 +8226,8 @@ class TestLinpeasOutputFileQuoting(unittest.TestCase):
             captured_cmds.extend(cmd)
             return "", "", 0
 
-        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.exploit._persist", new_callable=AsyncMock):
                 asyncio.run(_linpeas_run({"output_file": "/tmp/my output.txt"}))
 
         shell_str = " ".join(captured_cmds)
@@ -8238,7 +8238,7 @@ class TestLinpeasOutputFileQuoting(unittest.TestCase):
     def test_output_file_default_path_safe(self):
         """Default path /tmp/linpeas_output.txt must appear in the shell command."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.exploit import _linpeas_run
+        from penlearn_mcp.tools.exploit import _linpeas_run
 
         captured_cmds = []
 
@@ -8246,8 +8246,8 @@ class TestLinpeasOutputFileQuoting(unittest.TestCase):
             captured_cmds.extend(cmd)
             return "output line", "", 0
 
-        with patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.exploit._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.exploit._persist", new_callable=AsyncMock):
                 result = asyncio.run(_linpeas_run({}))
 
         shell_str = " ".join(captured_cmds)
@@ -8270,14 +8270,14 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     def test_nuclei_missing_returns_error(self):
         """All nuclei tools call _nuclei_run which checks shutil.which('nuclei')."""
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _nuclei_cves
+        from penlearn_mcp.tools.scanner import _nuclei_cves
         with patch("shutil.which", return_value=None):
             result = self._run(_nuclei_cves({"target": "http://10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("nuclei", result)
 
     def test_nuclei_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _nuclei_cves
+        from penlearn_mcp.tools.scanner import _nuclei_cves
         result = self._run(_nuclei_cves({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -8286,14 +8286,14 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
 
     def test_sqli_detect_sqlmap_missing_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         with patch("shutil.which", return_value=None):
             result = self._run(_sqli_detect({"target": "http://10.0.0.1/?id=1"}))
         self.assertIn("Error", result)
         self.assertIn("sqlmap", result)
 
     def test_sqli_detect_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         result = self._run(_sqli_detect({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -8301,7 +8301,7 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     def test_sqli_detect_target_with_semicolon_blocked(self):
         """Semicolons in target are shell metacharacters and must be rejected."""
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
             result = self._run(_sqli_detect({"target": "http://host/; id"}))
         self.assertIn("Error", result)
@@ -8310,7 +8310,7 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     def test_sqli_detect_data_with_pipe_blocked(self):
         """Pipe in data field is a shell metacharacter and must be rejected."""
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
             result = self._run(_sqli_detect({
                 "target": "http://host/", "data": "user=foo | id"
@@ -8320,7 +8320,7 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     def test_sqli_detect_param_starting_with_dash_blocked(self):
         """param that starts with '-' looks like a flag and must be rejected."""
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
             result = self._run(_sqli_detect({
                 "target": "http://host/", "param": "--os-shell"
@@ -8331,7 +8331,7 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
 
     def test_xss_probe_dalfox_missing_returns_install_hint(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _xss_probe
+        from penlearn_mcp.tools.scanner import _xss_probe
         with patch("shutil.which", return_value=None):
             result = self._run(_xss_probe({"target": "http://host/?q=test"}))
         self.assertIn("dalfox", result)
@@ -8339,7 +8339,7 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
 
     def test_testssl_missing_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _testssl_scan
+        from penlearn_mcp.tools.scanner import _testssl_scan
         with patch("shutil.which", return_value=None):
             result = self._run(_testssl_scan({"target": "example.com:443"}))
         self.assertIn("Error", result)
@@ -8348,14 +8348,14 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     # --- searchsploit ---
 
     def test_searchsploit_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _searchsploit
+        from penlearn_mcp.tools.scanner import _searchsploit
         result = self._run(_searchsploit({}))
         self.assertIn("Error", result)
         self.assertIn("query", result)
 
     def test_searchsploit_binary_missing_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _searchsploit
+        from penlearn_mcp.tools.scanner import _searchsploit
         with patch("shutil.which", return_value=None):
             result = self._run(_searchsploit({"query": "vsftpd 2.3.4"}))
         self.assertIn("Error", result)
@@ -8364,13 +8364,13 @@ class TestScannerBinaryGuardsAndErrors(unittest.TestCase):
     # --- parsing_diff and dom_taint empty target ---
 
     def test_parsing_diff_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _parsing_diff
+        from penlearn_mcp.tools.scanner import _parsing_diff
         result = self._run(_parsing_diff({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
 
     def test_dom_taint_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _dom_taint
+        from penlearn_mcp.tools.scanner import _dom_taint
         result = self._run(_dom_taint({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -8385,25 +8385,25 @@ class TestRunSubprocessFileNotFound(unittest.TestCase):
 
     def test_missing_binary_returns_minus_one(self):
         """If the executable does not exist, returncode must be -1."""
-        from penligent_mcp.tools._helpers import _run_subprocess
+        from penlearn_mcp.tools._helpers import _run_subprocess
         _, stderr, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
         self.assertEqual(rc, -1)
 
     def test_missing_binary_stderr_mentions_binary(self):
         """The error message must name the missing binary."""
-        from penligent_mcp.tools._helpers import _run_subprocess
+        from penlearn_mcp.tools._helpers import _run_subprocess
         _, stderr, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
         self.assertIn("/no/such/binary/xyz", stderr)
         self.assertIn("not found", stderr)
 
     def test_missing_binary_stdout_is_empty(self):
-        from penligent_mcp.tools._helpers import _run_subprocess
+        from penlearn_mcp.tools._helpers import _run_subprocess
         stdout, _, rc = asyncio.run(_run_subprocess(["/no/such/binary/xyz"]))
         self.assertEqual(stdout, "")
 
     def test_valid_binary_returns_zero(self):
         """A real binary (echo) must execute and return 0."""
-        from penligent_mcp.tools._helpers import _run_subprocess
+        from penlearn_mcp.tools._helpers import _run_subprocess
         stdout, _, rc = asyncio.run(_run_subprocess(["echo", "hello"]))
         self.assertEqual(rc, 0)
         self.assertIn("hello", stdout)
@@ -8411,26 +8411,26 @@ class TestRunSubprocessFileNotFound(unittest.TestCase):
     def test_subdomain_enum_propagates_run_subprocess_error(self):
         """When _run_subprocess returns -1, _subdomain_enum must surface the error string."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.recon import _subdomain_enum
+        from penlearn_mcp.tools.recon import _subdomain_enum
 
         async def fake_sub(cmd, timeout=120):
             return "", f"Error: {cmd[0]} not found in PATH.", -1
 
-        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                 result = asyncio.run(_subdomain_enum({"domain": "example.com"}))
         self.assertIn("not found", result)
 
     def test_port_scan_propagates_run_subprocess_error(self):
         """When _run_subprocess returns -1, _port_scan must surface the error string."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.recon import _port_scan
+        from penlearn_mcp.tools.recon import _port_scan
 
         async def fake_sub(cmd, timeout=180):
             return "", "Error: nmap not found in PATH.", -1
 
-        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                 result = asyncio.run(_port_scan({"target": "10.0.0.1"}))
         self.assertIn("nmap", result)
         self.assertIn("not found", result)
@@ -8452,42 +8452,42 @@ class TestWebOriginalToolBinaryGuards(unittest.TestCase):
 
     # nikto_scan
     def test_nikto_missing_binary(self):
-        from penligent_mcp.tools.web import _nikto_scan
+        from penlearn_mcp.tools.web import _nikto_scan
         with self._no_which():
             r = self._run(_nikto_scan({"target": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("nikto", r)
 
     def test_nikto_missing_target(self):
-        from penligent_mcp.tools.web import _nikto_scan
+        from penlearn_mcp.tools.web import _nikto_scan
         r = self._run(_nikto_scan({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     # wordpress_scan
     def test_wpscan_missing_binary(self):
-        from penligent_mcp.tools.web import _wordpress_scan
+        from penlearn_mcp.tools.web import _wordpress_scan
         with self._no_which():
             r = self._run(_wordpress_scan({"target": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("wpscan", r)
 
     def test_wpscan_missing_target(self):
-        from penligent_mcp.tools.web import _wordpress_scan
+        from penlearn_mcp.tools.web import _wordpress_scan
         r = self._run(_wordpress_scan({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
 
     # auth_brute_http
     def test_auth_brute_missing_binary(self):
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
         with self._no_which():
             r = self._run(_auth_brute_http({"target": "http://10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("hydra", r)
 
     def test_auth_brute_missing_target(self):
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
         r = self._run(_auth_brute_http({}))
         self.assertIn("Error", r)
         self.assertIn("target", r)
@@ -8504,7 +8504,7 @@ class TestAuthBruteHttpScheme(unittest.TestCase):
         """Run _auth_brute_http with hydra mocked; return (result_str, captured_cmd)."""
         import asyncio
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
         captured = []
 
         async def fake_sub(cmd, timeout=300):
@@ -8512,8 +8512,8 @@ class TestAuthBruteHttpScheme(unittest.TestCase):
             return "", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = asyncio.run(_auth_brute_http(args))
         return result, captured
 
@@ -8551,7 +8551,7 @@ class TestAuthBruteHttpScheme(unittest.TestCase):
         """Lines containing '[http' and 'login:' must be extracted as found credentials."""
         import asyncio
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
 
         cred_line = "[22][http-post-form] host: 10.10.10.1   login: admin   password: secret"
 
@@ -8559,8 +8559,8 @@ class TestAuthBruteHttpScheme(unittest.TestCase):
             return cred_line + "\n", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = asyncio.run(_auth_brute_http({"target": "http://10.10.10.1"}))
         self.assertIn("Credentials found", result)
         self.assertIn("admin", result)
@@ -8569,14 +8569,14 @@ class TestAuthBruteHttpScheme(unittest.TestCase):
         """When stdout has no credential lines, report no credentials found."""
         import asyncio
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
 
         async def fake_sub(cmd, timeout=300):
             return "Hydra starting...\n1 of 1 target completed\n", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.web._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.web._persist", new_callable=AsyncMock):
                     result = asyncio.run(_auth_brute_http({"target": "http://10.10.10.1"}))
         self.assertIn("No credentials found", result)
 
@@ -8598,14 +8598,14 @@ class TestHydraCommandConstruction(unittest.TestCase):
             captured.extend(cmd)
             return "hydra output", "", 0
 
-        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.passwords._chk", return_value=True):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run):
                 result = asyncio.run(handler_fn(args))
         return result, captured
 
     # hydra_ssh
     def test_hydra_ssh_cmd_contains_ssh_url(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         _, cmd = self._capture_passwords(_hydra_ssh, {
             "target": "10.10.10.1", "username": "admin",
         })
@@ -8613,26 +8613,26 @@ class TestHydraCommandConstruction(unittest.TestCase):
         self.assertIn("10.10.10.1", " ".join(cmd))
 
     def test_hydra_ssh_default_port_22(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         _, cmd = self._capture_passwords(_hydra_ssh, {
             "target": "10.10.10.1", "username": "admin",
         })
         self.assertIn("ssh://10.10.10.1:22", cmd)
 
     def test_hydra_ssh_custom_port(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         _, cmd = self._capture_passwords(_hydra_ssh, {
             "target": "10.10.10.1", "username": "admin", "port": 2222,
         })
         self.assertIn("ssh://10.10.10.1:2222", cmd)
 
     def test_hydra_ssh_missing_username_returns_error(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         result = asyncio.run(_hydra_ssh({"target": "10.10.10.1"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
     def test_hydra_ssh_username_flag(self):
-        from penligent_mcp.tools.passwords import _hydra_ssh
+        from penlearn_mcp.tools.passwords import _hydra_ssh
         _, cmd = self._capture_passwords(_hydra_ssh, {
             "target": "10.10.10.1", "username": "john",
         })
@@ -8641,14 +8641,14 @@ class TestHydraCommandConstruction(unittest.TestCase):
 
     # hydra_ftp
     def test_hydra_ftp_cmd_contains_ftp_url(self):
-        from penligent_mcp.tools.passwords import _hydra_ftp
+        from penlearn_mcp.tools.passwords import _hydra_ftp
         _, cmd = self._capture_passwords(_hydra_ftp, {
             "target": "10.10.10.1", "username": "admin",
         })
         self.assertIn("ftp://10.10.10.1:21", cmd)
 
     def test_hydra_ftp_custom_port(self):
-        from penligent_mcp.tools.passwords import _hydra_ftp
+        from penlearn_mcp.tools.passwords import _hydra_ftp
         _, cmd = self._capture_passwords(_hydra_ftp, {
             "target": "10.10.10.1", "username": "admin", "port": 2121,
         })
@@ -8656,7 +8656,7 @@ class TestHydraCommandConstruction(unittest.TestCase):
 
     # hydra_smb
     def test_hydra_smb_cmd_contains_smb_url(self):
-        from penligent_mcp.tools.passwords import _hydra_smb
+        from penlearn_mcp.tools.passwords import _hydra_smb
         _, cmd = self._capture_passwords(_hydra_smb, {
             "target": "10.10.10.1", "username": "administrator",
         })
@@ -8664,7 +8664,7 @@ class TestHydraCommandConstruction(unittest.TestCase):
 
     def test_hydra_smb_uses_thread_1(self):
         """SMB brute-force must use -t 1 to avoid lockouts."""
-        from penligent_mcp.tools.passwords import _hydra_smb
+        from penlearn_mcp.tools.passwords import _hydra_smb
         _, cmd = self._capture_passwords(_hydra_smb, {
             "target": "10.10.10.1", "username": "admin",
         })
@@ -8673,14 +8673,14 @@ class TestHydraCommandConstruction(unittest.TestCase):
 
     # hydra_rdp
     def test_hydra_rdp_cmd_contains_rdp_url(self):
-        from penligent_mcp.tools.passwords import _hydra_rdp
+        from penlearn_mcp.tools.passwords import _hydra_rdp
         _, cmd = self._capture_passwords(_hydra_rdp, {
             "target": "10.10.10.1", "username": "admin",
         })
         self.assertIn("rdp://10.10.10.1:3389", cmd)
 
     def test_hydra_rdp_custom_port(self):
-        from penligent_mcp.tools.passwords import _hydra_rdp
+        from penlearn_mcp.tools.passwords import _hydra_rdp
         _, cmd = self._capture_passwords(_hydra_rdp, {
             "target": "10.10.10.1", "username": "admin", "port": 3390,
         })
@@ -8688,14 +8688,14 @@ class TestHydraCommandConstruction(unittest.TestCase):
 
     # hydra_http_form
     def test_hydra_http_form_module_name(self):
-        from penligent_mcp.tools.passwords import _hydra_http_form
+        from penlearn_mcp.tools.passwords import _hydra_http_form
         _, cmd = self._capture_passwords(_hydra_http_form, {
             "target": "10.10.10.1", "username": "admin",
         })
         self.assertIn("http-post-form", cmd)
 
     def test_hydra_http_form_default_form_path(self):
-        from penligent_mcp.tools.passwords import _hydra_http_form
+        from penlearn_mcp.tools.passwords import _hydra_http_form
         _, cmd = self._capture_passwords(_hydra_http_form, {
             "target": "10.10.10.1", "username": "admin",
         })
@@ -8703,7 +8703,7 @@ class TestHydraCommandConstruction(unittest.TestCase):
         self.assertTrue(form_str.startswith("/login:"))
 
     def test_hydra_http_form_custom_form_path(self):
-        from penligent_mcp.tools.passwords import _hydra_http_form
+        from penlearn_mcp.tools.passwords import _hydra_http_form
         _, cmd = self._capture_passwords(_hydra_http_form, {
             "target": "10.10.10.1", "username": "admin",
             "form_path": "/wp-login.php",
@@ -8712,7 +8712,7 @@ class TestHydraCommandConstruction(unittest.TestCase):
         self.assertTrue(form_str.startswith("/wp-login.php:"))
 
     def test_hydra_http_form_failure_string_in_form_arg(self):
-        from penligent_mcp.tools.passwords import _hydra_http_form
+        from penlearn_mcp.tools.passwords import _hydra_http_form
         _, cmd = self._capture_passwords(_hydra_http_form, {
             "target": "10.10.10.1", "username": "admin",
             "failure_string": "BadLogin",
@@ -8721,7 +8721,7 @@ class TestHydraCommandConstruction(unittest.TestCase):
         self.assertIn("BadLogin", form_str)
 
     def test_hydra_http_form_missing_username_returns_error(self):
-        from penligent_mcp.tools.passwords import _hydra_http_form
+        from penlearn_mcp.tools.passwords import _hydra_http_form
         result = asyncio.run(_hydra_http_form({"target": "10.10.10.1"}))
         self.assertTrue(any("Error" in item.text for item in result))
 
@@ -8737,83 +8737,83 @@ class TestReconArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_port_enum_missing_target(self):
-        from penligent_mcp.tools.recon import _port_enum
+        from penlearn_mcp.tools.recon import _port_enum
         self.assertIn("Error", self._run(_port_enum({})))
 
     def test_port_scan_missing_target(self):
-        from penligent_mcp.tools.recon import _port_scan
+        from penlearn_mcp.tools.recon import _port_scan
         self.assertIn("Error", self._run(_port_scan({})))
 
     def test_port_scan_full_missing_target(self):
-        from penligent_mcp.tools.recon import _port_scan_full
+        from penlearn_mcp.tools.recon import _port_scan_full
         self.assertIn("Error", self._run(_port_scan_full({})))
 
     def test_port_scan_udp_missing_target(self):
-        from penligent_mcp.tools.recon import _port_scan_udp
+        from penlearn_mcp.tools.recon import _port_scan_udp
         self.assertIn("Error", self._run(_port_scan_udp({})))
 
     def test_service_detect_missing_target(self):
-        from penligent_mcp.tools.recon import _service_detect
+        from penlearn_mcp.tools.recon import _service_detect
         self.assertIn("Error", self._run(_service_detect({})))
 
     def test_os_detect_missing_target(self):
-        from penligent_mcp.tools.recon import _os_detect
+        from penlearn_mcp.tools.recon import _os_detect
         self.assertIn("Error", self._run(_os_detect({})))
 
     def test_ping_sweep_missing_cidr(self):
-        from penligent_mcp.tools.recon import _ping_sweep
+        from penlearn_mcp.tools.recon import _ping_sweep
         self.assertIn("Error", self._run(_ping_sweep({})))
 
     def test_dns_resolve_missing_hostname(self):
-        from penligent_mcp.tools.recon import _dns_resolve
+        from penlearn_mcp.tools.recon import _dns_resolve
         self.assertIn("Error", self._run(_dns_resolve({})))
 
     def test_dns_brute_missing_domain(self):
-        from penligent_mcp.tools.recon import _dns_brute
+        from penlearn_mcp.tools.recon import _dns_brute
         self.assertIn("Error", self._run(_dns_brute({})))
 
     def test_dns_zone_transfer_missing_domain(self):
-        from penligent_mcp.tools.recon import _dns_zone_transfer
+        from penlearn_mcp.tools.recon import _dns_zone_transfer
         self.assertIn("Error", self._run(_dns_zone_transfer({})))
 
     def test_dns_enum_missing_domain(self):
-        from penligent_mcp.tools.recon import _dns_enum
+        from penlearn_mcp.tools.recon import _dns_enum
         self.assertIn("Error", self._run(_dns_enum({})))
 
     def test_subdomain_brute_missing_domain(self):
-        from penligent_mcp.tools.recon import _subdomain_brute
+        from penlearn_mcp.tools.recon import _subdomain_brute
         self.assertIn("Error", self._run(_subdomain_brute({})))
 
     def test_vhost_fuzz_missing_both(self):
-        from penligent_mcp.tools.recon import _vhost_fuzz
+        from penlearn_mcp.tools.recon import _vhost_fuzz
         self.assertIn("Error", self._run(_vhost_fuzz({})))
 
     def test_vhost_fuzz_missing_domain(self):
-        from penligent_mcp.tools.recon import _vhost_fuzz
+        from penlearn_mcp.tools.recon import _vhost_fuzz
         self.assertIn("Error", self._run(_vhost_fuzz({"target": "http://10.10.10.1"})))
 
     def test_file_brute_missing_target(self):
-        from penligent_mcp.tools.recon import _file_brute
+        from penlearn_mcp.tools.recon import _file_brute
         self.assertIn("Error", self._run(_file_brute({})))
 
     def test_param_fuzz_missing_target(self):
-        from penligent_mcp.tools.recon import _param_fuzz
+        from penlearn_mcp.tools.recon import _param_fuzz
         self.assertIn("Error", self._run(_param_fuzz({})))
 
     def test_cert_transparency_missing_domain(self):
-        from penligent_mcp.tools.recon import _cert_transparency
+        from penlearn_mcp.tools.recon import _cert_transparency
         self.assertIn("Error", self._run(_cert_transparency({})))
 
     def test_whois_lookup_missing_target(self):
-        from penligent_mcp.tools.recon import _whois_lookup
+        from penlearn_mcp.tools.recon import _whois_lookup
         self.assertIn("Error", self._run(_whois_lookup({})))
 
     def test_reverse_dns_missing_ip(self):
-        from penligent_mcp.tools.recon import _reverse_dns
+        from penlearn_mcp.tools.recon import _reverse_dns
         self.assertIn("Error", self._run(_reverse_dns({})))
 
     def test_traceroute_missing_target(self):
-        from penligent_mcp.tools.recon import _traceroute
+        from penlearn_mcp.tools.recon import _traceroute
         self.assertIn("Error", self._run(_traceroute({})))
 
 
@@ -8833,14 +8833,14 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
             captured.extend(cmd)
             return stdout_val, stderr_val, rc
 
-        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                 result = asyncio.run(handler_fn(args))
         return result, captured
 
     # port_scan: -sV -p 1-1000 --open
     def test_port_scan_uses_sV_p1000(self):
-        from penligent_mcp.tools.recon import _port_scan
+        from penlearn_mcp.tools.recon import _port_scan
         _, cmd = self._capture_recon(_port_scan, {"target": "10.10.10.1"})
         self.assertIn("-sV", cmd)
         self.assertIn("1-1000", cmd)
@@ -8849,14 +8849,14 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
 
     # port_scan_full: -sV -p-
     def test_port_scan_full_uses_p_dash(self):
-        from penligent_mcp.tools.recon import _port_scan_full
+        from penlearn_mcp.tools.recon import _port_scan_full
         _, cmd = self._capture_recon(_port_scan_full, {"target": "10.10.10.1"})
         self.assertIn("-p-", cmd)
         self.assertIn("-sV", cmd)
 
     # port_scan_udp: -sU --top-ports 100
     def test_port_scan_udp_uses_sU(self):
-        from penligent_mcp.tools.recon import _port_scan_udp
+        from penlearn_mcp.tools.recon import _port_scan_udp
         _, cmd = self._capture_recon(_port_scan_udp, {"target": "10.10.10.1"})
         self.assertIn("-sU", cmd)
         self.assertIn("--top-ports", cmd)
@@ -8864,14 +8864,14 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
 
     # service_detect: -sV --version-intensity 9
     def test_service_detect_intensity_9(self):
-        from penligent_mcp.tools.recon import _service_detect
+        from penlearn_mcp.tools.recon import _service_detect
         _, cmd = self._capture_recon(_service_detect, {"target": "10.10.10.1"})
         self.assertIn("--version-intensity", cmd)
         idx = cmd.index("--version-intensity")
         self.assertEqual(cmd[idx + 1], "9")
 
     def test_service_detect_custom_ports(self):
-        from penligent_mcp.tools.recon import _service_detect
+        from penlearn_mcp.tools.recon import _service_detect
         _, cmd = self._capture_recon(_service_detect, {
             "target": "10.10.10.1", "ports": "22,80,443",
         })
@@ -8880,14 +8880,14 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
 
     # os_detect: -O
     def test_os_detect_uses_O_flag(self):
-        from penligent_mcp.tools.recon import _os_detect
+        from penlearn_mcp.tools.recon import _os_detect
         _, cmd = self._capture_recon(_os_detect, {"target": "10.10.10.1"})
         self.assertIn("-O", cmd)
         self.assertNotIn("-sV", cmd)
 
     # ping_sweep: host extraction regex
     def test_ping_sweep_parses_live_hosts(self):
-        from penligent_mcp.tools.recon import _ping_sweep
+        from penlearn_mcp.tools.recon import _ping_sweep
         nmap_out = (
             "Nmap scan report for 192.168.1.1\n"
             "Host is up (0.001s latency).\n"
@@ -8901,20 +8901,20 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
         self.assertIn("2", result)  # "Live hosts ... (2)"
 
     def test_ping_sweep_no_hosts_reports_none(self):
-        from penligent_mcp.tools.recon import _ping_sweep
+        from penlearn_mcp.tools.recon import _ping_sweep
         result, _ = self._capture_recon(_ping_sweep, {"cidr": "192.168.1.0/24"},
                                         stdout_val="Nmap done: 256 IP addresses (0 hosts up)")
         self.assertIn("No live hosts", result)
 
     # dns_zone_transfer: REFUSED detection
     def test_dns_zone_transfer_refused(self):
-        from penligent_mcp.tools.recon import _dns_zone_transfer
+        from penlearn_mcp.tools.recon import _dns_zone_transfer
         result, _ = self._capture_recon(_dns_zone_transfer, {"domain": "example.com"},
                                         stdout_val="; Transfer failed.\n; REFUSED\n")
         self.assertIn("refused", result.lower())
 
     def test_dns_zone_transfer_nameserver_arg(self):
-        from penligent_mcp.tools.recon import _dns_zone_transfer
+        from penlearn_mcp.tools.recon import _dns_zone_transfer
         _, cmd = self._capture_recon(_dns_zone_transfer, {
             "domain": "example.com", "nameserver": "8.8.8.8",
         })
@@ -8922,13 +8922,13 @@ class TestReconNmapAndOutputParsing(unittest.TestCase):
 
     # reverse_dns: no PTR record
     def test_reverse_dns_no_ptr(self):
-        from penligent_mcp.tools.recon import _reverse_dns
+        from penlearn_mcp.tools.recon import _reverse_dns
         result, _ = self._capture_recon(_reverse_dns, {"ip": "10.0.0.1"},
                                         stdout_val="")
         self.assertIn("No PTR record", result)
 
     def test_reverse_dns_with_result(self):
-        from penligent_mcp.tools.recon import _reverse_dns
+        from penlearn_mcp.tools.recon import _reverse_dns
         result, _ = self._capture_recon(_reverse_dns, {"ip": "8.8.8.8"},
                                         stdout_val="dns.google.\n")
         self.assertIn("dns.google", result)
@@ -8952,8 +8952,8 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
             return "output", "", 0
 
         patch_list = [
-            patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub),
-            patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock),
+            patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub),
+            patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock),
         ]
         if which_side_effect is not None:
             patch_list.append(patch("shutil.which", side_effect=which_side_effect))
@@ -8966,7 +8966,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_dns_brute_uses_gobuster_when_available(self):
         """dns_brute picks gobuster when both gobuster and dnsrecon are present."""
-        from penligent_mcp.tools.recon import _dns_brute
+        from penlearn_mcp.tools.recon import _dns_brute
 
         def _which(name):
             return "/usr/bin/" + name if name in ("gobuster", "dnsrecon") else None
@@ -8979,7 +8979,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_dns_brute_falls_back_to_dnsrecon(self):
         """dns_brute uses dnsrecon when gobuster is absent."""
-        from penligent_mcp.tools.recon import _dns_brute
+        from penlearn_mcp.tools.recon import _dns_brute
 
         def _which(name):
             return "/usr/bin/dnsrecon" if name == "dnsrecon" else None
@@ -8992,7 +8992,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_dns_brute_error_when_neither_found(self):
         """dns_brute returns error when neither gobuster nor dnsrecon is on PATH."""
-        from penligent_mcp.tools.recon import _dns_brute
+        from penlearn_mcp.tools.recon import _dns_brute
         from unittest.mock import patch
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_dns_brute({"domain": "example.com"}))
@@ -9000,7 +9000,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_dir_brute_uses_feroxbuster_when_available(self):
         """dir_brute picks feroxbuster when available."""
-        from penligent_mcp.tools.recon import _dir_brute
+        from penlearn_mcp.tools.recon import _dir_brute
 
         def _which(name):
             return "/usr/bin/" + name if name == "feroxbuster" else None
@@ -9013,7 +9013,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_dir_brute_falls_back_to_gobuster(self):
         """dir_brute uses gobuster when feroxbuster is absent."""
-        from penligent_mcp.tools.recon import _dir_brute
+        from penlearn_mcp.tools.recon import _dir_brute
 
         def _which(name):
             return "/usr/bin/gobuster" if name == "gobuster" else None
@@ -9025,7 +9025,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
         self.assertIn("gobuster", captured)
 
     def test_dir_brute_error_when_neither_found(self):
-        from penligent_mcp.tools.recon import _dir_brute
+        from penlearn_mcp.tools.recon import _dir_brute
         from unittest.mock import patch
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_dir_brute({"target": "http://10.10.10.1"}))
@@ -9033,7 +9033,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_param_fuzz_appends_fuzz_when_absent(self):
         """If FUZZ not in URL, param_fuzz must append ?FUZZ=1 automatically."""
-        from penligent_mcp.tools.recon import _param_fuzz
+        from penlearn_mcp.tools.recon import _param_fuzz
         from unittest.mock import patch, AsyncMock
         captured = []
 
@@ -9045,8 +9045,8 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
             return "/usr/bin/ffuf" if name == "ffuf" else None
 
         with patch("shutil.which", side_effect=_which):
-            with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                     asyncio.run(_param_fuzz({"target": "http://10.10.10.1/api"}))
 
         url_arg = captured[captured.index("-u") + 1]
@@ -9054,7 +9054,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_param_fuzz_keeps_fuzz_in_url_when_present(self):
         """If FUZZ already in URL, param_fuzz must not add another one."""
-        from penligent_mcp.tools.recon import _param_fuzz
+        from penlearn_mcp.tools.recon import _param_fuzz
         from unittest.mock import patch, AsyncMock
         captured = []
 
@@ -9066,8 +9066,8 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
             return "/usr/bin/ffuf" if name == "ffuf" else None
 
         with patch("shutil.which", side_effect=_which):
-            with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                     asyncio.run(_param_fuzz({"target": "http://10.10.10.1/api?id=FUZZ"}))
 
         url_arg = captured[captured.index("-u") + 1]
@@ -9076,7 +9076,7 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
     def test_cert_transparency_parses_json(self):
         """cert_transparency extracts unique name_value entries from crt.sh JSON."""
         import json as _json
-        from penligent_mcp.tools.recon import _cert_transparency
+        from penlearn_mcp.tools.recon import _cert_transparency
         from unittest.mock import patch, AsyncMock
 
         records = [
@@ -9089,8 +9089,8 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
         async def fake_sub(cmd, timeout=30):
             return crt_json, "", 0
 
-        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                 result = asyncio.run(_cert_transparency({"domain": "example.com"}))
 
         self.assertIn("sub1.example.com", result)
@@ -9100,14 +9100,14 @@ class TestReconFallbackAndFuzz(unittest.TestCase):
 
     def test_cert_transparency_no_records(self):
         """cert_transparency with empty stdout reports no records found."""
-        from penligent_mcp.tools.recon import _cert_transparency
+        from penlearn_mcp.tools.recon import _cert_transparency
         from unittest.mock import patch, AsyncMock
 
         async def fake_sub(cmd, timeout=30):
             return "", "", 0
 
-        with patch("penligent_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.recon._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.recon._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.recon._persist", new_callable=AsyncMock):
                 result = asyncio.run(_cert_transparency({"domain": "example.com"}))
 
         self.assertIn("No certificate transparency", result)
@@ -9124,58 +9124,58 @@ class TestNetworkOriginalToolArgGuards(unittest.TestCase):
         return asyncio.run(coro)
 
     def test_smb_brute_missing_target(self):
-        from penligent_mcp.tools.network import _smb_brute
+        from penlearn_mcp.tools.network import _smb_brute
         self.assertIn("Error", self._run(_smb_brute({})))
 
     def test_ldap_dump_missing_target(self):
-        from penligent_mcp.tools.network import _ldap_dump
+        from penlearn_mcp.tools.network import _ldap_dump
         self.assertIn("Error", self._run(_ldap_dump({})))
 
     def test_ldap_dump_missing_username(self):
         """ldap_dump requires username even if target is present."""
-        from penligent_mcp.tools.network import _ldap_dump
+        from penlearn_mcp.tools.network import _ldap_dump
         r = self._run(_ldap_dump({"target": "10.10.10.1"}))
         self.assertIn("Error", r)
         self.assertIn("username", r)
 
     def test_rpc_enum_missing_target(self):
-        from penligent_mcp.tools.network import _rpc_enum
+        from penlearn_mcp.tools.network import _rpc_enum
         self.assertIn("Error", self._run(_rpc_enum({})))
 
     def test_rpc_users_missing_target(self):
-        from penligent_mcp.tools.network import _rpc_users
+        from penlearn_mcp.tools.network import _rpc_users
         self.assertIn("Error", self._run(_rpc_users({})))
 
     def test_snmp_brute_missing_target(self):
-        from penligent_mcp.tools.network import _snmp_brute
+        from penlearn_mcp.tools.network import _snmp_brute
         self.assertIn("Error", self._run(_snmp_brute({})))
 
     def test_nfs_enum_missing_target(self):
-        from penligent_mcp.tools.network import _nfs_enum
+        from penlearn_mcp.tools.network import _nfs_enum
         self.assertIn("Error", self._run(_nfs_enum({})))
 
     def test_ftp_brute_missing_target(self):
-        from penligent_mcp.tools.network import _ftp_brute
+        from penlearn_mcp.tools.network import _ftp_brute
         self.assertIn("Error", self._run(_ftp_brute({})))
 
     def test_ssh_brute_missing_target(self):
-        from penligent_mcp.tools.network import _ssh_brute
+        from penlearn_mcp.tools.network import _ssh_brute
         self.assertIn("Error", self._run(_ssh_brute({})))
 
     def test_smtp_open_relay_missing_target(self):
-        from penligent_mcp.tools.network import _smtp_open_relay
+        from penlearn_mcp.tools.network import _smtp_open_relay
         self.assertIn("Error", self._run(_smtp_open_relay({})))
 
     def test_mssql_probe_missing_target(self):
-        from penligent_mcp.tools.network import _mssql_probe
+        from penlearn_mcp.tools.network import _mssql_probe
         self.assertIn("Error", self._run(_mssql_probe({})))
 
     def test_mongodb_check_missing_target(self):
-        from penligent_mcp.tools.network import _mongodb_check
+        from penlearn_mcp.tools.network import _mongodb_check
         self.assertIn("Error", self._run(_mongodb_check({})))
 
     def test_netbios_scan_missing_target(self):
-        from penligent_mcp.tools.network import _netbios_scan
+        from penlearn_mcp.tools.network import _netbios_scan
         self.assertIn("Error", self._run(_netbios_scan({})))
 
 
@@ -9196,14 +9196,14 @@ class TestNetworkOutputParsing(unittest.TestCase):
             return stdout_val, stderr_val, rc
 
         with patch("shutil.which", return_value="/usr/bin/dummy"):
-            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.network._persist", new_callable=AsyncMock):
                     result = asyncio.run(handler_fn(args))
         return result, captured
 
     # smb_null_session: VULN tag when share names found
     def test_smb_null_session_vuln_when_sharename_in_output(self):
-        from penligent_mcp.tools.network import _smb_null_session
+        from penlearn_mcp.tools.network import _smb_null_session
         result, _ = self._capture_network(
             _smb_null_session, {"target": "10.10.10.1"},
             stdout_val="Sharename       Type      Comment\n--------        ----      -------\n",
@@ -9211,7 +9211,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("[VULN]", result)
 
     def test_smb_null_session_vuln_when_disk_in_output(self):
-        from penligent_mcp.tools.network import _smb_null_session
+        from penlearn_mcp.tools.network import _smb_null_session
         result, _ = self._capture_network(
             _smb_null_session, {"target": "10.10.10.1"},
             stdout_val="  ADMIN$          Disk      Remote Admin\n",
@@ -9219,7 +9219,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("[VULN]", result)
 
     def test_smb_null_session_no_vuln_for_empty_output(self):
-        from penligent_mcp.tools.network import _smb_null_session
+        from penlearn_mcp.tools.network import _smb_null_session
         result, _ = self._capture_network(
             _smb_null_session, {"target": "10.10.10.1"},
             stdout_val="",
@@ -9228,7 +9228,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     # ftp_anon: VULN when exit_code == 0
     def test_ftp_anon_vuln_on_rc_zero(self):
-        from penligent_mcp.tools.network import _ftp_anon
+        from penlearn_mcp.tools.network import _ftp_anon
         result, _ = self._capture_network(
             _ftp_anon, {"target": "10.10.10.1"},
             stdout_val="drwxr-xr-x  pub\n",
@@ -9238,7 +9238,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     def test_ftp_anon_vuln_on_230_in_stderr(self):
         """Even if rc != 0, '230' in stderr should trigger VULN."""
-        from penligent_mcp.tools.network import _ftp_anon
+        from penlearn_mcp.tools.network import _ftp_anon
         result, _ = self._capture_network(
             _ftp_anon, {"target": "10.10.10.1"},
             stdout_val="", stderr_val="230 Login successful.\n",
@@ -9247,7 +9247,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("[VULN]", result)
 
     def test_ftp_anon_no_vuln_on_nonzero_rc(self):
-        from penligent_mcp.tools.network import _ftp_anon
+        from penlearn_mcp.tools.network import _ftp_anon
         result, _ = self._capture_network(
             _ftp_anon, {"target": "10.10.10.1"},
             stdout_val="", stderr_val="530 Login failed.\n",
@@ -9257,7 +9257,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     # smtp_open_relay: VULN detection
     def test_smtp_open_relay_vuln_detected(self):
-        from penligent_mcp.tools.network import _smtp_open_relay
+        from penlearn_mcp.tools.network import _smtp_open_relay
         result, _ = self._capture_network(
             _smtp_open_relay, {"target": "10.10.10.1"},
             stdout_val="| smtp-open-relay:\n|   Server is an open relay\n|_  tested: ...\n",
@@ -9265,7 +9265,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("[VULN]", result)
 
     def test_smtp_open_relay_no_vuln(self):
-        from penligent_mcp.tools.network import _smtp_open_relay
+        from penlearn_mcp.tools.network import _smtp_open_relay
         result, _ = self._capture_network(
             _smtp_open_relay, {"target": "10.10.10.1"},
             stdout_val="| smtp-open-relay:\n|_  Server is NOT an open relay\n",
@@ -9274,7 +9274,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     # smb_enum: fallback from enum4linux-ng to enum4linux
     def test_smb_enum_uses_enum4linux_ng_first(self):
-        from penligent_mcp.tools.network import _smb_enum
+        from penlearn_mcp.tools.network import _smb_enum
         from unittest.mock import patch, AsyncMock
         captured = []
 
@@ -9286,14 +9286,14 @@ class TestNetworkOutputParsing(unittest.TestCase):
             return "/usr/bin/" + name  # both present
 
         with patch("shutil.which", side_effect=_which):
-            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.network._persist", new_callable=AsyncMock):
                     asyncio.run(_smb_enum({"target": "10.10.10.1"}))
 
         self.assertIn("enum4linux-ng", captured)
 
     def test_smb_enum_falls_back_to_enum4linux(self):
-        from penligent_mcp.tools.network import _smb_enum
+        from penlearn_mcp.tools.network import _smb_enum
         from unittest.mock import patch, AsyncMock
         captured = []
 
@@ -9305,8 +9305,8 @@ class TestNetworkOutputParsing(unittest.TestCase):
             return "/usr/bin/enum4linux" if name == "enum4linux" else None
 
         with patch("shutil.which", side_effect=_which):
-            with patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.network._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.network._persist", new_callable=AsyncMock):
                     asyncio.run(_smb_enum({"target": "10.10.10.1"}))
 
         self.assertIn("enum4linux", captured)
@@ -9314,7 +9314,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     # ssh_brute: credential extraction
     def test_ssh_brute_credential_detection(self):
-        from penligent_mcp.tools.network import _ssh_brute
+        from penlearn_mcp.tools.network import _ssh_brute
         cred_line = "[22][ssh] host: 10.10.10.1   login: root   password: toor"
         result, _ = self._capture_network(
             _ssh_brute, {"target": "10.10.10.1"},
@@ -9324,7 +9324,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
         self.assertIn("root", result)
 
     def test_ssh_brute_no_credentials(self):
-        from penligent_mcp.tools.network import _ssh_brute
+        from penlearn_mcp.tools.network import _ssh_brute
         result, _ = self._capture_network(
             _ssh_brute, {"target": "10.10.10.1"},
             stdout_val="Hydra done: 0 valid passwords found\n",
@@ -9333,7 +9333,7 @@ class TestNetworkOutputParsing(unittest.TestCase):
 
     # nfs_enum: export list detection
     def test_nfs_enum_export_list_detected(self):
-        from penligent_mcp.tools.network import _nfs_enum
+        from penlearn_mcp.tools.network import _nfs_enum
         result, _ = self._capture_network(
             _nfs_enum, {"target": "10.10.10.1"},
             stdout_val="Export list for 10.10.10.1:\n/data  *\n",
@@ -9352,7 +9352,7 @@ class TestReportNullSeverityAttackChain(unittest.TestCase):
 
     def test_no_attributeerror_when_severity_is_none(self):
         """severity=None must not raise AttributeError: 'NoneType' has no .upper()."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings = [
             {"id": 1, "title": "SQLi", "severity": None,
              "verify_status": "open", "attack_chain_position": 1,
@@ -9364,7 +9364,7 @@ class TestReportNullSeverityAttackChain(unittest.TestCase):
 
     def test_severity_none_renders_as_empty_string(self):
         """Null severity in attack chain must appear as empty parens, not 'None'."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings = [
             {"id": 1, "title": "Foo", "severity": None,
              "verify_status": "open", "attack_chain_position": 1,
@@ -9378,7 +9378,7 @@ class TestReportNullSeverityAttackChain(unittest.TestCase):
 
     def test_normal_severity_still_uppercased(self):
         """Regression: valid severity must still appear uppercased in attack chain."""
-        from penligent_mcp.tools.report import _build_exec_summary
+        from penlearn_mcp.tools.report import _build_exec_summary
         findings = [
             {"id": 1, "title": "RCE", "severity": "critical",
              "verify_status": "verified", "attack_chain_position": 1,
@@ -9399,7 +9399,7 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
                    service: str = "http-post-form", **extra_args) -> str:
         """Run _brute_force_test with subprocess mocked; return result string."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _brute_force_test
+        from penlearn_mcp.tools.scanner import _brute_force_test
 
         async def fake_sub(cmd, timeout=60):
             return stdout_val, stderr_val, rc
@@ -9408,8 +9408,8 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
         args.update(extra_args)
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     return asyncio.run(_brute_force_test(args))
 
     def test_credential_found_marks_absent(self):
@@ -9454,7 +9454,7 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
     def test_ssh_service_uses_ssh_url(self):
         """SSH service must pass ssh://target to hydra."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _brute_force_test
+        from penlearn_mcp.tools.scanner import _brute_force_test
         captured = []
 
         async def fake_sub(cmd, timeout=60):
@@ -9462,8 +9462,8 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
             return "", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     asyncio.run(_brute_force_test({"target": "10.10.10.1", "service": "ssh"}))
 
         self.assertIn("ssh://10.10.10.1", captured)
@@ -9471,7 +9471,7 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
     def test_http_post_form_includes_form_spec(self):
         """http-post-form service must use the target, 'http-post-form', and form_spec."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _brute_force_test
+        from penlearn_mcp.tools.scanner import _brute_force_test
         captured = []
 
         async def fake_sub(cmd, timeout=60):
@@ -9479,8 +9479,8 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
             return "", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/hydra"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     asyncio.run(_brute_force_test({
                         "target": "10.10.10.1",
                         "service": "http-post-form",
@@ -9494,7 +9494,7 @@ class TestBruteForceTestOutputClassification(unittest.TestCase):
     def test_missing_hydra_returns_tool_missing(self):
         """When hydra is absent, must return TOOL_MISSING message without running anything."""
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _brute_force_test
+        from penlearn_mcp.tools.scanner import _brute_force_test
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_brute_force_test({"target": "10.10.10.1"}))
         self.assertIn("TOOL_MISSING", result)
@@ -9509,7 +9509,7 @@ class TestNucleiJsonlAndSummary(unittest.TestCase):
     """_parse_nuclei_jsonl must extract fields; _nuclei_summary must group by severity."""
 
     def test_parse_jsonl_single_finding(self):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl
         line = json.dumps({
             "template-id": "cve-2021-44228",
             "info": {"name": "Log4Shell", "severity": "critical", "description": "JNDI injection"},
@@ -9526,7 +9526,7 @@ class TestNucleiJsonlAndSummary(unittest.TestCase):
         self.assertIn("JNDI", f["description"])
 
     def test_parse_jsonl_skips_non_json_lines(self):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl
         raw = (
             "Not JSON\n"
             + json.dumps({"template-id": "t1", "info": {"name": "T1", "severity": "high"}, "matched-at": "http://x"})
@@ -9537,24 +9537,24 @@ class TestNucleiJsonlAndSummary(unittest.TestCase):
         self.assertEqual(findings[0]["template_id"], "t1")
 
     def test_parse_jsonl_empty_returns_empty_list(self):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl
         self.assertEqual(_parse_nuclei_jsonl(""), [])
         self.assertEqual(_parse_nuclei_jsonl("   \n  \n"), [])
 
     def test_parse_jsonl_falls_back_to_host_when_no_matched_at(self):
-        from penligent_mcp.tools.scanner import _parse_nuclei_jsonl
+        from penlearn_mcp.tools.scanner import _parse_nuclei_jsonl
         line = json.dumps({"template-id": "t1", "info": {}, "host": "10.0.0.1"})
         findings = _parse_nuclei_jsonl(line)
         self.assertEqual(findings[0]["url"], "10.0.0.1")
 
     def test_nuclei_summary_no_findings_message(self):
-        from penligent_mcp.tools.scanner import _nuclei_summary
+        from penlearn_mcp.tools.scanner import _nuclei_summary
         result = _nuclei_summary([], "http://10.0.0.1", "CVEs")
         self.assertIn("no findings", result.lower())
         self.assertIn("10.0.0.1", result)
 
     def test_nuclei_summary_groups_by_severity(self):
-        from penligent_mcp.tools.scanner import _nuclei_summary
+        from penlearn_mcp.tools.scanner import _nuclei_summary
         findings = [
             {"template_id": "a", "name": "A", "severity": "critical", "url": "http://x", "description": ""},
             {"template_id": "b", "name": "B", "severity": "high", "url": "http://x", "description": ""},
@@ -9569,7 +9569,7 @@ class TestNucleiJsonlAndSummary(unittest.TestCase):
         self.assertIn("c", result)
 
     def test_nuclei_summary_multiple_severities_in_order(self):
-        from penligent_mcp.tools.scanner import _nuclei_summary
+        from penlearn_mcp.tools.scanner import _nuclei_summary
         findings = [
             {"template_id": "low1", "name": "Low", "severity": "low", "url": "u", "description": ""},
             {"template_id": "med1", "name": "Med", "severity": "medium", "url": "u", "description": ""},
@@ -9589,7 +9589,7 @@ class TestSqliDetectLogic(unittest.TestCase):
 
     def _run_sqli(self, stdout_val: str, stderr_val: str = "", rc: int = 0, **args) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
 
         async def fake_sub(cmd, timeout=180):
             return stdout_val, stderr_val, rc
@@ -9597,8 +9597,8 @@ class TestSqliDetectLogic(unittest.TestCase):
         base = {"target": "http://host/?id=1"}
         base.update(args)
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     return asyncio.run(_sqli_detect(base))
 
     def test_verdict_line_injectable_extracted(self):
@@ -9621,7 +9621,7 @@ class TestSqliDetectLogic(unittest.TestCase):
 
     def test_command_includes_batch_and_level_risk(self):
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         captured = []
 
         async def fake_sub(cmd, timeout=180):
@@ -9629,8 +9629,8 @@ class TestSqliDetectLogic(unittest.TestCase):
             return "", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     asyncio.run(_sqli_detect({"target": "http://host/?id=1"}))
 
         cmd_str = " ".join(captured)
@@ -9640,7 +9640,7 @@ class TestSqliDetectLogic(unittest.TestCase):
 
     def test_data_arg_added_when_provided(self):
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _sqli_detect
+        from penlearn_mcp.tools.scanner import _sqli_detect
         captured = []
 
         async def fake_sub(cmd, timeout=180):
@@ -9648,8 +9648,8 @@ class TestSqliDetectLogic(unittest.TestCase):
             return "", "", 0
 
         with patch("shutil.which", return_value="/usr/bin/sqlmap"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     asyncio.run(_sqli_detect({"target": "http://host/login", "data": "user=foo&pass=bar"}))
 
         self.assertIn("--data", captured)
@@ -9669,7 +9669,7 @@ class TestMetasploitSearchFiltering(unittest.TestCase):
 
     def _run_msf(self, stdout_val: str, rc: int = 0, **args) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _metasploit_search
+        from penlearn_mcp.tools.scanner import _metasploit_search
 
         async def fake_sub(cmd, timeout=60):
             return stdout_val, "", rc
@@ -9677,8 +9677,8 @@ class TestMetasploitSearchFiltering(unittest.TestCase):
         base = {"query": "ms17-010"}
         base.update(args)
         with patch("shutil.which", return_value="/usr/bin/msfconsole"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     return asyncio.run(_metasploit_search(base))
 
     def test_exploit_lines_extracted(self):
@@ -9699,14 +9699,14 @@ class TestMetasploitSearchFiltering(unittest.TestCase):
         self.assertIn("No modules found.", result)
 
     def test_missing_query_returns_error(self):
-        from penligent_mcp.tools.scanner import _metasploit_search
+        from penlearn_mcp.tools.scanner import _metasploit_search
         result = asyncio.run(_metasploit_search({}))
         self.assertIn("Error", result)
         self.assertIn("query", result)
 
     def test_missing_msfconsole_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _metasploit_search
+        from penlearn_mcp.tools.scanner import _metasploit_search
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_metasploit_search({"query": "ms17-010"}))
         self.assertIn("Error", result)
@@ -9727,13 +9727,13 @@ class TestVulnersCveJsonParsing(unittest.TestCase):
 
     def _run_vulners(self, stdout_val: str, rc: int = 0) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _vulners_cve
+        from penlearn_mcp.tools.scanner import _vulners_cve
 
         async def fake_sub(cmd, timeout=15):
             return stdout_val, "", rc
 
-        with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                 return asyncio.run(_vulners_cve({"cve_id": "CVE-2021-44228"}))
 
     def test_valid_json_extracts_title_cvss_description(self):
@@ -9769,7 +9769,7 @@ class TestVulnersCveJsonParsing(unittest.TestCase):
         self.assertIn("vulners.com response", result)
 
     def test_missing_cve_id_returns_error(self):
-        from penligent_mcp.tools.scanner import _vulners_cve
+        from penlearn_mcp.tools.scanner import _vulners_cve
         result = asyncio.run(_vulners_cve({}))
         self.assertIn("Error", result)
         self.assertIn("cve_id", result)
@@ -9784,14 +9784,14 @@ class TestWpscanVulnsJsonParsing(unittest.TestCase):
 
     def _run_wpscan(self, stdout_val: str, rc: int = 0) -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _wpscan_vulns
+        from penlearn_mcp.tools.scanner import _wpscan_vulns
 
         async def fake_sub(cmd, timeout=300):
             return stdout_val, "", rc
 
         with patch("shutil.which", return_value="/usr/bin/wpscan"):
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     return asyncio.run(_wpscan_vulns({"target": "http://wp.example.com"}))
 
     def test_plugin_vulnerability_extracted(self):
@@ -9844,14 +9844,14 @@ class TestWpscanVulnsJsonParsing(unittest.TestCase):
         self.assertIn("wpscan plain text output", result)
 
     def test_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _wpscan_vulns
+        from penlearn_mcp.tools.scanner import _wpscan_vulns
         result = asyncio.run(_wpscan_vulns({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
 
     def test_missing_wpscan_returns_error(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.scanner import _wpscan_vulns
+        from penlearn_mcp.tools.scanner import _wpscan_vulns
         with patch("shutil.which", return_value=None):
             result = asyncio.run(_wpscan_vulns({"target": "http://wp.example.com"}))
         self.assertIn("Error", result)
@@ -9868,7 +9868,7 @@ class TestParsingDiffHitDetection(unittest.TestCase):
     def _run_diff(self, response_fn, target: str = "http://host/page", **args) -> str:
         """Run _parsing_diff with curl mocked; response_fn(url) -> stdout."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _parsing_diff
+        from penlearn_mcp.tools.scanner import _parsing_diff
 
         async def fake_sub(cmd, timeout=35):
             url = cmd[-1]
@@ -9876,8 +9876,8 @@ class TestParsingDiffHitDetection(unittest.TestCase):
 
         base = {"target": target}
         base.update(args)
-        with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-            with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+        with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+            with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                 return asyncio.run(_parsing_diff(base))
 
     def test_target_without_query_uses_question_mark_separator(self):
@@ -9927,7 +9927,7 @@ class TestParsingDiffHitDetection(unittest.TestCase):
         self.assertIn("No obvious", result)
 
     def test_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _parsing_diff
+        from penlearn_mcp.tools.scanner import _parsing_diff
         result = asyncio.run(_parsing_diff({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -9942,14 +9942,14 @@ class TestDomTaintSinkSourceDetection(unittest.TestCase):
 
     def _run_taint(self, html: str, target: str = "http://host/") -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.scanner import _dom_taint
+        from penlearn_mcp.tools.scanner import _dom_taint
 
         async def fake_sub(cmd, timeout=35):
             return html, "", 0
 
         with patch("shutil.which", return_value=None):  # no chromium, forces curl path
-            with patch("penligent_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
-                with patch("penligent_mcp.tools.scanner._persist", new_callable=AsyncMock):
+            with patch("penlearn_mcp.tools.scanner._run_subprocess", side_effect=fake_sub):
+                with patch("penlearn_mcp.tools.scanner._persist", new_callable=AsyncMock):
                     return asyncio.run(_dom_taint({"target": target}))
 
     def test_hash_to_innerHTML_reports_high_risk(self):
@@ -9977,7 +9977,7 @@ class TestDomTaintSinkSourceDetection(unittest.TestCase):
         self.assertIn("No obvious DOM", result)
 
     def test_missing_target_returns_error(self):
-        from penligent_mcp.tools.scanner import _dom_taint
+        from penlearn_mcp.tools.scanner import _dom_taint
         result = asyncio.run(_dom_taint({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -10003,7 +10003,7 @@ class TestNetstatLocalFallback(unittest.TestCase):
     def _run_netstat(self, ss_present: bool, netstat_present: bool,
                      ss_output: str = "ss output", netstat_output: str = "netstat output") -> str:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.post_exploit import _netstat_local
+        from penlearn_mcp.tools.post_exploit import _netstat_local
 
         def fake_chk(name: str) -> bool:
             if name == "ss":
@@ -10019,8 +10019,8 @@ class TestNetstatLocalFallback(unittest.TestCase):
                 return netstat_output, "", 0
             return "", "", 0
 
-        with patch("penligent_mcp.tools.post_exploit._chk", side_effect=fake_chk):
-            with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.post_exploit._chk", side_effect=fake_chk):
+            with patch("penlearn_mcp.tools.post_exploit._run", side_effect=fake_run):
                 result_list = asyncio.run(_netstat_local({}))
         return result_list[0].text
 
@@ -10034,7 +10034,7 @@ class TestNetstatLocalFallback(unittest.TestCase):
 
     def test_proc_net_fallback_message_when_both_absent(self):
         from unittest.mock import patch
-        from penligent_mcp.tools.post_exploit import _netstat_local
+        from penlearn_mcp.tools.post_exploit import _netstat_local
 
         def fake_chk(name: str) -> bool:
             return False
@@ -10043,8 +10043,8 @@ class TestNetstatLocalFallback(unittest.TestCase):
             return "", "", 0
 
         # /proc/net files may or may not exist — just verify the code doesn't crash
-        with patch("penligent_mcp.tools.post_exploit._chk", side_effect=fake_chk):
-            with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.post_exploit._chk", side_effect=fake_chk):
+            with patch("penlearn_mcp.tools.post_exploit._run", side_effect=fake_run):
                 result_list = asyncio.run(_netstat_local({}))
         # Should return something (either /proc/net content or fallback message)
         self.assertTrue(len(result_list) > 0)
@@ -10065,7 +10065,7 @@ class TestContainerCheckIndicators(unittest.TestCase):
 
     def _run_container(self, cgroup_content: str, dockerenv_exists: bool = False) -> str:
         from unittest.mock import patch, MagicMock
-        from penligent_mcp.tools.post_exploit import _container_check
+        from penlearn_mcp.tools.post_exploit import _container_check
 
         async def fake_run(cmd, timeout=5):
             return "test-host", "", 0
@@ -10082,8 +10082,8 @@ class TestContainerCheckIndicators(unittest.TestCase):
                 m.read_text.side_effect = FileNotFoundError
             return m
 
-        with patch("penligent_mcp.tools.post_exploit._run", side_effect=fake_run):
-            with patch("penligent_mcp.tools.post_exploit.Path", side_effect=path_factory):
+        with patch("penlearn_mcp.tools.post_exploit._run", side_effect=fake_run):
+            with patch("penlearn_mcp.tools.post_exploit.Path", side_effect=path_factory):
                 result_list = asyncio.run(_container_check({}))
         return result_list[0].text
 
@@ -10123,13 +10123,13 @@ class TestHashIdentifyFallback(unittest.TestCase):
 
     def _run_identify(self, hash_val: str) -> str:
         from unittest.mock import patch
-        from penligent_mcp.tools.passwords import _hash_identify
+        from penlearn_mcp.tools.passwords import _hash_identify
 
         async def fake_run(cmd, timeout=10):
             return "", "", 0  # Never reached since hashid absent
 
-        with patch("penligent_mcp.tools.passwords._chk", return_value=False):
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.passwords._chk", return_value=False):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run):
                 result_list = asyncio.run(_hash_identify({"hash_value": hash_val}))
         return result_list[0].text
 
@@ -10162,7 +10162,7 @@ class TestHashIdentifyFallback(unittest.TestCase):
         self.assertTrue("SHA256" in result or "64" in result or "SHA" in result)
 
     def test_missing_hash_value_returns_error(self):
-        from penligent_mcp.tools.passwords import _hash_identify
+        from penlearn_mcp.tools.passwords import _hash_identify
         result_list = asyncio.run(_hash_identify({}))
         self.assertIn("Error", result_list[0].text)
         self.assertIn("hash_value", result_list[0].text)
@@ -10170,13 +10170,13 @@ class TestHashIdentifyFallback(unittest.TestCase):
     def test_hashid_present_uses_hashid_first(self):
         """When hashid is available, its output is used and regex is skipped."""
         from unittest.mock import patch
-        from penligent_mcp.tools.passwords import _hash_identify
+        from penlearn_mcp.tools.passwords import _hash_identify
 
         async def fake_run_hashid(cmd, timeout=10):
             return "[+] MD5 [Hashcat Mode: 0]", "", 0
 
-        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run_hashid):
+        with patch("penlearn_mcp.tools.passwords._chk", return_value=True):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run_hashid):
                 result_list = asyncio.run(_hash_identify({"hash_value": "abc123"}))
         self.assertIn("hashid", result_list[0].text)
         self.assertIn("MD5", result_list[0].text)
@@ -10191,15 +10191,15 @@ class TestHashCrackOnlineMd5Condition(unittest.TestCase):
 
     def _run_crack(self, hash_val: str) -> tuple[str, list]:
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.passwords import _hash_crack_online
+        from penlearn_mcp.tools.passwords import _hash_crack_online
         all_cmd_args = []
 
         async def fake_run(cmd, timeout=15):
             all_cmd_args.extend(cmd)
             return f"found:{hash_val[:8]}", "", 0
 
-        with patch("penligent_mcp.tools.passwords._chk", return_value=True):
-            with patch("penligent_mcp.tools.passwords._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.passwords._chk", return_value=True):
+            with patch("penlearn_mcp.tools.passwords._run", side_effect=fake_run):
                 result_list = asyncio.run(_hash_crack_online({"hash_value": hash_val}))
         return result_list[0].text, all_cmd_args
 
@@ -10219,7 +10219,7 @@ class TestHashCrackOnlineMd5Condition(unittest.TestCase):
         self.assertTrue(any("hashes.com" in a for a in args), f"Expected hashes.com in cmd args, got: {args}")
 
     def test_missing_hash_value_returns_error(self):
-        from penligent_mcp.tools.passwords import _hash_crack_online
+        from penlearn_mcp.tools.passwords import _hash_crack_online
         result_list = asyncio.run(_hash_crack_online({}))
         self.assertIn("Error", result_list[0].text)
         self.assertIn("hash_value", result_list[0].text)
@@ -10234,7 +10234,7 @@ class TestCloudflareCheckDetection(unittest.TestCase):
 
     def _run_cf(self, a_output: str = "", ns_output: str = "") -> str:
         from unittest.mock import patch
-        from penligent_mcp.tools.osint import _cloudflare_check
+        from penlearn_mcp.tools.osint import _cloudflare_check
 
         async def fake_run(cmd, timeout=15):
             if "A" in cmd:
@@ -10243,8 +10243,8 @@ class TestCloudflareCheckDetection(unittest.TestCase):
                 return ns_output, "", 0
             return "", "", 0
 
-        with patch("penligent_mcp.tools.osint._chk", return_value=True):
-            with patch("penligent_mcp.tools.osint._run", side_effect=fake_run):
+        with patch("penlearn_mcp.tools.osint._chk", return_value=True):
+            with patch("penlearn_mcp.tools.osint._run", side_effect=fake_run):
                 result_list = asyncio.run(_cloudflare_check({"domain": "example.com"}))
         return result_list[0].text
 
@@ -10278,13 +10278,13 @@ class TestCloudflareCheckDetection(unittest.TestCase):
     def test_no_dig_falls_back_gracefully(self):
         """When dig is absent, code uses socket.gethostbyname_ex fallback."""
         from unittest.mock import patch, AsyncMock
-        from penligent_mcp.tools.osint import _cloudflare_check
+        from penlearn_mcp.tools.osint import _cloudflare_check
         import socket
 
         async def fake_to_thread(fn, *args):
             return ("example.com", [], ["203.0.113.5"])
 
-        with patch("penligent_mcp.tools.osint._chk", return_value=False):
+        with patch("penlearn_mcp.tools.osint._chk", return_value=False):
             with patch("asyncio.to_thread", side_effect=fake_to_thread):
                 result_list = asyncio.run(_cloudflare_check({"domain": "example.com"}))
         result = result_list[0].text
@@ -10300,7 +10300,7 @@ class TestBreachCheckHttpErrors(unittest.TestCase):
 
     def _run_breach(self, http_error_code: int = None, response_json: str = None) -> str:
         from unittest.mock import patch
-        from penligent_mcp.tools.osint import _breach_check
+        from penlearn_mcp.tools.osint import _breach_check
         import urllib.error
 
         if http_error_code is not None:
@@ -10316,7 +10316,7 @@ class TestBreachCheckHttpErrors(unittest.TestCase):
             async def fake_http_get(req, timeout=15):
                 return response_json.encode() if response_json else b"[]"
 
-        with patch("penligent_mcp.tools.osint._http_get", side_effect=fake_http_get):
+        with patch("penlearn_mcp.tools.osint._http_get", side_effect=fake_http_get):
             result_list = asyncio.run(_breach_check({"email": "test@example.com"}))
         return result_list[0].text
 
@@ -10353,7 +10353,7 @@ class TestXorSingleByteDetection(unittest.TestCase):
     """_xor_single_byte must find keys that produce >85% printable ASCII."""
 
     def _run_xor(self, data: str) -> str:
-        from penligent_mcp.tools.crypto import _xor_single_byte
+        from penlearn_mcp.tools.crypto import _xor_single_byte
         return asyncio.run(_xor_single_byte({"data": data}))[0].text
 
     def test_known_xor_key_found(self):
@@ -10417,13 +10417,13 @@ class TestStringsExtractPurePython(unittest.TestCase):
     def _run_strings(self, file_bytes: bytes, min_length: int = 4) -> str:
         import tempfile, os
         from unittest.mock import patch
-        from penligent_mcp.tools.crypto import _strings_extract
+        from penlearn_mcp.tools.crypto import _strings_extract
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=".bin") as f:
             f.write(file_bytes)
             path = f.name
         try:
-            with patch("penligent_mcp.tools.crypto._chk", return_value=False):
+            with patch("penlearn_mcp.tools.crypto._chk", return_value=False):
                 result_list = asyncio.run(_strings_extract({"path": path, "min_length": min_length}))
             return result_list[0].text
         finally:
@@ -10471,14 +10471,14 @@ class TestFileIdentifyMagicBytes(unittest.TestCase):
     def _run_identify(self, header_bytes: bytes) -> str:
         import tempfile, os
         from unittest.mock import patch
-        from penligent_mcp.tools.crypto import _file_identify
+        from penlearn_mcp.tools.crypto import _file_identify
 
         data = header_bytes + b"\x00" * (16 - len(header_bytes))
         with tempfile.NamedTemporaryFile(delete=False) as f:
             f.write(data)
             path = f.name
         try:
-            with patch("penligent_mcp.tools.crypto._chk", return_value=False):
+            with patch("penlearn_mcp.tools.crypto._chk", return_value=False):
                 result_list = asyncio.run(_file_identify({"path": path}))
             return result_list[0].text
         finally:
@@ -10533,7 +10533,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def _run_kube_hunter(self, args: dict) -> list:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10541,8 +10541,8 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/kube-hunter"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_kube_hunter(args))
         return captured[0] if captured else []
 
@@ -10581,7 +10581,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_kube_hunter_missing_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _kube_hunter
+        from penlearn_mcp.tools.cloud import _kube_hunter
         with _patch("shutil.which", return_value=None):
             result = asyncio.run(_kube_hunter({}))
         self.assertIn("not found", result.lower())
@@ -10592,7 +10592,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_cloudmapper_no_account_non_webserver_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        from penlearn_mcp.tools.cloud import _cloudmapper_analyze
         with _patch("shutil.which", return_value="/usr/bin/cloudmapper"):
             result = asyncio.run(_cloudmapper_analyze({"action": "collect"}))
         self.assertIn("Error", result)
@@ -10600,7 +10600,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_cloudmapper_webserver_action_no_account_allowed(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        from penlearn_mcp.tools.cloud import _cloudmapper_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10608,15 +10608,15 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "running webserver", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/cloudmapper"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             result = asyncio.run(_cloudmapper_analyze({"action": "webserver"}))
         self.assertNotIn("Error", result)
         self.assertTrue(len(captured) == 1)
 
     def test_cloudmapper_account_included_in_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _cloudmapper_analyze
+        from penlearn_mcp.tools.cloud import _cloudmapper_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10624,8 +10624,8 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "done", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/cloudmapper"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_cloudmapper_analyze({"action": "collect", "account": "my-account"}))
         self.assertIn("--account", captured[0])
         self.assertIn("my-account", captured[0])
@@ -10636,7 +10636,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def _run_scout_suite(self, args: dict) -> list:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _scout_suite
+        from penlearn_mcp.tools.cloud import _scout_suite
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10644,8 +10644,8 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "done", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/scout"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_scout_suite(args))
         return captured[0] if captured else []
 
@@ -10673,7 +10673,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_trivy_no_target_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         with _patch("shutil.which", return_value="/usr/bin/trivy"):
             result = asyncio.run(_trivy_scan({}))
         self.assertIn("Error", result)
@@ -10681,7 +10681,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_trivy_scan_type_and_target_in_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10689,15 +10689,15 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/trivy"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_trivy_scan({"target": "ubuntu:20.04", "scan_type": "image"}))
         self.assertIn("image", captured[0])
         self.assertIn("ubuntu:20.04", captured[0])
 
     def test_trivy_severity_filter_in_cmd_when_provided(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _trivy_scan
+        from penlearn_mcp.tools.cloud import _trivy_scan
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10705,8 +10705,8 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/trivy"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_trivy_scan({"target": "nginx:latest", "severity": "CRITICAL,HIGH"}))
         self.assertIn("--severity", captured[0])
         self.assertIn("CRITICAL,HIGH", captured[0])
@@ -10717,7 +10717,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_clair_no_image_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _clair_scan
+        from penlearn_mcp.tools.cloud import _clair_scan
         with _patch("shutil.which", return_value="/usr/bin/clairctl"):
             result = asyncio.run(_clair_scan({}))
         self.assertIn("Error", result)
@@ -10725,7 +10725,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_clair_image_in_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _clair_scan
+        from penlearn_mcp.tools.cloud import _clair_scan
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10733,8 +10733,8 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/clairctl"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None):
             asyncio.run(_clair_scan({"image": "ubuntu:20.04"}))
         self.assertIn("ubuntu:20.04", captured[0])
         self.assertIn("analyze", captured[0])
@@ -10745,7 +10745,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_pacu_no_modules_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _pacu_exploit
+        from penlearn_mcp.tools.cloud import _pacu_exploit
         with _patch("shutil.which", return_value="/usr/bin/pacu"):
             result = asyncio.run(_pacu_exploit({}))
         self.assertIn("Error", result)
@@ -10753,7 +10753,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_pacu_command_file_contains_set_session_and_exit(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _pacu_exploit
+        from penlearn_mcp.tools.cloud import _pacu_exploit
         import os as _os
         captured_cmd = []
         deleted_paths = []
@@ -10766,9 +10766,9 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             deleted_paths.append(path)  # record but don't delete
 
         with _patch("shutil.which", return_value="/usr/bin/pacu"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
-             _patch("penligent_mcp.tools.cloud.os.unlink", side_effect=fake_unlink):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penlearn_mcp.tools.cloud.os.unlink", side_effect=fake_unlink):
             asyncio.run(_pacu_exploit({
                 "session_name": "test_session",
                 "modules": "mod1,mod2",
@@ -10792,7 +10792,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_pacu_regions_included_when_provided(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _pacu_exploit
+        from penlearn_mcp.tools.cloud import _pacu_exploit
         import os as _os
         captured_cmd = []
 
@@ -10801,9 +10801,9 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "done", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/pacu"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
-             _patch("penligent_mcp.tools.cloud.os.unlink", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penlearn_mcp.tools.cloud.os.unlink", return_value=None):
             asyncio.run(_pacu_exploit({
                 "session_name": "sess",
                 "modules": "iam__enum_permissions",
@@ -10826,7 +10826,7 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
 
     def test_pacu_no_regions_skips_set_regions(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.cloud import _pacu_exploit
+        from penlearn_mcp.tools.cloud import _pacu_exploit
         import os as _os
         captured_cmd = []
 
@@ -10835,9 +10835,9 @@ class TestCloudLogicAndModeSelection(unittest.TestCase):
             return "done", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/pacu"), \
-             _patch("penligent_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.cloud._persist", return_value=None), \
-             _patch("penligent_mcp.tools.cloud.os.unlink", return_value=None):
+             _patch("penlearn_mcp.tools.cloud._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.cloud._persist", return_value=None), \
+             _patch("penlearn_mcp.tools.cloud.os.unlink", return_value=None):
             asyncio.run(_pacu_exploit({
                 "session_name": "sess",
                 "modules": "iam__enum_permissions",
@@ -10871,7 +10871,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def _run_steghide(self, args: dict) -> tuple:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10879,14 +10879,14 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "done", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/steghide"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             result = asyncio.run(_steghide_analyze(args))
         return result, captured[0] if captured else []
 
     def test_steghide_invalid_action_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         with _patch("shutil.which", return_value="/usr/bin/steghide"):
             result = asyncio.run(_steghide_analyze({"cover_file": "img.jpg", "action": "badaction"}))
         self.assertIn("Error", result)
@@ -10894,7 +10894,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_steghide_embed_without_embed_file_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         with _patch("shutil.which", return_value="/usr/bin/steghide"):
             result = asyncio.run(_steghide_analyze({"cover_file": "img.jpg", "action": "embed"}))
         self.assertIn("Error", result)
@@ -10902,7 +10902,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_steghide_no_cover_file_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _steghide_analyze
+        from penlearn_mcp.tools.binary import _steghide_analyze
         with _patch("shutil.which", return_value="/usr/bin/steghide"):
             result = asyncio.run(_steghide_analyze({}))
         self.assertIn("Error", result)
@@ -10936,7 +10936,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def _run_objdump(self, args: dict) -> list:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -10944,8 +10944,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/objdump"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_objdump_analyze(args))
         return captured[0] if captured else []
 
@@ -10966,7 +10966,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_objdump_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _objdump_analyze
+        from penlearn_mcp.tools.binary import _objdump_analyze
         with _patch("shutil.which", return_value="/usr/bin/objdump"):
             result = asyncio.run(_objdump_analyze({}))
         self.assertIn("Error", result)
@@ -10977,14 +10977,14 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_gdb_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         with _patch("shutil.which", return_value="/usr/bin/gdb"):
             result = asyncio.run(_gdb_analyze({}))
         self.assertIn("Error", result)
 
     def test_gdb_no_commands_no_script_file_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         with _patch("shutil.which", return_value="/usr/bin/gdb"):
             result = asyncio.run(_gdb_analyze({"binary": "/bin/ls"}))
         self.assertIn("Error", result)
@@ -10992,7 +10992,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_gdb_commands_written_to_temp_file(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         import os as _os
         captured_cmd = []
         temp_content = []
@@ -11008,8 +11008,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/gdb"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_gdb_analyze({
                 "binary": "/bin/ls",
                 "commands": "info functions\ndisas main",
@@ -11024,7 +11024,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_gdb_script_file_used_directly(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _gdb_analyze
+        from penlearn_mcp.tools.binary import _gdb_analyze
         captured_cmd = []
 
         async def fake_run(cmd, **kw):
@@ -11032,8 +11032,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/gdb"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_gdb_analyze({
                 "binary": "/bin/ls",
                 "script_file": "/tmp/my_script.gdb",
@@ -11047,7 +11047,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_volatility3_uses_vol_if_available(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11058,15 +11058,15 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "/usr/bin/vol" if name == "vol" else None
 
         with _patch("shutil.which", side_effect=which_vol_first), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.pslist"}))
 
         self.assertEqual(captured[0][0], "/usr/bin/vol")
 
     def test_volatility3_falls_back_to_vol_py(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11081,22 +11081,22 @@ class TestBinaryToolLogic(unittest.TestCase):
             return None
 
         with _patch("shutil.which", side_effect=which_vol_py), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "linux.bash"}))
 
         self.assertEqual(captured[0][0], "/usr/local/bin/vol.py")
 
     def test_volatility3_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         with _patch("shutil.which", return_value=None):
             result = asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.pslist"}))
         self.assertIn("not found", result.lower())
 
     def test_volatility3_plugin_in_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _volatility3_analyze
+        from penlearn_mcp.tools.binary import _volatility3_analyze
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11104,8 +11104,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/vol"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_volatility3_analyze({"memory_file": "/tmp/mem.raw", "plugin": "windows.netscan"}))
 
         self.assertIn("windows.netscan", captured[0])
@@ -11117,7 +11117,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_ropgadget_more_than_20_lines_shows_tail_and_count(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _ropgadget_search
+        from penlearn_mcp.tools.binary import _ropgadget_search
         long_output = "\n".join(f"0x{i:08x}: pop r{i % 16}; ret" for i in range(25))
         captured = []
 
@@ -11126,8 +11126,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return long_output, "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/ROPgadget"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             result = asyncio.run(_ropgadget_search({"binary": "/bin/ls"}))
 
         self.assertIn("Total gadgets:", result)
@@ -11135,15 +11135,15 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_ropgadget_20_or_fewer_lines_shows_full_output(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _ropgadget_search
+        from penlearn_mcp.tools.binary import _ropgadget_search
         short_output = "\n".join(f"0x{i:08x}: pop rdi; ret" for i in range(5))
 
         async def fake_run(cmd, **kw):
             return short_output, "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/ROPgadget"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             result = asyncio.run(_ropgadget_search({"binary": "/bin/ls"}))
 
         # All 5 lines present (no truncation); total count reflects all lines
@@ -11157,7 +11157,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def _run_exiftool(self, args: dict) -> list:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11165,8 +11165,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/exiftool"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_exiftool_extract(args))
         return captured[0] if captured else []
 
@@ -11184,7 +11184,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_exiftool_no_file_path_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _exiftool_extract
+        from penlearn_mcp.tools.binary import _exiftool_extract
         with _patch("shutil.which", return_value="/usr/bin/exiftool"):
             result = asyncio.run(_exiftool_extract({}))
         self.assertIn("Error", result)
@@ -11195,7 +11195,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_hashpump_missing_any_field_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _hashpump_attack
+        from penlearn_mcp.tools.binary import _hashpump_attack
         with _patch("shutil.which", return_value="/usr/bin/hashpump"):
             # Missing append_data
             result = asyncio.run(_hashpump_attack({
@@ -11208,7 +11208,7 @@ class TestBinaryToolLogic(unittest.TestCase):
 
     def test_hashpump_all_args_in_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.binary import _hashpump_attack
+        from penlearn_mcp.tools.binary import _hashpump_attack
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11216,8 +11216,8 @@ class TestBinaryToolLogic(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/hashpump"), \
-             _patch("penligent_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.binary._persist", return_value=None):
+             _patch("penlearn_mcp.tools.binary._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.binary._persist", return_value=None):
             asyncio.run(_hashpump_attack({
                 "signature": "deadbeef",
                 "data": "payload",
@@ -11238,7 +11238,7 @@ class TestBinaryToolLogic(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_pwntools_no_script_content_returns_error(self):
-        from penligent_mcp.tools.binary import _pwntools_run
+        from penlearn_mcp.tools.binary import _pwntools_run
         result = asyncio.run(_pwntools_run({}))
         self.assertIn("Error", result)
         self.assertIn("script_content", result.lower())
@@ -11256,42 +11256,42 @@ class TestExploitPayloadGeneration(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_reverse_shell_requires_lhost(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({}))
         self.assertIn("Error", result)
         self.assertIn("lhost", result.lower())
 
     def test_reverse_shell_all_types_returned_by_default(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1"}))
         for shell_type in ("BASH", "PYTHON3", "PHP", "NC", "PERL", "RUBY", "POWERSHELL"):
             self.assertIn(f"[{shell_type}]", result)
 
     def test_reverse_shell_single_type_returns_only_that_shell(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 9001, "shell_type": "bash"}))
         self.assertIn("bash", result.lower())
         self.assertNotIn("[PYTHON3]", result)
         self.assertNotIn("[PHP]", result)
 
     def test_reverse_shell_lhost_embedded_in_payload(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "192.168.1.99", "lport": 4444}))
         self.assertIn("192.168.1.99", result)
         self.assertIn("4444", result)
 
     def test_reverse_shell_custom_port_in_payload(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 7777}))
         self.assertIn("7777", result)
 
     def test_reverse_shell_listener_hint_included(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "lport": 4444}))
         self.assertIn("nc -lvnp 4444", result)
 
     def test_reverse_shell_unknown_type_falls_through_to_all(self):
-        from penligent_mcp.tools.exploit import _reverse_shell
+        from penlearn_mcp.tools.exploit import _reverse_shell
         result = asyncio.run(_reverse_shell({"lhost": "10.0.0.1", "shell_type": "nonexistent"}))
         # Unknown type → falls through to all
         self.assertIn("[BASH]", result)
@@ -11301,19 +11301,19 @@ class TestExploitPayloadGeneration(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_bind_shell_all_types_returned_by_default(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = asyncio.run(_bind_shell({}))
         for shell_type in ("NC", "PYTHON3", "PHP", "PERL", "POWERSHELL"):
             self.assertIn(f"[{shell_type}]", result)
 
     def test_bind_shell_single_type_includes_connect_command(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = asyncio.run(_bind_shell({"lport": 5555, "shell_type": "nc", "rhost": "10.0.0.2"}))
         self.assertIn("nc 10.0.0.2 5555", result)
         self.assertNotIn("[PYTHON3]", result)
 
     def test_bind_shell_default_port_is_4444(self):
-        from penligent_mcp.tools.exploit import _bind_shell
+        from penlearn_mcp.tools.exploit import _bind_shell
         result = asyncio.run(_bind_shell({}))
         self.assertIn("4444", result)
 
@@ -11322,24 +11322,24 @@ class TestExploitPayloadGeneration(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_php_webshell_standard_uses_system_cmd(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = asyncio.run(_payload_php_webshell({"shell_type": "standard"}))
         self.assertIn("system(", result)
         self.assertIn("cmd", result)
 
     def test_php_webshell_b64_uses_eval_base64(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = asyncio.run(_payload_php_webshell({"shell_type": "b64"}))
         self.assertIn("eval(base64_decode", result)
 
     def test_php_webshell_password_protection_injected(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = asyncio.run(_payload_php_webshell({"shell_type": "standard", "password": "s3cr3t"}))
         self.assertIn("s3cr3t", result)
         self.assertIn("die()", result)
 
     def test_php_webshell_unknown_type_returns_all(self):
-        from penligent_mcp.tools.exploit import _payload_php_webshell
+        from penlearn_mcp.tools.exploit import _payload_php_webshell
         result = asyncio.run(_payload_php_webshell({"shell_type": "bogus"}))
         # Falls through to listing all shells
         self.assertIn("[STANDARD]", result)
@@ -11351,20 +11351,20 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def _gtfobins_offline(self, binary: str, function_filter: str = "") -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _gtfobins_lookup
+        from penlearn_mcp.tools.exploit import _gtfobins_lookup
 
         async def fake_run(cmd, **kw):
             return "", "connection refused", 1  # simulate offline
 
-        with _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             return asyncio.run(_gtfobins_lookup({"binary": binary, "function": function_filter}))
 
     def test_gtfobins_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _gtfobins_lookup
-        with _patch("penligent_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        from penlearn_mcp.tools.exploit import _gtfobins_lookup
+        with _patch("penlearn_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_gtfobins_lookup({}))
         self.assertIn("Error", result)
 
@@ -11393,20 +11393,20 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def _lolbas_offline(self, binary: str, function_filter: str = "") -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _lolbas_lookup
+        from penlearn_mcp.tools.exploit import _lolbas_lookup
 
         async def fake_run(cmd, **kw):
             return "", "connection refused", 1
 
-        with _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             return asyncio.run(_lolbas_lookup({"binary": binary, "function": function_filter}))
 
     def test_lolbas_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _lolbas_lookup
-        with _patch("penligent_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        from penlearn_mcp.tools.exploit import _lolbas_lookup
+        with _patch("penlearn_mcp.tools.exploit._run_subprocess", return_value=("", "", 1)), \
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_lolbas_lookup({}))
         self.assertIn("Error", result)
 
@@ -11430,18 +11430,18 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def test_php_filter_chain_contains_command(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _php_filter_chain
+        from penlearn_mcp.tools.exploit import _php_filter_chain
         with _patch("shutil.which", return_value=None), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_php_filter_chain({"command": "whoami"}))
         self.assertIn("php://filter/", result)
         self.assertIn("whoami", result)
 
     def test_php_filter_chain_default_command_is_id(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _php_filter_chain
+        from penlearn_mcp.tools.exploit import _php_filter_chain
         with _patch("shutil.which", return_value=None), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_php_filter_chain({}))
         self.assertIn("id", result)
 
@@ -11451,7 +11451,7 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def test_psexec_requires_target_and_username(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         with _patch("shutil.which", return_value="/usr/bin/impacket-psexec"):
             result = asyncio.run(_impacket_psexec({"target": "10.0.0.1"}))
         self.assertIn("Error", result)
@@ -11460,7 +11460,7 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def test_psexec_nt_hash_adds_hashes_flag(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _impacket_psexec
+        from penlearn_mcp.tools.exploit import _impacket_psexec
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -11468,8 +11468,8 @@ class TestExploitPayloadGeneration(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/impacket-psexec"), \
-             _patch("penligent_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+             _patch("penlearn_mcp.tools.exploit._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             asyncio.run(_impacket_psexec({
                 "target": "10.0.0.1",
                 "username": "admin",
@@ -11482,24 +11482,24 @@ class TestExploitPayloadGeneration(unittest.TestCase):
     # -----------------------------------------------------------------------
 
     def test_chisel_requires_lhost(self):
-        from penligent_mcp.tools.exploit import _chisel_tunnel
+        from penlearn_mcp.tools.exploit import _chisel_tunnel
         with __import__("unittest.mock", fromlist=["patch"]).patch(
-            "penligent_mcp.tools.exploit._persist", return_value=None
+            "penlearn_mcp.tools.exploit._persist", return_value=None
         ):
             result = asyncio.run(_chisel_tunnel({}))
         self.assertIn("Error", result)
 
     def test_chisel_socks5_produces_r_socks_in_client_cmd(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _chisel_tunnel
-        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        from penlearn_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_chisel_tunnel({"lhost": "10.0.0.1", "tunnel_type": "socks5", "local_port": 1080}))
         self.assertIn("R:1080:socks", result)
 
     def test_chisel_forward_produces_remote_host_port(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _chisel_tunnel
-        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        from penlearn_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_chisel_tunnel({
                 "lhost": "10.0.0.1",
                 "tunnel_type": "forward",
@@ -11511,8 +11511,8 @@ class TestExploitPayloadGeneration(unittest.TestCase):
 
     def test_chisel_unknown_tunnel_type_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.exploit import _chisel_tunnel
-        with _patch("penligent_mcp.tools.exploit._persist", return_value=None):
+        from penlearn_mcp.tools.exploit import _chisel_tunnel
+        with _patch("penlearn_mcp.tools.exploit._persist", return_value=None):
             result = asyncio.run(_chisel_tunnel({"lhost": "10.0.0.1", "tunnel_type": "badtype"}))
         self.assertIn("Error", result)
         self.assertIn("tunnel_type", result)
@@ -11526,7 +11526,7 @@ class TestClassifyFunction(unittest.TestCase):
     """_classify must correctly identify IPs, CIDRs, URLs, domains, unknowns."""
 
     def setUp(self):
-        from penligent_mcp.tools.utils import _classify
+        from penlearn_mcp.tools.utils import _classify
         self._classify = _classify
 
     def test_http_url_classified_as_url(self):
@@ -11612,7 +11612,7 @@ class TestIpInNetwork(unittest.TestCase):
     """_ip_in_network helper: True when IP is inside the CIDR, False otherwise."""
 
     def setUp(self):
-        from penligent_mcp.tools.utils import _ip_in_network
+        from penlearn_mcp.tools.utils import _ip_in_network
         self._fn = _ip_in_network
 
     def test_ip_in_network_true(self):
@@ -11639,7 +11639,7 @@ class TestAuthReplayInterpretation(unittest.TestCase):
 
     def _replay(self, status_code: int, body: str = "", headers: str = "") -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
 
         curl_output = (
             f"HTTP/1.1 {status_code}\r\n"
@@ -11652,8 +11652,8 @@ class TestAuthReplayInterpretation(unittest.TestCase):
         async def fake_run(cmd, **kw):
             return curl_output, "", 0
 
-        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.utils._artifact", return_value="/tmp/fake"):
+        with _patch("penlearn_mcp.tools.utils._run", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.utils._artifact", return_value="/tmp/fake"):
             result_list = asyncio.run(_auth_replay({
                 "endpoint": "https://api.example.com/profile",
                 "token": "testtoken123",
@@ -11679,12 +11679,12 @@ class TestAuthReplayInterpretation(unittest.TestCase):
 
     def test_timeout_returns_timed_out_message(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
 
         async def fake_run_timeout(cmd, **kw):
             return "", "timeout", -1
 
-        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run_timeout):
+        with _patch("penlearn_mcp.tools.utils._run", side_effect=fake_run_timeout):
             result_list = asyncio.run(_auth_replay({
                 "endpoint": "https://api.example.com/",
                 "token": "tok",
@@ -11692,27 +11692,27 @@ class TestAuthReplayInterpretation(unittest.TestCase):
         self.assertIn("timed out", result_list[0].text.lower())
 
     def test_missing_endpoint_returns_error(self):
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
         result_list = asyncio.run(_auth_replay({"token": "tok"}))
         self.assertIn("Error", result_list[0].text)
 
     def test_missing_token_returns_error(self):
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
         result_list = asyncio.run(_auth_replay({"endpoint": "https://api.example.com/"}))
         self.assertIn("Error", result_list[0].text)
 
     def test_post_with_body_includes_content_type(self):
         """POST with body must add Content-Type: application/json to the curl cmd."""
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.utils import _auth_replay
+        from penlearn_mcp.tools.utils import _auth_replay
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(list(cmd))
             return "HTTP/1.1 200\r\n\r\nbody\n--- status=200 size=4 time=0.1s ---", "", 0
 
-        with _patch("penligent_mcp.tools.utils._run", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.utils._artifact", return_value="/tmp/fake"):
+        with _patch("penlearn_mcp.tools.utils._run", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.utils._artifact", return_value="/tmp/fake"):
             asyncio.run(_auth_replay({
                 "endpoint": "https://api.example.com/",
                 "token": "tok",
@@ -11740,7 +11740,7 @@ class TestJwtDecode(unittest.TestCase):
         return f"{b64(header)}.{b64(payload)}.{sig}"
 
     def setUp(self):
-        from penligent_mcp.tools.web import _jwt_decode
+        from penlearn_mcp.tools.web import _jwt_decode
         self._decode = _jwt_decode
 
     def test_invalid_token_format_returns_error(self):
@@ -11790,7 +11790,7 @@ class TestJwtCrackPythonFallback(unittest.TestCase):
 
     def test_correct_secret_in_wordlist_found(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
         import tempfile, os as _os
         token = self._make_signed_jwt("supersecret")
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as wf:
@@ -11806,7 +11806,7 @@ class TestJwtCrackPythonFallback(unittest.TestCase):
 
     def test_wrong_secrets_returns_not_found(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
         import tempfile, os as _os
         token = self._make_signed_jwt("correctsecret")
         with tempfile.NamedTemporaryFile(mode="wb", delete=False, suffix=".txt") as wf:
@@ -11821,7 +11821,7 @@ class TestJwtCrackPythonFallback(unittest.TestCase):
 
     def test_missing_wordlist_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _jwt_crack
+        from penlearn_mcp.tools.web import _jwt_crack
         token = self._make_signed_jwt("secret")
         with _patch("shutil.which", return_value=None):
             result = asyncio.run(_jwt_crack({
@@ -11837,13 +11837,13 @@ class TestSecurityHeadersParsing(unittest.TestCase):
 
     def _run_headers(self, curl_response: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _security_headers
+        from penlearn_mcp.tools.web import _security_headers
 
         async def fake_run(cmd, **kw):
             return curl_response, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_security_headers({"target": "https://example.com"}))
 
     def test_present_header_marked_present(self):
@@ -11871,7 +11871,7 @@ class TestSecurityHeadersParsing(unittest.TestCase):
         self.assertIn("[MISSING]", result)
 
     def test_no_target_returns_error(self):
-        from penligent_mcp.tools.web import _security_headers
+        from penlearn_mcp.tools.web import _security_headers
         result = asyncio.run(_security_headers({}))
         self.assertIn("Error", result)
 
@@ -11881,13 +11881,13 @@ class TestCorsCheckParsing(unittest.TestCase):
 
     def _run_cors(self, curl_response: str, origin: str = "https://evil.com") -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _cors_check
+        from penlearn_mcp.tools.web import _cors_check
 
         async def fake_run(cmd, **kw):
             return curl_response, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_cors_check({"target": "https://api.example.com", "origin": origin}))
 
     def test_origin_reflected_flags_issue(self):
@@ -11916,13 +11916,13 @@ class TestClickjackCheckParsing(unittest.TestCase):
 
     def _run_clickjack(self, curl_response: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _clickjack_check
+        from penlearn_mcp.tools.web import _clickjack_check
 
         async def fake_run(cmd, **kw):
             return curl_response, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_clickjack_check({"target": "https://example.com"}))
 
     def test_xfo_present_marks_protected(self):
@@ -11953,13 +11953,13 @@ class TestCspCheckWeaknessDetection(unittest.TestCase):
 
     def _run_csp(self, curl_response: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _csp_check
+        from penlearn_mcp.tools.web import _csp_check
 
         async def fake_run(cmd, **kw):
             return curl_response, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_csp_check({"target": "https://example.com"}))
 
     def test_missing_csp_reports_missing(self):
@@ -11998,7 +11998,7 @@ class TestAuthBruteHttpSchemeParsing(unittest.TestCase):
 
     def _run_brute(self, target: str) -> list:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _auth_brute_http
+        from penlearn_mcp.tools.web import _auth_brute_http
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -12006,8 +12006,8 @@ class TestAuthBruteHttpSchemeParsing(unittest.TestCase):
             return "", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/hydra"), \
-             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+             _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_auth_brute_http({"target": target}))
         return captured[0] if captured else []
 
@@ -12025,40 +12025,40 @@ class TestRateLimitCheck429Detection(unittest.TestCase):
 
     def test_429_responses_mark_protected(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _rate_limit_check
+        from penlearn_mcp.tools.web import _rate_limit_check
 
         async def fake_run(cmd, **kw):
             return "429", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             result = asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 5}))
         self.assertIn("PROTECTED", result)
         self.assertIn("429", result)
 
     def test_no_429_responses_notes_no_enforcement(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _rate_limit_check
+        from penlearn_mcp.tools.web import _rate_limit_check
 
         async def fake_run(cmd, **kw):
             return "200", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             result = asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 5}))
         self.assertIn("No 429", result)
 
     def test_requests_capped_at_100(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _rate_limit_check
+        from penlearn_mcp.tools.web import _rate_limit_check
         call_count = []
 
         async def fake_run(cmd, **kw):
             call_count.append(1)
             return "200", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_rate_limit_check({"target": "https://example.com", "requests": 999}))
         self.assertLessEqual(len(call_count), 100)
 
@@ -12068,20 +12068,20 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
 
     def test_schema_in_response_marks_vuln(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _graphql_probe
+        from penlearn_mcp.tools.web import _graphql_probe
 
         async def fake_run(cmd, **kw):
             return '{"data":{"__schema":{"queryType":{"name":"Query"}}}}', "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             result = asyncio.run(_graphql_probe({"target": "http://example.com"}))
         self.assertIn("VULN", result)
         self.assertIn("Introspection ENABLED", result)
 
     def test_errors_in_response_marks_exists(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _graphql_probe
+        from penlearn_mcp.tools.web import _graphql_probe
 
         # graphql_probe now reads the actual HTTP status code (via curl -w),
         # not `rc == 0`. Pre-fix it falsely marked EXISTS on any rc==0 response
@@ -12090,14 +12090,14 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
         async def fake_run(cmd, **kw):
             return '{"errors":[{"message":"not allowed"}]}\nHTTP_CODE:200', "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             result = asyncio.run(_graphql_probe({"target": "http://example.com"}))
         self.assertIn("EXISTS", result)
 
     def test_api_fuzz_appends_fuzz_when_absent(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _api_fuzz
+        from penlearn_mcp.tools.web import _api_fuzz
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -12105,8 +12105,8 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/ffuf"), \
-             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+             _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_api_fuzz({"target": "http://example.com/api"}))
 
         url_in_cmd = next((a for a in captured[0] if "FUZZ" in a), None)
@@ -12115,7 +12115,7 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
 
     def test_api_fuzz_keeps_existing_fuzz_placeholder(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _api_fuzz
+        from penlearn_mcp.tools.web import _api_fuzz
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -12123,8 +12123,8 @@ class TestGraphqlProbeIntrospection(unittest.TestCase):
             return "output", "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/ffuf"), \
-             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+             _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_api_fuzz({"target": "http://example.com/FUZZ/endpoint"}))
 
         url_in_cmd = next((a for a in captured[0] if "FUZZ" in a), None)
@@ -12140,13 +12140,13 @@ class TestHttpProbeParsing(unittest.TestCase):
 
     def _run_probe(self, curl_output: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _http_probe
+        from penlearn_mcp.tools.web import _http_probe
 
         async def fake_run(cmd, **kw):
             return curl_output, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_http_probe({"target": "http://example.com"}))
 
     def test_status_code_extracted(self):
@@ -12170,7 +12170,7 @@ class TestHttpProbeParsing(unittest.TestCase):
         self.assertIn("Content-Type: text/html; charset=utf-8", result)
 
     def test_no_target_returns_error(self):
-        from penligent_mcp.tools.web import _http_probe
+        from penlearn_mcp.tools.web import _http_probe
         result = asyncio.run(_http_probe({}))
         self.assertIn("Error", result)
 
@@ -12189,15 +12189,15 @@ class TestCspAuditAnalysis(unittest.TestCase):
 
     def _run_audit(self, headers: str, body: str = "") -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _csp_audit
+        from penlearn_mcp.tools.web import _csp_audit
 
         response = f"HTTP/1.1 200 OK\r\n{headers}\r\n\r\n{body}"
 
         async def fake_run(cmd, **kw):
             return response, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_csp_audit({"target": "https://example.com"}))
 
     def test_missing_csp_reports_missing(self):
@@ -12268,7 +12268,7 @@ class TestCspAuditAnalysis(unittest.TestCase):
         self.assertNotIn("SRI MISSING", result)
 
     def test_no_target_returns_error(self):
-        from penligent_mcp.tools.web import _csp_audit
+        from penlearn_mcp.tools.web import _csp_audit
         result = asyncio.run(_csp_audit({}))
         self.assertIn("Error", result)
 
@@ -12278,15 +12278,15 @@ class TestDeserializationCheckLangDispatch(unittest.TestCase):
 
     def test_php_lang_sends_php_payloads(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _deserialization_check
+        from penlearn_mcp.tools.web import _deserialization_check
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(list(cmd))
             return "response", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             result = asyncio.run(_deserialization_check({
                 "target": "http://example.com",
                 "lang": "php",
@@ -12298,7 +12298,7 @@ class TestDeserializationCheckLangDispatch(unittest.TestCase):
         self.assertTrue(any("O:8:" in a for a in all_args))
 
     def test_unsupported_lang_returns_error(self):
-        from penligent_mcp.tools.web import _deserialization_check
+        from penlearn_mcp.tools.web import _deserialization_check
         result = asyncio.run(_deserialization_check({
             "target": "http://example.com",
             "lang": "ruby",
@@ -12307,7 +12307,7 @@ class TestDeserializationCheckLangDispatch(unittest.TestCase):
         self.assertIn("unsupported", result.lower())
 
     def test_no_target_returns_error(self):
-        from penligent_mcp.tools.web import _deserialization_check
+        from penlearn_mcp.tools.web import _deserialization_check
         result = asyncio.run(_deserialization_check({}))
         self.assertIn("Error", result)
 
@@ -12327,13 +12327,13 @@ class TestSstiProbeVerdicts(unittest.TestCase):
 
     def _run_ssti(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _ssti_probe
+        from penlearn_mcp.tools.web import _ssti_probe
 
         async def fake_run(cmd, **kw):
             return response_body, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_ssti_probe({"target": "http://example.com/page"}))
 
     def test_arithmetic_result_in_response_marks_vuln(self):
@@ -12350,7 +12350,7 @@ class TestSstiProbeVerdicts(unittest.TestCase):
         self.assertIn("[NO_MATCH]", result)
 
     def test_no_target_returns_error(self):
-        from penligent_mcp.tools.web import _ssti_probe
+        from penlearn_mcp.tools.web import _ssti_probe
         result = asyncio.run(_ssti_probe({}))
         self.assertIn("Error", result)
 
@@ -12368,13 +12368,13 @@ class TestLfiProbeVerdicts(unittest.TestCase):
 
     def _run_lfi(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _lfi_probe
+        from penlearn_mcp.tools.web import _lfi_probe
 
         async def fake_run(cmd, **kw):
             return response_body, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_lfi_probe({"target": "http://example.com/page", "param": "file"}))
 
     def test_passwd_content_marks_vuln(self):
@@ -12404,13 +12404,13 @@ class TestCmdiProbeVerdicts(unittest.TestCase):
 
     def _run_cmdi(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _cmdi_probe
+        from penlearn_mcp.tools.web import _cmdi_probe
 
         async def fake_run(cmd, **kw):
             return response_body, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_cmdi_probe({"target": "http://example.com/page", "param": "q"}))
 
     def test_id_command_output_marks_vuln(self):
@@ -12428,13 +12428,13 @@ class TestXxeProbeVerdicts(unittest.TestCase):
 
     def _run_xxe(self, response_body: str) -> str:
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _xxe_probe
+        from penlearn_mcp.tools.web import _xxe_probe
 
         async def fake_run(cmd, **kw):
             return response_body, "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(_xxe_probe({"target": "http://example.com/xml"}))
 
     def test_passwd_in_response_marks_vuln(self):
@@ -12456,12 +12456,12 @@ class TestSqliVerdictExtraction(unittest.TestCase):
             return stdout_output, "", 0
 
         with _patch("shutil.which", return_value="/usr/bin/sqlmap"), \
-             _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+             _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             return asyncio.run(tool_fn({"target": "http://example.com/page?id=1"}))
 
     def test_sqli_error_extracts_injectable_lines(self):
-        from penligent_mcp.tools.web import _sqli_error
+        from penlearn_mcp.tools.web import _sqli_error
         sqlmap_out = (
             "[INFO] testing connection\n"
             "[WARNING] GET parameter 'id' does not seem to be injectable\n"
@@ -12471,13 +12471,13 @@ class TestSqliVerdictExtraction(unittest.TestCase):
         self.assertIn("Injectable", result)
 
     def test_sqli_blind_extracts_warning_lines(self):
-        from penligent_mcp.tools.web import _sqli_blind
+        from penlearn_mcp.tools.web import _sqli_blind
         sqlmap_out = "[WARNING] parameter 'id' is not injectable\n[INFO] finished\n"
         result = self._run_sqli(_sqli_blind, sqlmap_out)
         self.assertIn("[WARNING]", result)
 
     def test_sqli_union_falls_back_to_last_2000_when_no_verdict(self):
-        from penligent_mcp.tools.web import _sqli_union
+        from penlearn_mcp.tools.web import _sqli_union
         clean_out = "no relevant lines here\n" * 100
         result = self._run_sqli(_sqli_union, clean_out)
         # Should include truncated output since no verdict lines
@@ -12489,7 +12489,7 @@ class TestRfiProbeCallbackHost(unittest.TestCase):
 
     def test_callback_host_prepended_as_first_payload(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _rfi_probe
+        from penlearn_mcp.tools.web import _rfi_probe
         tested_urls = []
 
         async def fake_run(cmd, **kw):
@@ -12497,8 +12497,8 @@ class TestRfiProbeCallbackHost(unittest.TestCase):
             tested_urls.append(cmd[-1])
             return "response", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_rfi_probe({
                 "target": "http://example.com",
                 "param": "file",
@@ -12511,15 +12511,15 @@ class TestRfiProbeCallbackHost(unittest.TestCase):
 
     def test_no_callback_host_first_payload_is_localhost(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.web import _rfi_probe
+        from penlearn_mcp.tools.web import _rfi_probe
         tested_urls = []
 
         async def fake_run(cmd, **kw):
             tested_urls.append(cmd[-1])
             return "response", "", 0
 
-        with _patch("penligent_mcp.tools.web._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.web._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.web._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.web._persist", return_value=None):
             asyncio.run(_rfi_probe({
                 "target": "http://example.com",
                 "param": "file",
@@ -12538,14 +12538,14 @@ class TestSmbNullSessionVerdicts(unittest.TestCase):
 
     def _run(self, stdout, stderr="", exit_code=0):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_null_session
+        from penlearn_mcp.tools.network import _smb_null_session
 
         async def fake_run(cmd, **kw):
             return stdout, stderr, exit_code
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_smb_null_session({"target": "192.168.1.1"}))
 
     def test_sharename_triggers_vuln(self):
@@ -12567,8 +12567,8 @@ class TestSmbNullSessionVerdicts(unittest.TestCase):
 
     def test_missing_target_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_null_session
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"):
+        from penlearn_mcp.tools.network import _smb_null_session
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"):
             result = asyncio.run(_smb_null_session({}))
         self.assertIn("Error", result)
         self.assertIn("target", result)
@@ -12583,7 +12583,7 @@ class TestSmbEnumBinaryPreference(unittest.TestCase):
 
     def test_prefers_enum4linux_ng(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_enum
+        from penlearn_mcp.tools.network import _smb_enum
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -12593,9 +12593,9 @@ class TestSmbEnumBinaryPreference(unittest.TestCase):
         def which_side(name):
             return "/usr/bin/enum4linux-ng" if name == "enum4linux-ng" else None
 
-        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_smb_enum({"target": "10.0.0.1"}))
 
         self.assertTrue(any("enum4linux-ng" in c[0] for c in captured))
@@ -12603,7 +12603,7 @@ class TestSmbEnumBinaryPreference(unittest.TestCase):
 
     def test_falls_back_to_enum4linux(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_enum
+        from penlearn_mcp.tools.network import _smb_enum
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -12613,9 +12613,9 @@ class TestSmbEnumBinaryPreference(unittest.TestCase):
         def which_side(name):
             return "/usr/bin/enum4linux" if name == "enum4linux" else None
 
-        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_smb_enum({"target": "10.0.0.1"}))
 
         self.assertTrue(any("enum4linux" in c[0] and c[0].endswith("enum4linux") for c in captured))
@@ -12623,8 +12623,8 @@ class TestSmbEnumBinaryPreference(unittest.TestCase):
 
     def test_neither_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_enum
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+        from penlearn_mcp.tools.network import _smb_enum
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None):
             result = asyncio.run(_smb_enum({"target": "10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("enum4linux", result)
@@ -12635,16 +12635,16 @@ class TestSmbSharesCredentials(unittest.TestCase):
 
     def _run(self, extra_args):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_shares
+        from penlearn_mcp.tools.network import _smb_shares
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/smbclient"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_smb_shares({"target": "10.0.0.1", **extra_args}))
 
         return captured[0] if captured else []
@@ -12673,14 +12673,14 @@ class TestSmbBruteCredsFound(unittest.TestCase):
 
     def _run(self, stdout):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smb_brute
+        from penlearn_mcp.tools.network import _smb_brute
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/hydra"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/hydra"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_smb_brute({"target": "10.0.0.1"}))
 
     def test_login_line_reports_creds_found(self):
@@ -12699,14 +12699,14 @@ class TestLdapAnonymousVerdicts(unittest.TestCase):
 
     def _run(self, stdout):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ldap_anonymous
+        from penlearn_mcp.tools.network import _ldap_anonymous
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_ldap_anonymous({"target": "dc.corp.local"}))
 
     def test_result_0_success_triggers_ok(self):
@@ -12724,8 +12724,8 @@ class TestLdapAnonymousVerdicts(unittest.TestCase):
 
     def test_missing_target_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ldap_anonymous
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
+        from penlearn_mcp.tools.network import _ldap_anonymous
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
             result = asyncio.run(_ldap_anonymous({}))
         self.assertIn("Error", result)
 
@@ -12735,7 +12735,7 @@ class TestLdapUsersExtraction(unittest.TestCase):
 
     def _run(self, stdout, extra_args=None):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ldap_users
+        from penlearn_mcp.tools.network import _ldap_users
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
@@ -12744,9 +12744,9 @@ class TestLdapUsersExtraction(unittest.TestCase):
         if extra_args:
             base.update(extra_args)
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_ldap_users(base))
 
     def test_extracts_samaccountname_users(self):
@@ -12762,23 +12762,23 @@ class TestLdapUsersExtraction(unittest.TestCase):
 
     def test_missing_base_dn_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ldap_users
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
+        from penlearn_mcp.tools.network import _ldap_users
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"):
             result = asyncio.run(_ldap_users({"target": "dc.corp.local"}))
         self.assertIn("Error", result)
 
     def test_authenticated_bind_adds_d_and_w_flags(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ldap_users
+        from penlearn_mcp.tools.network import _ldap_users
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ldapsearch"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_ldap_users({
                 "target": "dc.corp.local", "base_dn": "dc=corp,dc=local",
                 "username": "CORP\\admin", "password": "Secret1",
@@ -12796,13 +12796,13 @@ class TestFtpAnonVerdicts(unittest.TestCase):
 
     def _run(self, stdout, stderr, exit_code):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ftp_anon
+        from penlearn_mcp.tools.network import _ftp_anon
 
         async def fake_run(cmd, **kw):
             return stdout, stderr, exit_code
 
-        with _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_ftp_anon({"target": "ftp.example.com"}))
 
     def test_exit_code_0_triggers_vuln(self):
@@ -12829,7 +12829,7 @@ class TestRpcUsersExtraction(unittest.TestCase):
 
     def test_extracts_users_from_enumdomusers(self):
         from unittest.mock import patch as _patch, AsyncMock, MagicMock
-        from penligent_mcp.tools.network import _rpc_users
+        from penlearn_mcp.tools.network import _rpc_users
 
         stdout = "user:[administrator] rid:[0x1f4]\nuser:[guest] rid:[0x1f5]\n"
         mock_proc = MagicMock()
@@ -12840,9 +12840,9 @@ class TestRpcUsersExtraction(unittest.TestCase):
         async def mock_exec(*args, **kwargs):
             return mock_proc
 
-        with _patch("penligent_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
-             _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
+             _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             result = asyncio.run(_rpc_users({"target": "10.0.0.1"}))
 
         self.assertIn("administrator", result)
@@ -12851,7 +12851,7 @@ class TestRpcUsersExtraction(unittest.TestCase):
 
     def test_null_session_adds_n_flag(self):
         from unittest.mock import patch as _patch, AsyncMock, MagicMock
-        from penligent_mcp.tools.network import _rpc_users
+        from penlearn_mcp.tools.network import _rpc_users
 
         captured = []
         mock_proc = MagicMock()
@@ -12863,9 +12863,9 @@ class TestRpcUsersExtraction(unittest.TestCase):
             captured.append(args)
             return mock_proc
 
-        with _patch("penligent_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
-             _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.asyncio.create_subprocess_exec", side_effect=mock_exec), \
+             _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/rpcclient"), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_rpc_users({"target": "10.0.0.1"}))
 
         self.assertIn("-N", list(captured[0]))
@@ -12876,58 +12876,58 @@ class TestSshAuditBinaryPreference(unittest.TestCase):
 
     def test_prefers_dash_binary(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ssh_audit
+        from penlearn_mcp.tools.network import _ssh_audit
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which",
+        with _patch("penlearn_mcp.tools.network.shutil.which",
                     side_effect=lambda n: "/usr/bin/ssh-audit" if n == "ssh-audit" else None), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
 
         self.assertIn("ssh-audit", captured[0][0])
 
     def test_falls_back_to_underscore_binary(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ssh_audit
+        from penlearn_mcp.tools.network import _ssh_audit
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which",
+        with _patch("penlearn_mcp.tools.network.shutil.which",
                     side_effect=lambda n: "/usr/bin/ssh_audit" if n == "ssh_audit" else None), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
 
         self.assertIn("ssh_audit", captured[0][0])
 
     def test_neither_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ssh_audit
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+        from penlearn_mcp.tools.network import _ssh_audit
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None):
             result = asyncio.run(_ssh_audit({"target": "10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("ssh-audit", result)
 
     def test_custom_port_in_command(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _ssh_audit
+        from penlearn_mcp.tools.network import _ssh_audit
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/ssh-audit"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/ssh-audit"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_ssh_audit({"target": "10.0.0.1", "port": 2222}))
 
         self.assertIn("2222", captured[0])
@@ -12938,14 +12938,14 @@ class TestRedisCheckVerdicts(unittest.TestCase):
 
     def test_redis_version_triggers_accessible(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _redis_check
+        from penlearn_mcp.tools.network import _redis_check
 
         async def fake_run(cmd, **kw):
             return "# Server\nredis_version:7.0.5\nredis_mode:standalone\n", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/redis-cli"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/redis-cli"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             result = asyncio.run(_redis_check({"target": "10.0.0.1"}))
 
         self.assertIn("[ACCESSIBLE]", result)
@@ -12953,16 +12953,16 @@ class TestRedisCheckVerdicts(unittest.TestCase):
 
     def test_no_redis_cli_falls_back_to_nmap(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _redis_check
+        from penlearn_mcp.tools.network import _redis_check
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "nmap output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_redis_check({"target": "10.0.0.1"}))
 
         self.assertTrue(any("nmap" in c[0] for c in captured))
@@ -12974,21 +12974,21 @@ class TestMongodbCheckVerdicts(unittest.TestCase):
 
     def test_databases_in_output_triggers_accessible(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _mongodb_check
+        from penlearn_mcp.tools.network import _mongodb_check
 
         async def fake_run(cmd, **kw):
             return '{"databases":[{"name":"admin"}],"totalSize":1234}', "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/mongosh"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/mongosh"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             result = asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
 
         self.assertIn("[ACCESSIBLE]", result)
 
     def test_prefers_mongosh_over_mongo(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _mongodb_check
+        from penlearn_mcp.tools.network import _mongodb_check
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -13000,42 +13000,42 @@ class TestMongodbCheckVerdicts(unittest.TestCase):
                 return f"/usr/bin/{name}"
             return None
 
-        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_side), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", side_effect=which_side), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
 
         self.assertTrue(any("mongosh" in c[0] for c in captured))
 
     def test_falls_back_to_mongo_client(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _mongodb_check
+        from penlearn_mcp.tools.network import _mongodb_check
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which",
+        with _patch("penlearn_mcp.tools.network.shutil.which",
                     side_effect=lambda n: "/usr/bin/mongo" if n == "mongo" else None), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
 
         self.assertTrue(any(c[0].endswith("mongo") for c in captured))
 
     def test_no_client_falls_back_to_nmap(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _mongodb_check
+        from penlearn_mcp.tools.network import _mongodb_check
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "nmap mongodb output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_mongodb_check({"target": "10.0.0.1"}))
 
         self.assertTrue(any("nmap" in c[0] for c in captured))
@@ -13046,7 +13046,7 @@ class TestKerberosEnumVerdicts(unittest.TestCase):
 
     def _run(self, stdout, extra=None):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _kerberos_enum
+        from penlearn_mcp.tools.network import _kerberos_enum
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
@@ -13055,9 +13055,9 @@ class TestKerberosEnumVerdicts(unittest.TestCase):
         if extra:
             args.update(extra)
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_kerberos_enum(args))
 
     def test_valid_users_extracted(self):
@@ -13073,8 +13073,8 @@ class TestKerberosEnumVerdicts(unittest.TestCase):
 
     def test_missing_domain_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _kerberos_enum
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"):
+        from penlearn_mcp.tools.network import _kerberos_enum
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/kerbrute"):
             result = asyncio.run(_kerberos_enum({"target": "10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("domain", result)
@@ -13085,14 +13085,14 @@ class TestNfsEnumVerdicts(unittest.TestCase):
 
     def _run(self, stdout):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _nfs_enum
+        from penlearn_mcp.tools.network import _nfs_enum
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/showmount"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/showmount"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_nfs_enum({"target": "10.0.0.1"}))
 
     def test_export_list_triggers_nfs_found(self):
@@ -13109,13 +13109,13 @@ class TestSmtpOpenRelayVerdicts(unittest.TestCase):
 
     def _run(self, stdout):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _smtp_open_relay
+        from penlearn_mcp.tools.network import _smtp_open_relay
 
         async def fake_run(cmd, **kw):
             return stdout, "", 0
 
-        with _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             return asyncio.run(_smtp_open_relay({"target": "mail.example.com"}))
 
     def test_open_relay_triggers_vuln(self):
@@ -13133,16 +13133,16 @@ class TestNetexecBinaryPreference(unittest.TestCase):
 
     def _run_with_which(self, which_fn):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _netexec_run
+        from penlearn_mcp.tools.network import _netexec_run
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_fn), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", side_effect=which_fn), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_netexec_run({"target": "10.0.0.1"}))
 
         return captured[0][0] if captured else None
@@ -13165,8 +13165,8 @@ class TestNetexecBinaryPreference(unittest.TestCase):
 
     def test_no_binary_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _netexec_run
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+        from penlearn_mcp.tools.network import _netexec_run
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None):
             result = asyncio.run(_netexec_run({"target": "10.0.0.1"}))
         self.assertIn("Error", result)
         self.assertIn("nxc", result)
@@ -13177,16 +13177,16 @@ class TestRustscanFlags(unittest.TestCase):
 
     def _run(self, extra_args):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _rustscan
+        from penlearn_mcp.tools.network import _rustscan
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/rustscan"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/rustscan"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_rustscan({"target": "10.0.0.1", **extra_args}))
 
         return captured[0] if captured else []
@@ -13217,16 +13217,16 @@ class TestMasscanFlags(unittest.TestCase):
 
     def _run(self, extra_args):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _masscan
+        from penlearn_mcp.tools.network import _masscan
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/masscan"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/masscan"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_masscan({"target": "10.0.0.0/24", **extra_args}))
 
         return captured[0] if captured else []
@@ -13258,16 +13258,16 @@ class TestResponderCaptureFlags(unittest.TestCase):
 
     def _run(self, extra_args):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _responder_capture
+        from penlearn_mcp.tools.network import _responder_capture
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/responder"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/responder"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_responder_capture({"interface": "eth0", **extra_args}))
 
         return captured[0] if captured else []
@@ -13290,8 +13290,8 @@ class TestResponderCaptureFlags(unittest.TestCase):
 
     def test_no_responder_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _responder_capture
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value=None):
+        from penlearn_mcp.tools.network import _responder_capture
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value=None):
             result = asyncio.run(_responder_capture({}))
         self.assertIn("Error", result)
         self.assertIn("responder", result)
@@ -13302,16 +13302,16 @@ class TestArpScanDiscover(unittest.TestCase):
 
     def _run(self, args):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _arp_scan_discover
+        from penlearn_mcp.tools.network import _arp_scan_discover
         captured = []
 
         async def fake_run(cmd, **kw):
             captured.append(cmd)
             return "output", "", 0
 
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_arp_scan_discover(args))
 
         return captured[0] if captured else []
@@ -13327,8 +13327,8 @@ class TestArpScanDiscover(unittest.TestCase):
 
     def test_no_target_and_no_local_network_returns_error(self):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _arp_scan_discover
-        with _patch("penligent_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"):
+        from penlearn_mcp.tools.network import _arp_scan_discover
+        with _patch("penlearn_mcp.tools.network.shutil.which", return_value="/usr/bin/arp-scan"):
             result = asyncio.run(_arp_scan_discover({}))
         self.assertIn("Error", result)
 
@@ -13343,7 +13343,7 @@ class TestEnum4linuxNgFlags(unittest.TestCase):
 
     def _run(self, extra_args, which_fn=None):
         from unittest.mock import patch as _patch
-        from penligent_mcp.tools.network import _enum4linux_ng
+        from penlearn_mcp.tools.network import _enum4linux_ng
         captured = []
 
         async def fake_run(cmd, **kw):
@@ -13353,9 +13353,9 @@ class TestEnum4linuxNgFlags(unittest.TestCase):
         if which_fn is None:
             which_fn = lambda n: "/usr/bin/enum4linux-ng" if n == "enum4linux-ng" else None
 
-        with _patch("penligent_mcp.tools.network.shutil.which", side_effect=which_fn), \
-             _patch("penligent_mcp.tools.network._run_subprocess", side_effect=fake_run), \
-             _patch("penligent_mcp.tools.network._persist", return_value=None):
+        with _patch("penlearn_mcp.tools.network.shutil.which", side_effect=which_fn), \
+             _patch("penlearn_mcp.tools.network._run_subprocess", side_effect=fake_run), \
+             _patch("penlearn_mcp.tools.network._persist", return_value=None):
             asyncio.run(_enum4linux_ng({"target": "10.0.0.1", **extra_args}))
 
         return captured[0] if captured else []

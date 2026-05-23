@@ -2,7 +2,7 @@
 name: waf-bypass
 description: WAF bypass encoding strategy — do not conclude not-vulnerable from a 403/429 without trying multiple variants
 tags: [methodology, waf, bypass, encoding, sqli, xss, evasion]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # WAF Bypass — Mandatory Variant Testing

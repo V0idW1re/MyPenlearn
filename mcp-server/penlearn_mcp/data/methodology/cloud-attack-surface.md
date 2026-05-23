@@ -2,7 +2,7 @@
 name: cloud-attack-surface
 description: Cloud / container attack surface — IAM, IMDS, k8s, secrets, CI/CD; the standard public-entry-to-exfil chain
 tags: [methodology, cloud, aws, gcp, azure, iam, imds, kubernetes, docker, ci-cd, ssrf]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Cloud & Container Attack Surface

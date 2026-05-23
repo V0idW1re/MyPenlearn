@@ -126,7 +126,7 @@
   // One-click Claude Code installer. The .deb intentionally doesn't bundle
   // Claude (it's third-party + needs an Anthropic account), so when detection
   // fails we let the user install it from here. After install we re-register
-  // the local Penligent MCP server because the installer rewrites settings.json.
+  // the local Penlearn MCP server because the installer rewrites settings.json.
   async function installClaude() {
     if (claudeInstalling) return;
     claudeInstalling = true;
@@ -424,7 +424,7 @@
 
       <div class="pl-rt-row">
         <span class="pl-rt-label">MCP tools</span>
-        <code class="pl-rt-path">penligent_mcp</code>
+        <code class="pl-rt-path">penlearn_mcp</code>
         <span class="pl-rt-right">
           {#if toolCountLoading}
             <span class="pl-rt-dim">scanning…</span>
@@ -441,13 +441,13 @@
 
       <div class="pl-rt-row">
         <span class="pl-rt-label">Data dir</span>
-        <code class="pl-rt-path">~/.local/share/penligent-local</code>
+        <code class="pl-rt-path">~/.local/share/penlearn-local</code>
         <span class="pl-rt-right pl-rt-ok">✓</span>
       </div>
 
       <div class="pl-rt-row">
         <span class="pl-rt-label">Sudoers rule</span>
-        <code class="pl-rt-path">/etc/sudoers.d/penligent-openvpn</code>
+        <code class="pl-rt-path">/etc/sudoers.d/penlearn-openvpn</code>
         <span class="pl-rt-right pl-rt-ok">✓ openvpn only</span>
       </div>
     </div>

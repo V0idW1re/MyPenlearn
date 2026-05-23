@@ -2,7 +2,7 @@
 name: broken-access-control
 description: Three-axis test protocol for broken access control — horizontal, vertical, client-side
 tags: [methodology, broken-access-control, idor, bola, escalation, rbac]
-source: Penligent Local methodology
+source: Penlearn Local methodology
 ---
 
 # Broken Access Control
