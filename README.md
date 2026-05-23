@@ -1,6 +1,25 @@
 # Penligent Local
 
-A self-hosted, autonomous penetration testing agent that runs entirely on your machine. Combines a Tauri 2 desktop app, a Svelte 5 UI, and a Python MCP server to give Claude Code a full suite of offensive security tools — without any cloud dependency beyond Anthropic.
+A self-hosted, autonomous penetration testing agent that runs entirely on your machine. Combines a Tauri 2 desktop app, a Svelte 5 UI, and a Python MCP server to give Claude Code a full suite of offensive security tools, a persistent knowledge base, and a structured engagement workflow — without any cloud dependency beyond Anthropic.
+
+> Built on Kali, for Kali. One `.deb`, no manual setup.
+
+---
+
+## Quick start
+
+```bash
+# Grab the latest .deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penligent-local_0.1.10_amd64.deb
+
+# Install (the post-install script handles MCP venv, sudoers, claude registration)
+sudo dpkg -i penligent-local_0.1.10_amd64.deb
+
+# Launch
+penligent-local
+```
+
+First launch shows a 3-step welcome wizard. After that, press <kbd>Ctrl</kbd>+<kbd>K</kbd> to open the command palette or just type your objective into the chat.
 
 ---
 
@@ -10,34 +29,56 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 ┌─────────────────────────────────────────────────────────┐
 │  Penligent Local (Tauri 2 desktop app)                  │
 │                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐ │
-│  │ Engagements  │  │     Chat     │  │   Findings    │ │
-│  │  (sidebar)   │  │   (center)   │  │  (P0–P4 rail) │ │
-│  └──────────────┘  └──────────────┘  └───────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐  ┌───────────────┐  │
+│  │ Engagements  │  │     Chat     │  │   Findings    │  │
+│  │  (sidebar)   │  │   (center)   │  │  (P0–P4 rail) │  │
+│  │              │  │  streaming   │  │   + Attack    │  │
+│  │              │  │   markdown   │  │     Path      │  │
+│  └──────────────┘  └──────────────┘  └───────────────┘  │
+│        ┌───────────────────────────────────────┐        │
+│        │  Workspace · Settings · CmdPalette    │        │
+│        └───────────────────────────────────────┘        │
 │                           │                             │
-│                    Tauri IPC (Rust)                      │
+│                    Tauri IPC (Rust)                     │
 │                           │                             │
-│              Claude Code CLI subprocess                  │
-│          --output-format stream-json                     │
-│          --append-system-prompt <pentest rules>          │
-│          --resume <session_id>                           │
+│              Claude Code CLI subprocess                 │
+│          --output-format stream-json                    │
+│          --append-system-prompt <pentest rules>         │
+│          --resume <session_id>                          │
+│   model · token-usage · halt-channel · session state    │
 └───────────────────────────┼─────────────────────────────┘
                             │ stdio
               ┌─────────────▼──────────────┐
               │   Claude Code (claude CLI)  │
               │   Auth: handled by claude   │
               └─────────────┬──────────────┘
-                            │ MCP (stdio)
+                            │ MCP (stdio, per turn)
               ┌─────────────▼──────────────┐
               │   Penligent MCP Server      │
-              │   (Python, 200+ tools)      │
+              │   (Python, 289 tools)       │
               │                             │
-              │  • HTB API (machines/flags) │
-              │  • Nmap / masscan / ffuf    │
+              │  Tool categories:           │
+              │  • Recon (nmap, masscan…)   │
+              │  • Web (49 probes incl.     │
+              │    SSRF/XSS/SQLi/XXE/etc.)  │
+              │  • Network attacks          │
               │  • Exploitation helpers     │
               │  • Post-exploit toolkit     │
               │  • Findings / workspace DB  │
+              │  • Wiki / second brain      │
               │  • CVSS / MITRE / OWASP     │
+              │  • HITL guardrails          │
+              │  • HTB API integration      │
+              └──────────────┬──────────────┘
+                             │ reads
+              ┌──────────────▼──────────────┐
+              │ Wiki second-brain           │
+              │ ~/.local/share/penligent-   │
+              │  local/wiki/                │
+              │   pages/methodology/*.md    │
+              │   pages/modules/*.md        │
+              │   raw/ (HTB Academy /       │
+              │         course notes)       │
               └─────────────────────────────┘
 ```
 
@@ -45,23 +86,51 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ## Features
 
-- **Three-panel UI** — Engagements list, streaming chat, live findings rail
-- **Priority badges** — Findings ranked P0 (critical) → P4 (info) with colour-coded severity
-- **Severity summary bar** — Instant P0·N P1·N P2·N counts at the top of the findings panel
-- **Session continuity** — Claude resumes the same session with `--resume`; system prompt enforces no-repeat rules so completed steps are never suggested again
-- **GUI walkthrough mode** — When a GUI app is required (Burp, browser, VNC), the agent stops and delivers numbered, sub-stepped manual instructions with expected visual feedback
-- **OpenVPN integration** — Browse and connect to `.ovpn` profiles directly from Settings; passwordless sudo rule added automatically by the installer
-- **HackTheBox auto-approval** — When `HTB_APP_TOKEN` is set, machine start/stop/reset and flag submission proceed without confirmation prompts
-- **Workspace persistence** — Every finding, note, and file written to `~/penligent/projects/<name>/workspace/`; SQLite WAL-mode DB survives VM shutdowns
-- **Markdown renderer** — Zero-dependency inline renderer: code fences with copy buttons, headings, lists, blockquotes, bold/italic/strikethrough, inline code
+### Agent runtime
+
+- **Streaming chat** with Claude Code, full stream-json parsing — text, tool calls, errors, and model name surface as they arrive
+- **Session continuity** — Claude resumes the same session via `--resume`; the system prompt enforces no-repeat rules so completed steps are never suggested again
+- **Real-time token telemetry** in the status bar: `turn N · cache N · $X · session N · $Y` parsed from `result.usage`. Cache-read tokens highlighted green
+- **Live model detection** — status bar shows the actual model the agent is using (e.g. `Sonnet 4.6`), parsed from `message.model` on every assistant event. No more hardcoded labels
+- **GUI walkthrough mode** — when a GUI app is required (Burp, browser, VNC, MSF GUI), the agent stops and delivers numbered, sub-stepped manual instructions with expected visual feedback
+
+### Knowledge base (second brain)
+
+- **Persistent pentest wiki** at `~/.local/share/penligent-local/wiki/`
+- **12 methodology pages bundled in the `.deb`** — evidence-first, compliance-mappings, waf-bypass, web-engagement-startup, osint-pre-engagement, auth-session-testing, broken-access-control, cloud-attack-surface, llm-attack-surface, document-parser-exploits, detection-blind-spots, pentest-engagement
+- **System prompt mandates `wiki_query()`** before every task so the agent prefers your synthesized notes over its training data
+- **Per-process LRU+TTL cache** on idempotent wiki and workspace reads — same `wiki_query()` within a turn doesn't re-execute file scans
+
+### Safety & reliability
+
+- **HITL guardrails** — agent calls `approve_intent` for any exploit / active scan / shell-spawn / file-write / OOB callback / flag-submit / machine-reset
+- **MCP-down auto-halt** — if the MCP health check flips from ok → error, the running Claude turn is halted (no point firing tool calls into a dead server) and a blocking modal surfaces the error
+- **Approval modal** — Esc defers, decision errors surface inline, scope/rate-limit/stop-conditions/time-window from the agent visible up front
+- **Workspace persistence** — every finding, note, and file lives in `~/penligent/projects/<name>/workspace/` with a tamper-evident sha256 audit chain
+- **Evidence-first contract** — agent only marks a finding `verified` when all five fields are populated: preconditions, control_request, test_request, observable_effect, retest_after_fix
+
+### Interface
+
+- **Three-panel layout** — engagements sidebar, streaming chat, live findings rail
+- **Attack Path visualisation** — chat-side rail shows the agent's plan as a vertical chain of steps with status icons (✓ done / → in_progress / ○ pending); Workspace tab has a time-based horizontal kill-chain
+- **Priority badges** — findings ranked P0 (critical) → P4 (info), severity summary bar at top
+- **Command palette** — <kbd>Ctrl</kbd>+<kbd>K</kbd> opens a fuzzy-search palette covering every shortcut and quick action
+- **Keyboard shortcuts** — see [Shortcuts](#shortcuts) below
+- **Message virtualization** — only the last 100 messages mount in the DOM by default; "↑ Load 50 earlier messages" expands the window with scroll position preserved
+- **Markdown renderer** — zero-dependency inline renderer with LRU cache: code fences with copy buttons, headings, lists, blockquotes, bold/italic/strikethrough, inline code
 - **Manual-action callout** — GUI walkthrough completions are detected and rendered as a highlighted amber callout
-- **VirtualBox compatible** — Software rendering enabled automatically inside the binary; no manual configuration needed
+
+### Integrations
+
+- **OpenVPN** — browse and connect to `.ovpn` profiles from Settings or the wizard; passwordless sudo rule installed automatically
+- **HackTheBox auto-approval** — when `HTB_APP_TOKEN` is set, machine start/stop/reset and flag submission proceed without confirmation prompts
+- **VirtualBox / VMware compatible** — software rendering enabled automatically inside the binary; no manual configuration needed
 
 ---
 
 ## Requirements
 
-- Kali Linux (tested on 2024.x — VMware and VirtualBox)
+- Kali Linux (tested on 2024.x and 2026.x — VMware and VirtualBox)
 - [`claude` CLI](https://claude.ai/code) installed and logged in (`~/.local/bin/claude`)
 - Python 3.11+ (for the MCP server — pre-installed on Kali)
 - OpenVPN (`/usr/sbin/openvpn`) — optional, for HTB lab access
@@ -70,7 +139,7 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ## Installation
 
-### Option A — Install the pre-built .deb (recommended)
+### Option A — Install the pre-built `.deb` (recommended)
 
 Download `penligent-local_0.1.10_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
@@ -83,7 +152,8 @@ The installer automatically:
 
 - Installs the binary to `/usr/bin/penligent-local`
 - Bundles the Python MCP server to `/usr/lib/penligent-local/mcp-server/`
-- Creates a Python virtual environment and installs the MCP server package
+- Ships 12 baseline methodology wiki pages under `penligent_mcp/data/methodology/` (seeded on first wiki tool call into `~/.local/share/penligent-local/wiki/pages/methodology/`)
+- Creates a Python virtual environment and `pip install -e .` the MCP server package
 - Registers the MCP server entry in `~/.claude/settings.json`
 - Adds a narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn`) so VPN connects without a password prompt
 
@@ -131,6 +201,69 @@ Then add to `~/.claude/settings.json`:
 
 ---
 
+## Shortcuts
+
+Every shortcut is also a command in the palette — discover via <kbd>Ctrl</kbd>+<kbd>K</kbd>, no memorisation required.
+
+| Key | Action |
+|-----|--------|
+| <kbd>Ctrl</kbd>+<kbd>K</kbd> | Toggle command palette (fuzzy search across all commands) |
+| <kbd>Ctrl</kbd>+<kbd>1</kbd> / <kbd>2</kbd> / <kbd>3</kbd> | Chat / Workspace / Settings tab |
+| <kbd>Ctrl</kbd>+<kbd>,</kbd> | Jump to Settings |
+| <kbd>Ctrl</kbd>+<kbd>J</kbd> | Focus chat input |
+| <kbd>?</kbd> | Show keyboard shortcuts cheat sheet |
+| <kbd>Esc</kbd> | Close any modal (palette, help, approval, MCP-down) |
+| <kbd>Enter</kbd> | Send chat message |
+| <kbd>Shift</kbd>+<kbd>Enter</kbd> | Newline in chat input |
+
+Palette commands also include:
+
+- VPN: reconnect last profile / disconnect
+- MCP: re-run health check
+- Clear chat for the current engagement
+- Re-run first-run setup wizard
+
+---
+
+## Second-brain wiki
+
+Every install ships with a baseline knowledge base under `~/.local/share/penligent-local/wiki/`. The agent reads from this **before every task** via the `wiki_query()` MCP tool.
+
+### Layout
+
+```
+~/.local/share/penligent-local/wiki/
+├── index.md                  ← top-level index of every page; first thing Claude reads
+├── manifest.json             ← raw-source → page tracking (sha256-keyed)
+├── log.md                    ← append-only ingest log
+├── pages/                    ← Claude-owned synthesised pages
+│   ├── methodology/          ← 12 baseline pages bundled with the .deb
+│   ├── modules/              ← module/topic pages (Web Apps, Active Directory, etc.)
+│   ├── techniques/           ← attack technique pages
+│   └── machines/             ← per-machine writeups
+└── raw/                      ← immutable original sources (your notes, HTB Academy markdown, etc.)
+```
+
+### MCP tools
+
+The agent has nine wiki tools registered:
+
+- `wiki_query(keywords)` — keyword-rank search across all pages
+- `wiki_read_page(path)` — read one synthesised page
+- `wiki_read_raw(path)` — read an original raw source
+- `wiki_write_page(path, content)` — Claude can author / update pages
+- `wiki_mark_ingested(raw_path, pages_created)` — mark a raw file as processed
+- `wiki_ingest_all()` — return the queue of un-ingested raw files
+- `wiki_status` — summary counts of ingested / pending / stale
+- `wiki_log(entry)` — append an entry to `log.md`
+- `wiki_lint` — find broken page links and orphan pages
+
+### Adding your own knowledge
+
+Drop any markdown file into `~/.local/share/penligent-local/wiki/raw/<topic>/<name>.md`, then in the chat tell the agent: "ingest the new files in raw/". Claude reads the schema, synthesises pages, updates the manifest and log, and the content is queryable on the next task.
+
+---
+
 ## Checking MCP server health
 
 The MCP server is **stdio-based** — Claude Code spawns it as a subprocess per turn, so it does not listen on any port. There is no HTTP endpoint to curl.
@@ -141,46 +274,53 @@ The status bar at the bottom of the window shows a live dot:
 
 | Dot | Meaning |
 |---|---|
-| Green — `MCP · 280 tools` | Server is healthy, tool count confirmed |
+| Green — `MCP · 289 tools` | Server is healthy, tool count confirmed |
 | Yellow (pulsing) | Health check in progress (runs every 15 s) |
-| Red — `MCP · error` | Import failed — hover the dot to see the error |
+| Red — `MCP · error` | Import failed — hover the dot for the error |
+
+**MCP-down behaviour (v0.1.8+):** if the dot flips red while an agent turn is running, the turn is halted and a blocking modal appears with the error and a `Recheck now` button. On recovery the modal auto-dismisses.
 
 ### From a terminal
 
-**Check Claude Code sees the server:**
 ```bash
+# Check Claude Code sees the server
 claude mcp list
-```
 
-**Check inside an interactive Claude Code session:**
-```
+# Inside an interactive Claude Code session
 /mcp
-```
 
-**Check the Python import (same probe the status dot uses):**
-```bash
+# Check the Python import (same probe the status dot uses)
 /usr/lib/penligent-local/mcp-server/.venv/bin/python -c "import penligent_mcp; print('ok')"
-```
 
-**Check if the process is alive during an active agent turn:**
-```bash
+# Check the process during an active agent turn
 pgrep -a -f penligent_mcp
 ```
-Prints the PID and command if running; nothing if no turn is in progress (that is normal).
+
+The MCP process only lives for the duration of a Claude turn — pgrep returning nothing between turns is normal.
 
 ---
 
 ## Configuration
 
-### HTB App Token
+### First-run wizard
 
-Settings → HTB App Token → paste your token from HTB profile → Settings → API.
+Launches automatically on first start. Three optional steps:
 
-Stored locally at `~/.local/share/penligent-local/config.json`, passed to Claude as `HTB_APP_TOKEN`.
+1. **HTB API Token** — HTB profile → Settings → API → create app token. Used for REST API calls.
+2. **OpenVPN sudoers** — installs the narrow `/etc/sudoers.d/penligent-openvpn` rule.
+3. **Default VPN profile** — point at your `.ovpn` file.
+
+Skip any step; re-run anytime via <kbd>Ctrl</kbd>+<kbd>K</kbd> → "Re-run first-run setup wizard".
+
+### HTB App Token (later)
+
+Settings → HackTheBox → API Token → paste → Save & Register.
+
+Stored locally at `~/.local/share/penligent-local/config.json`, passed to Claude as `HTB_APP_TOKEN`, and used to register the HTB MCP server entry.
 
 ### VPN
 
-Settings → OpenVPN → Browse for your `.ovpn` file → Connect.
+Settings → OpenVPN → Browse for your `.ovpn` file (or paste the path) → Connect.
 
 The passwordless sudo rule for OpenVPN is added automatically by the `.deb` installer. If you installed from source, add it manually once:
 
@@ -190,28 +330,83 @@ echo "%sudo ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
   sudo chmod 440 /etc/sudoers.d/penligent-openvpn
 ```
 
+Enable **auto-reconnect on drop** in Settings → OpenVPN to have the app reconnect using the most recently used profile if the tunnel dies.
+
 ---
 
 ## Usage
 
 1. Launch `penligent-local`
-2. Create an engagement in the left sidebar — choose HTB Machine, CTF, Bug Bounty, or Pentest
-3. Set the target IP if applicable (right-click → rename, or set during creation)
-4. Type your objective in the chat and press Enter
-5. The agent enumerates, exploits, and documents findings automatically
-6. When a GUI step is needed, follow the numbered walkthrough and reply when done
-7. Findings appear in real-time in the right panel with P0–P4 priority
+2. Create an engagement in the left sidebar — pick HTB Machine, CTF, Bug Bounty, or Pentest
+3. Set the target IP if applicable (set during creation, or right-click → Rename)
+4. (HTB) connect VPN from Settings or the status bar
+5. Type your objective in the chat and press <kbd>Enter</kbd>
+6. The agent enumerates, exploits, and documents findings automatically
+7. When a GUI step is needed, follow the numbered walkthrough and reply when done
+8. Findings appear in real-time in the right panel with P0–P4 priority
+9. Attack path on the right rail tracks the agent's plan; Workspace tab has a time-scaled kill-chain
+10. Say `done` or `generate report` to produce `exec-summary.md`, `fix-list.md`, and `controls.json` in `workspace/report/`
+
+### Engagement kinds
+
+| Kind | Auto-approve scope | Use case |
+|------|---------------------|----------|
+| **HTB Machine** | All offensive intents when `HTB_APP_TOKEN` is present | Lab boxes, training |
+| **CTF Event** | Recon + dir-brute auto; exploit needs approval | Time-bound CTFs |
+| **Bug Bounty** | All offensive intents need explicit approval | Public scope hunting |
+| **Authorized Pentest** | All intents need approval + SOW reference in note | Client engagements |
+
+---
+
+## Troubleshooting
+
+**MCP dot is red on launch.**
+The Python venv is missing or broken. Reinstall the `.deb`, or check that the post-install script ran without errors:
+```bash
+sudo dpkg --configure penligent-local
+ls /usr/lib/penligent-local/mcp-server/.venv/bin/python
+```
+
+**The MCP-down modal won't dismiss even after I fix the issue.**
+Click `Recheck now`. If MCP is healthy the modal auto-dismisses. If not, the displayed error is the same one the periodic check sees — fix that.
+
+**Status bar says `Claude · waiting…` forever.**
+That's the placeholder shown before the first assistant response of a session. After your first message + Claude's reply, it switches to the real model name. If it never updates, check that Claude Code is logged in (`claude --version`).
+
+**Tool calls fail with "module not found".**
+The MCP venv was created against a different Python. Re-create it:
+```bash
+sudo /usr/lib/penligent-local/mcp-server/.venv/bin/pip install -e /usr/lib/penligent-local/mcp-server
+```
+
+**`Couldn't load findings.` red block in the findings panel.**
+The DB schema is older than this build. Restart the app — `ensure_schema()` runs idempotent `ALTER TABLE` migrations on every launch.
+
+**Wizard never appeared on first launch.**
+The setup-complete flag was already set. Open the palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) → "Re-run first-run setup wizard".
+
+**Long chat sessions feel sluggish.**
+Past 100 messages, the chat windows to the latest 100. Click the dashed `↑ Load 50 earlier messages` button at the top to expand. Browser-level `Ctrl+F` only searches mounted DOM — use `workspace_search` via the agent to grep the persisted history.
+
+**VPN reconnect doesn't work.**
+Open Settings → OpenVPN. Make sure a profile is marked default (star icon). The auto-reconnect uses the most recent profile, falling back to the default.
+
+**Status bar shows `MCP · error` but `claude mcp list` is happy.**
+Hover the red dot for the exact error. Common causes: a Python syntax error in a custom MCP tool you added, a missing dependency after editing `pyproject.toml`, or the venv `python` pointing at a removed system Python.
 
 ---
 
 ## Data
 
 | Path | Contents |
-|---|---|
-| `~/.local/share/penligent-local/penligent.db` | Projects, findings, chat history (SQLite WAL) |
-| `~/.local/share/penligent-local/config.json` | HTB token, local settings |
-| `~/.local/share/penligent-local/artifacts/` | Raw tool output saved per execution |
-| `~/penligent/projects/<name>/workspace/` | Per-engagement files, notes, scan output |
+|------|----------|
+| `~/.local/share/penligent-local/penligent.db` | Projects, findings, chat history, agent sessions, plans (SQLite WAL) |
+| `~/.local/share/penligent-local/config.json` | HTB token, UI zoom, VPN auto-reconnect, setup_complete flag |
+| `~/.local/share/penligent-local/artifacts/` | Raw tool stdout/stderr saved per execution |
+| `~/.local/share/penligent-local/wiki/` | Second-brain: methodology pages, modules, raw sources, manifest |
+| `~/penligent/projects/<name>/workspace/` | Per-engagement files, notes, evidence, scan output |
+| `~/.claude/settings.json` | MCP server registration (Penligent + HTB) |
+| `/etc/sudoers.d/penligent-openvpn` | Narrow passwordless sudo rule for OpenVPN only |
 
 ---
 
@@ -223,25 +418,23 @@ echo "%sudo ALL=(ALL) NOPASSWD: /usr/sbin/openvpn" | \
 sudo dpkg -r penligent-local
 ```
 
-This removes the binary, the bundled MCP server, and the desktop entry. Configuration and data are intentionally kept (see step 3 if you want to remove those too).
+This removes `/usr/bin/penligent-local`, `/usr/lib/penligent-local/`, and the desktop entry. The sudoers rule and user data are left behind on purpose.
 
 ### 2 — Remove the sudoers rule
 
 ```bash
-sudo rm -f /etc/sudoers.d/penligent-openvpn
+sudo rm /etc/sudoers.d/penligent-openvpn
 ```
 
 ### 3 — Remove user data (optional)
 
 ```bash
-# App database, HTB token, settings, tool output artifacts
+# App database, HTB token, settings, tool output artifacts, wiki
 rm -rf ~/.local/share/penligent-local/
 
-# Per-engagement workspace files, notes, scan output
+# Per-engagement workspace files, notes, scan output, evidence
 rm -rf ~/penligent/
 ```
-
-> These directories contain your findings and chat history. Only delete them if you no longer need the data.
 
 ### 4 — Remove the MCP server entry from Claude settings (optional)
 
@@ -252,136 +445,10 @@ rm -rf ~/penligent/
 ### 5 — Remove the Claude CLI (optional)
 
 ```bash
-npm uninstall -g @anthropic-ai/claude-code
-
+rm ~/.local/bin/claude
 # Claude auth tokens and local config
 rm -rf ~/.claude/
 ```
-
----
-
-## Changelog
-
-### v0.1.10 (current)
-
-**UI audit — seven concrete bugs fixed across the panels:**
-
-- **`ApprovalModal`** now shows decide_approval errors inline instead of silently logging to console (modal used to freeze with no feedback). `Esc` now defers the decision so the row stays pending for the next poll cycle to re-surface.
-- **`Sidebar`** rename and delete errors surface inline (were silently swallowed — users couldn't tell why a duplicate name or in-use engagement wouldn't take). Rename keeps the input open for retry. The decorative "Save" context-menu item (flashed ✓ for 1.5s without saving anything) was removed entirely along with its dead state.
-- **`Settings`** `.ovpn` path input is editable instead of read-only — paste now works alongside Browse, matching the wizard's behaviour shipped in v0.1.6.
-- **`Findings`** no longer crashes when a finding has a null/missing severity (`f.severity.toUpperCase()` was unconditional). Falls back to `info` priority badge.
-- **`Workspace`** notes save now flushes pending debounced writes synchronously on project switch / component destroy. Previously a fast tab switch within the 1.5s debounce window silently dropped unsaved typing — the `$effect` cleanup now captures the project name + content at the moment of switch and writes them through before the new project loads.
-
-### v0.1.9
-
-**Bug fixes:**
-
-- **Status-bar model label now reflects the actual running model.** The bottom-right corner has been displaying the hardcoded string `Sonnet 4.6` since v0.1.4 with no detection. If your Claude Code config selected Opus or Haiku, or Anthropic shipped a new Sonnet variant, the status bar still said `Sonnet 4.6`. Now sourced from the `message.model` field that Claude Code emits on every `assistant` event in stream-json. A new `claude://model` Tauri event wires it through to the UI, where a `fmtModel()` helper turns `claude-sonnet-4-5-20250929` into `Sonnet 4.5`. Falls back to the raw id for unknown families so a fresh release still shows something useful. The label is now visible alongside token telemetry (was hidden once the first turn completed), with the full model id available on hover.
-
-### v0.1.8
-
-**Features:**
-
-- **MCP-down auto-halt + modal.** When the periodic MCP health check flips from `ok` to `error`, the frontend now invokes a new `claude_halt` Tauri command to stop the in-flight Claude turn (no point firing tool calls into a dead server) and surfaces a blocking modal explaining what happened. The modal shows any captured error, offers a "Recheck now" button (re-runs `pollMcpHealth` immediately instead of waiting up to 15s), and auto-dismisses when health recovers. The bottom-right status-bar dot is unchanged — this is purely additive.
-- **`claude_halt` Tauri command.** Backend uses a `tokio::sync::oneshot` channel stored in `ClaudeState`; `run_turn`'s read loop is now a `tokio::select!` with the halt arm `biased;` so an idle agent gets stopped promptly. The existing `kill_on_drop(true)` does the actual SIGTERM as the `Child` handle goes out of scope. Returns `true` if a turn was actually halted, `false` if nothing was running.
-
-### v0.1.7
-
-**Bug fixes (web.py audit, second pass):**
-
-Nine more bugs fixed across eight probe functions. Test suite now at 1,477 passed (390 subtests), up one from v0.1.6 thanks to a new php://filter source-disclosure detection.
-
-- **`graphql_probe` critical false-positive fixed.** `rc == 0` matched every successful curl call (including 404 responses), so every probed endpoint reported `[EXISTS]`. Now reads the actual HTTP status code via curl `-w` and only marks `[EXISTS]` on 200/400 with a GraphQL `errors[]` body shape. `[VULN]` requires `"__schema"` or `"queryType"` in body (quoted to avoid bare-substring matches).
-- **`file_upload_check` honours the documented `timeout` arg.** Was parsed and ignored — both `curl -m` and the asyncio.wait_for were hardcoded. Also captures the HTTP status code and flags 2xx responses containing `success` / `uploaded` / `filename` / URL-field signals as `[LIKELY ACCEPTED]`. Added inline note that this tool tests upload acceptance, not file executability.
-- **`jwt_decode` crashed on malformed JWTs.** `header.get(...)` was called unconditionally — if base64-decode failed and returned a `"<decode error>"` string, this raised `AttributeError`. Now guarded with `isinstance` checks. RS/ES/PS algorithms get an actionable hint about `alg=none` and RS→HS key confusion attacks.
-- **URL construction bugs in 5 more probes**: `open_redirect_check`, `ssti_probe`, `lfi_probe`, `cmdi_probe`, `path_traversal`, `prototype_pollution` GET-payload path. All switched to the parser-aware `_build_url_with_param()` helper. No more malformed URLs when targets already have query strings; payloads now properly URL-encoded.
-- **`open_redirect_check` was silently skipping 6 of 11 default params.** Hardcoded `params[:5]` slice replaced with configurable `max_params` / `max_payloads` args.
-- **`lfi_probe` / `path_traversal` detection broadened.** Both now use the shared `_imds_signal` helper (catches `/etc/passwd`, Windows boot.ini, cloud IMDS shapes) plus base64 source-disclosure for php://filter and explicit win.ini section names.
-- **`lfi_probe` `[CHECK]` threshold tightened.** Was 100B absolute → 500B delta-from-baseline. Pre-fix every response over 100 bytes flooded the output with manual-review noise.
-- **`cmdi_probe` time-based detection now compares to a baseline.** Pre-fix a 4+ second jitter spike on a slow endpoint triggered a false-positive blind cmdi finding even without a payload. Now measures baseline latency at start of probe and only flags `[VULN]` when delta exceeds baseline + 4s.
-- **`ssti_probe` `[SAFE]` relabelled `[NO_MATCH]`.** A payload not reflecting `49` doesn't prove safety (HTML-escape, different engine, payload landed in non-rendered context, etc.). Honest label.
-
-### v0.1.6
-
-**First-run wizard polish:**
-
-- **New Welcome step** with a one-line positioning sentence, a bulleted overview of the three setup steps (HTB token / OpenVPN sudoers / VPN profile) with optional/recommended badges, and a hint that the wizard can be re-run anytime from `Ctrl+K`.
-- **Back button on every step.** Typing the wrong HTB token used to mean restarting the wizard.
-- **Show/Hide toggle** on the HTB token field (defaults hidden).
-- **OVPN path input is editable** — paste works alongside the Browse button.
-- **New Summary step** before Finish, with ✓/— icons and the masked last-6 chars of the HTB token. Errors during save now render inline as a styled red block so users can see what failed, instead of the wizard closing silently.
-- **`Ctrl+K` → "Re-run first-run setup wizard"** command added. Resets all wizard state and reopens the dialog.
-- **Internal:** `wzFinish()` now collects errors per save operation instead of `catch (_) {}` swallowing them; the wizard stays open with the error list visible if anything failed.
-
-### v0.1.5
-
-**Bug fixes (web.py audit pass):**
-
-- **13 probe tools honoured documented `timeout` arg.** `open_redirect_check`, `ssrf_probe`, `ssti_probe`, `lfi_probe`, `rfi_probe`, `xxe_probe`, `cmdi_probe`, `path_traversal`, `idor_check`, `rate_limit_check`, `graphql_probe`, `prototype_pollution`, `deserialization_check` accepted `timeout: int` but hardcoded 15s (or 10s/30s) internally. The agent could never override — slow targets and time-based probes silently failed. Now every probe uses the parsed `timeout_s`.
-- **`jwt_crack` algorithm-aware.** Previously hardcoded HS256/SHA-256. Tokens using HS384, HS512, RS256, ES256 silently returned "secret not found" — false negatives every time. Now reads the JWT header `alg`, picks hashcat mode 16500/16600/16700 for HS256/384/512, and fails non-HMAC algorithms with a clear pointer to `alg=none` and RS→HS key confusion.
-- **`jwt_crack` output parsing.** Hashcat result extraction now uses `--show` + `rsplit(":", 1)` instead of a regex that captured the first `:` on a line.
-- **SSRF / RFI URL construction.** Old pattern `f"{target}?{param}={payload}"` produced malformed URLs (`http://x?a=1?param=…`) when the target already had a query string, and never URL-encoded the payload — so `&` in a payload polluted the outer query. New `_build_url_with_param()` helper parses, encodes, and reassembles. Adopted by SSRF + RFI probes.
-- **SSRF probe positive signal.** Previously reported only "HTTP code + body_len" per payload — the agent had to guess. Now detects AWS / GCP / Azure / DigitalOcean metadata content, `/etc/passwd`, Windows boot.ini, and falls back to a body-size differential heuristic. Reports `[VULN]` when confirmed.
-- **XXE probe broadened.** Dropped the useless "blind_oob" payload pointing at the target's own `127.0.0.1`. Added `callback_host` arg, `php://filter` base64 source disclosure, Windows hosts file payload, proper OOB DTD payload. Detection extended beyond `root:`/`daemon:` to base64 source bytes and XML parser-error keywords (`doctype`/`entity`/`saxparser`/`expat`/`lxml.etree`/`xerces`).
-- **Java deserialization probe actually delivers the payload.** Previously generated a ysoserial payload and returned "send as POST body" without sending it; the required `target` arg was unused. Now POSTs the binary payload to the target and measures elapsed time vs the gadget's 5s sleep. Reports `[CONFIRMED]` with measured delay. Binary-safe: ysoserial stdout streams to a temp file so the 0xAC 0xED magic bytes hit the wire intact (sidesteps `_run_subprocess`'s UTF-8 decoding).
-
-Tests: 1,476 passed, 390 subtests passed.
-
-### v0.1.4
-
-**Features:**
-
-- **Command palette + keyboard shortcuts.** `Ctrl+K` opens a fuzzy-search palette covering tab navigation, chat focus, VPN reconnect/disconnect, MCP re-check, clear-chat, and the keyboard help dialog itself. Power-user shortcuts: `Ctrl+1/2/3` jumps between Chat / Workspace / Settings, `Ctrl+,` opens Settings, `Ctrl+J` focuses the chat input, `?` shows the cheat sheet, `Esc` closes any modal. Every shortcut is also exposed as a command in the palette so nothing has to be memorised.
-- **Real per-turn / session token telemetry in the status bar.** Replaces an earlier `cost × 200000` approximation with actual `usage` data parsed from Claude Code's stream-json `result.usage` event. Status bar now shows `turn 1.9k · cache 1.8k · $0.0034 · session 12.4k · $0.18`. Cache-read tokens are highlighted in green — a visible cost-saving signal whenever the trimmed system prompt is server-side cached.
-
-**Performance:**
-
-- **Windowed message rendering.** Long sessions used to keep every message mounted; agentic turns produce multiple tool_use panels each, so the DOM grew unbounded and layout cost climbed visibly. Now only the last 100 messages are mounted by default — older ones stay in `messages[]` (persisted, hash-chained, still searchable by the agent via `workspace_search`). A dashed-border `↑ Load 50 earlier messages` button at the top of the chat expands the window on demand, with scroll position preserved.
-
-### v0.1.3
-
-**Features:**
-
-- **Wiki bootstrap — methodology pages now ship in the .deb.** A fresh install used to give an empty second-brain: `wiki_query('evidence-first')`, `wiki_query('compliance-mappings')`, etc. would return nothing on day one. The bundle now includes 12 baseline methodology pages under `penligent_mcp/data/methodology/`, and the wiki tools copy any missing seed into the user's wiki on first use. Idempotent — never overwrites existing user edits.
-
-Seeded pages: `evidence-first`, `compliance-mappings`, `waf-bypass`, `web-engagement-startup`, `osint-pre-engagement`, `auth-session-testing`, `broken-access-control`, `cloud-attack-surface`, `llm-attack-surface`, `document-parser-exploits`, `detection-blind-spots`, `pentest-engagement`.
-
-### v0.1.2
-
-**Performance:**
-
-- **System prompt trimmed 67%** — from ~5,900 to ~1,935 tokens per turn. Methodology sections (compliance tables, WAF bypass, XSS layers, XXE, OSINT, auth/session, BAC, cloud, LLM, PDF, blind spots) moved out of the prompt and into wiki pages the agent loads on demand via `wiki_query()`. Saves ~3,900 tokens every turn.
-- **Chat streaming** — coalesced rapid claude://chunk events into a single rAF-batched render (was O(N²) array churn over a turn, now O(N) capped at 60Hz). Added a 256-entry LRU cache for `renderMarkdown` so settled message parts and finished tool_use blocks don't re-parse on every frame. Smooth-scroll queue replaced with instant scroll inside the rAF callback.
-- **MCP read caching** — in-process LRU+TTL cache for `wiki_*` and `workspace_*` idempotent reads (60s TTL / 64 entries per namespace). Mutating tools invalidate their namespace. Cache state never outlives a single turn.
-
-**Bug fixes:**
-
-- **`cloud.py` / `binary.py` missing from .deb bundle** — both were imported by the MCP server but absent from `tauri.conf.json` files map; a fresh install would fail to start the MCP server. Added to the bundle.
-- **`wiki.py` / `_cache.py` missing from .deb bundle** — same issue for the newly added MCP modules. Added.
-- **Inline `import re` calls in `wiki.py`** — flagged by `TestPythonSyntax::test_no_remaining_inline_imports`. Hoisted to module-top imports.
-
-**Features:**
-
-- **Wiki / Second Brain MCP tool** (`wiki.py`, 554 lines) — query/read/write/lint/ingest the local pentest knowledge base at `~/.local/share/penligent-local/wiki/`. The system prompt now mandates `wiki_query()` before every task so the agent prefers your synthesized notes over its training data.
-- **11 methodology wiki pages** seeded locally (evidence-first, compliance-mappings, waf-bypass, web-engagement-startup, osint-pre-engagement, auth-session-testing, broken-access-control, cloud-attack-surface, llm-attack-surface, document-parser-exploits, detection-blind-spots) — these back the keywords the trimmed system prompt references.
-- **`scripts/ingest_machines.py`** — bulk ingestion helper for machine writeups.
-
-### v0.1.0
-
-**Bug fixes:**
-
-- **MCP server bundled in .deb** — previously missing from the package; the agent had no tools on a fresh install. Now fully automatic via post-install script (venv creation, pip install, `~/.claude/settings.json` registration, sudoers rule).
-- **VirtualBox / VM support** — app hung on launch in VMs with no GPU. Fixed by setting `WEBKIT_DISABLE_COMPOSITING_MODE=1` and `LIBGL_ALWAYS_SOFTWARE=1` inside the binary before WebKit initialises; also reflected in the `.desktop` entry for launcher compatibility.
-- **OpenVPN Browse button** — silently did nothing. Root cause: Tauri v2 requires explicit capability grants. Fixed by adding `dialog:allow-open` to `capabilities/default.json`.
-- **VPN stuck at "connecting"** — OpenVPN writes its log to stderr, not stdout. Fixed by merging both streams through a single channel so "Initialization Sequence Completed" is always detected.
-- **VPN tun IP never shown** — CIDR notation (`10.10.14.42/23`) failed IP parsing. Fixed by stripping the `/prefix` before validation.
-- **Hardcoded `/home/kali` paths** — broke for any non-`kali` username. Fixed in: `claude_proc.rs` (Claude binary path and work-dir fallback), `App.svelte` (project workspace path), `Settings.svelte` (Browse dialog default path). All now use `dirs::home_dir()` / `homeDir()` at runtime.
-- **`rpc_users` rpcclient crash** — an empty string `""` was passed as a positional argument to `rpcclient` when a username was provided, causing it to fail. Fixed with `*(["-N"] if not username else [])`.
-- **`post-install.sh` non-fatal pip failure** — `set -e` caused dpkg to mark the package as broken if pip/hatchling had no internet access. Made the install step non-fatal with a clear retry instruction; also auto-installs `python3-venv` if missing.
-- **Chat history wipe on bad JSON** — a single message with malformed stored content caused `JSON.parse` to throw inside `.map()`, wiping all displayed history. Fixed with per-message parsing using `flatMap`.
-- **Silent project creation failure** — if the server rejected a project name (e.g., containing `/`), the modal closed with no feedback. Error message now shown in red below the name field.
-- **Unhandled `homeDir()` rejection** — missing `.catch()` on the `homeDir()` promise in `App.svelte`. Added.
-- **Fresh-install database bootstrap** — `projects` and `chat_messages` tables were not created by the Rust app, so the UI failed before the Python MCP server had ever run. Fixed with `ensure_schema()` in `db_commands.rs`.
 
 ---
 
@@ -389,6 +456,52 @@ Seeded pages: `evidence-first`, `compliance-mappings`, `waf-bypass`, `web-engage
 
 - No Anthropic API key required — Claude Code handles authentication
 - No outbound connections except to Anthropic (Claude Code) and HTB (`labs.hackthebox.com`)
-- All data stays on the local machine
-- Sudoers rule is scoped to `/usr/sbin/openvpn` only — never `NOPASSWD: ALL`
+- All data stays on the local machine — no telemetry, no analytics
+- Sudoers rule is scoped to `/usr/sbin/openvpn` only — **never** `NOPASSWD: ALL`
+- HITL approve_intent guardrails surface dangerous operations to the user; the system prompt mandates them for every exploit / scan / shell / file-write / OOB / flag-submit / machine-reset
+- The wiki second-brain is local-only; the agent is instructed to treat fetched tool output as data, not instructions (prompt-injection defence)
 - Intended for use on a dedicated pentesting VM, not a daily-driver machine
+
+---
+
+## Changelog
+
+### v0.1.10 (current)
+
+UI audit across all ten Svelte panels — seven concrete bugs fixed. `ApprovalModal` shows decide errors inline (was console-only); Esc defers the decision. `Sidebar` rename + delete surface errors inline (were silently swallowed); decorative "Save" item removed. `Settings` `.ovpn` path is editable (was read-only). `Findings` no longer crashes on null severity. `Workspace` notes save flushes synchronously on project switch / destroy (fast tab switches used to silently drop typing). Also: `risk_items` schema migrations mirrored on the Rust side so the Findings panel works even when the user opens the app before the MCP server has ever connected to the DB.
+
+### v0.1.9
+
+Real model label in the status bar. Was hardcoded `Sonnet 4.6` since v0.1.4 — now parsed from `message.model` on every Claude Code `assistant` stream-json event. Falls back to a placeholder before the first turn arrives. `fmtModel()` helper formats `claude-sonnet-4-5-20250929` into `Sonnet 4.5`; full id on hover.
+
+### v0.1.8
+
+MCP-down auto-halt + modal. When MCP health flips ok → error, the in-flight Claude turn is halted via a `claude_halt` Tauri command (oneshot channel + `tokio::select!` + `kill_on_drop`) and a blocking modal explains what happened. `Recheck now` button re-runs `pollMcpHealth` immediately. Auto-dismisses on recovery. The status-bar dot is unchanged — modal is additive.
+
+### v0.1.7
+
+`web.py` audit pass 2 — nine more bugs across eight probe functions. Critical: `graphql_probe` false-positive (`rc == 0` matched every successful curl, including 404s) fixed via real HTTP status capture. `file_upload_check` honours its `timeout` arg. `jwt_decode` no longer crashes on malformed headers. URL construction in `open_redirect_check`, `ssti_probe`, `lfi_probe`, `cmdi_probe`, `path_traversal`, `prototype_pollution` switched to the parser-aware `_build_url_with_param()`. Detection broadened in `lfi_probe` / `path_traversal` (cloud IMDS, php://filter source disclosure, Windows boot.ini). `cmdi_probe` time-based detection now compares to baseline latency. `ssti_probe` `[SAFE]` relabelled `[NO_MATCH]`.
+
+### v0.1.6
+
+First-run wizard polish. New Welcome step with bulleted overview. Back button on every step. Show/Hide on the HTB token field. `.ovpn` path editable (matches Settings). New Summary step with `✓` / `—` icons. Save errors render inline. `Ctrl+K` → "Re-run first-run setup wizard" command. `wzFinish()` collects errors instead of silently swallowing them.
+
+### v0.1.5
+
+`web.py` audit pass 1. 13 probe tools now honour their documented `timeout` arg (was hardcoded internally). `jwt_crack` is alg-aware (HS256/384/512) and fails non-HMAC tokens with a clear error pointing at alg-confusion attacks. SSRF / RFI URL construction via parser-aware helper. SSRF probe now detects cloud-metadata shapes as `[VULN]` instead of just reporting size. XXE probe gets `callback_host` arg + broader detection. Java deserialization probe actually delivers the payload and measures elapsed time vs the gadget's 5s sleep.
+
+### v0.1.4
+
+Token telemetry, message virtualization, command palette + shortcuts. Status bar now reads `Sonnet 4.6 · turn 1.9k · cache 1.8k · $0.0034 · session 12.4k · $0.18` with real values from Claude Code stream-json `result.usage` (was a `cost × 200000` approximation). Cache-read tokens highlighted green. Chat keeps only the last 100 messages in the DOM by default; older accessible via "↑ Load earlier" with scroll position preserved. <kbd>Ctrl</kbd>+<kbd>K</kbd> opens a fuzzy-search command palette covering tab navigation, focus chat input, VPN actions, MCP recheck. Power-user shortcuts: <kbd>Ctrl</kbd>+<kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd>, <kbd>Ctrl</kbd>+<kbd>,</kbd>, <kbd>Ctrl</kbd>+<kbd>J</kbd>, <kbd>?</kbd>.
+
+### v0.1.3
+
+Wiki bootstrap. 12 baseline methodology pages (evidence-first, compliance-mappings, waf-bypass, etc.) ship in the `.deb` under `penligent_mcp/data/methodology/` and seed into `~/.local/share/penligent-local/wiki/pages/methodology/` on first wiki tool call. Idempotent — never overwrites existing user edits. Closes the v0.1.2 carry-over where the trimmed system prompt routed to wiki pages that only existed on the maintainer's machine.
+
+### v0.1.2
+
+System prompt trim (-67%, ~5,900 → ~1,935 tokens per turn), chat-streaming perf (O(N²) → O(N), capped at 60 Hz; markdown LRU cache), MCP read caching (60s TTL, 64 entries per namespace for wiki/workspace reads). Bundle fixes: `cloud.py` and `binary.py` were imported by `register_all.py` but missing from the `.deb` — fresh installs of 0.1.1 silently failed to start the MCP server. Also added the new `wiki.py` and `_cache.py` modules to the bundle.
+
+### v0.1.0
+
+Initial release. Three-panel UI, HTB / VPN integration, MCP server with ~280 tools, SQLite-backed engagements with chat history. Various bootstrap fixes (VirtualBox software rendering, OpenVPN browse, VPN stuck-at-connecting, hardcoded `/home/kali` paths, rpc_users crash, fresh-install DB bootstrap).
