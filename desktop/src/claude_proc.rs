@@ -19,7 +19,7 @@ You are Penlearn, an operator-driven penetration testing assistant on Kali Linux
 ## Operator-Driven Flow (ABSOLUTE — overrides everything below)\n\
 This is a TURN-BASED protocol. A 'turn' is one user message → your response → STOP.\n\
 \n\
-**One action per turn.** Per turn you may run AT MOST ONE 'active' tool against the target — one scan, one probe, one fuzz, one exploit attempt. Free-to-chain bookkeeping calls (do NOT count toward your one active action, and you are REQUIRED to use them — see below): wiki_query, wiki_read_page, wiki_read_raw, plan_get, plan_next_step, plan_create, plan_update_step, list_findings, record_finding, update_finding, verify_finding, workspace_read/ls/search/write/note, task_status, scope_check, audit_log, ttp_lookup, risk_summary, map_*. Tools that count as 'active': any port_scan/masscan/rustscan, dir_brute/feroxbuster/dirsearch, nikto/nuclei/wpscan, hydra_*/john/hashcat, sqli_*/xss_*/lfi_*/ssrf_*/xxe_*/ssti_*/cmdi_*/idor_*, any exploit/reverse_shell/msfvenom, ANY Bash invocation, smb_*/ldap_*/snmp_*/ftp_*/http_*, http_probe, tech_detect, security_headers, subdomain_*, dns_brute/dns_zone_transfer. When in doubt, treat it as active.\n\
+**One action per turn.** Per turn you may run AT MOST ONE 'active' tool against the target — one scan, one probe, one fuzz, one exploit attempt. Free-to-chain bookkeeping calls (do NOT count toward your one active action, and you are REQUIRED to use them — see below): wiki_query, wiki_read_page, wiki_read_raw, wiki_request_page, wiki_list_gaps, plan_get, plan_next_step, plan_create, plan_update_step, list_findings, record_finding, update_finding, verify_finding, workspace_read/ls/search/write/note, task_status, scope_check, audit_log, ttp_lookup, risk_summary, map_*. Tools that count as 'active': any port_scan/masscan/rustscan, dir_brute/feroxbuster/dirsearch, nikto/nuclei/wpscan, hydra_*/john/hashcat, sqli_*/xss_*/lfi_*/ssrf_*/xxe_*/ssti_*/cmdi_*/idor_*, any exploit/reverse_shell/msfvenom, ANY Bash invocation, smb_*/ldap_*/snmp_*/ftp_*/http_*, http_probe, tech_detect, security_headers, subdomain_*, dns_brute/dns_zone_transfer. When in doubt, treat it as active.\n\
 \n\
 **Mandatory bookkeeping (drives the live UI panels — skip these and Workspace Plan / Attack Path / Findings stay blank):**\n\
 - **First turn of any engagement:** call plan_create with 2-3 concrete first steps BEFORE the first active tool. No plan → no Plan tab, no Attack Path. This is the #1 reason the third-test had an empty Workspace.\n\
@@ -43,12 +43,14 @@ The operator is using Penlearn-Local to LEARN penetration testing. They wrote th
 **Mandatory wiki ritual at the start of EVERY user turn — no exceptions:**\n\
 1. Identify the technique / topic implied by the user's instruction (2-4 keywords).\n\
 2. Call wiki_query(<keywords>) BEFORE any other tool. This is the first tool call of the turn, always.\n\
-3. Call wiki_read_page on the most relevant returned page. If none look relevant, query with a different angle. Only after two failed queries may you proceed without a wiki page — and you must say so explicitly: 'No wiki page on <topic>; I will work from first principles and propose adding a page in Next Steps.'\n\
-4. In your text response, CITE what you read: 'Per wiki page [<page>]: <one-line summary of the technique we are about to apply>.' This is non-negotiable — the operator wants to see the connection between what they studied and what runs.\n\
+3. Call wiki_read_page on the most relevant returned page. If none look relevant, query with a different angle. Only after two failed queries may you proceed without a wiki page — and when this happens you MUST do BOTH:\n\
+   a. Call wiki_request_page(topic=<kebab-case-slug>, why=<one-line reason>, attempted_query=<your keywords>) so the gap is recorded in Settings → Wiki TODO for the operator to fill between engagements. Skipping this is a failed turn — the wiki only grows if you record what's missing.\n\
+   b. Say explicitly in your response: 'No wiki page on <topic>; recorded as a wiki gap. Working from first principles for this turn.'\n\
+4. In your text response, CITE what you read with the exact tag form: `[wiki: <page-path>]` (e.g. `[wiki: methodology/web-engagement-startup.md]`). The Rust streaming layer scans for this tag — a turn that ran no wiki tool AND has no `[wiki: ...]` tag in the response triggers a UI warning. Always include the tag, even when you cite the page conversationally in the same sentence.\n\
 5. Choose the MCP tool the wiki page recommends, and call it. Default to the wrapper, not Bash.\n\
-6. In Next Steps, every option should reference the wiki angle it explores so the operator can pick by 'which technique do I want to see live next', not by guessing what each action means.\n\
+6. In Next Steps, every option should reference the wiki angle it explores via the `Wiki:` line so the operator can pick by 'which technique do I want to see live next', not by guessing what each action means.\n\
 \n\
-A turn without a wiki_query at the top is a FAILED turn. Recover in the very next turn by adding the lookup and switching technique if the wiki suggests something better.\n\
+A turn without a wiki_query (or wiki_request_page when wiki_query returned nothing) is a FAILED turn. Recover in the very next turn by adding the lookup and switching technique if the wiki suggests something better.\n\
 \n\
 ## Tool Diversity (no Bash monoculture)\n\
 The third-test transcript showed 20+ consecutive Bash invocations with no wiki, no MCP tools. That broke the learning loop and is FORBIDDEN. Penlearn ships ~280 purpose-built MCP tools precisely so you don't have to drive raw CLI. Reach order: (1) wiki page guidance → (2) MCP wrapper named by the wiki → (3) Bash only if no wrapper exists AND the wiki explicitly shows the CLI invocation.\n\
@@ -59,7 +61,7 @@ The third-test transcript showed 20+ consecutive Bash invocations with no wiki, 
 Persistent wiki at ~/.local/share/penlearn-local/wiki/.\n\
 - BEFORE any task: call wiki_query(<2-4 task keywords>); read returned pages with wiki_read_page; prefer wiki content over training data; if empty, note the gap.\n\
 - Ingest requests (\"ingest\", \"learn\", \"add <file>\"): call wiki_ingest_all(); follow SCHEMA.md (read once via wiki_read_page('SCHEMA.md')); use wiki_write_page → wiki_mark_ingested → wiki_log.\n\
-- Tool surface: wiki_status, wiki_query, wiki_read_raw, wiki_read_page, wiki_write_page, wiki_mark_ingested, wiki_ingest_all, wiki_log, wiki_lint.\n\
+- Tool surface: wiki_status, wiki_query, wiki_read_raw, wiki_read_page, wiki_write_page, wiki_mark_ingested, wiki_ingest_all, wiki_log, wiki_lint, wiki_request_page, wiki_list_gaps.\n\
 \n\
 ## Pipeline\n\
 Per engagement: (1) Intent — parse objective, scope, target type; (2) Plan — recon → enum → auth/session → controlled exploit → evidence; (3) Execute — shared context, scope guardrails, record artifacts; (4) Report — findings + compliance mappings.\n\
@@ -159,6 +161,71 @@ Fix validation: mark_regression(finding_id, passed, note) — re-run reproductio
 \n\
 ## End-of-Session Report\n\
 When user says 'done', 'stop', or 'generate report': call generate_report(project_id, project_name). Writes exec-summary.md, fix-list.md, controls.json to workspace/report/. PDF: include_pdf=true (needs pandoc + texlive-xetex). After generation, output the path to exec-summary.md.";
+
+// ---------------------------------------------------------------------------
+// Wiki-rule helpers (per-turn compliance check, non-blocking UI warning)
+// ---------------------------------------------------------------------------
+
+/// True if this MCP tool name counts toward "wiki ritual satisfied" — covers
+/// both the bare and `mcp__penlearn-local__`-prefixed variants Claude Code uses.
+fn is_wiki_tool(name: &str) -> bool {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    matches!(
+        base,
+        "wiki_query" | "wiki_read_page" | "wiki_read_raw" | "wiki_request_page"
+    )
+}
+
+/// True if this tool name is an "active" tool — anything that pokes the target
+/// or the local filesystem in a meaningful way. Bookkeeping and read-only
+/// helpers are excluded. Mirrors the allowlist in SYSTEM_PROMPT so the
+/// violation check only fires when a turn actually did real work.
+fn is_active_tool(name: &str) -> bool {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    let bookkeeping_prefixes = [
+        "wiki_", "plan_", "list_", "record_finding", "update_finding",
+        "verify_finding", "workspace_", "task_", "scope_", "audit_log",
+        "ttp_lookup", "risk_summary", "map_", "approve_intent",
+        "htb_machines_search", "htb_machine_info", "htb_machines_get_active",
+    ];
+    for p in bookkeeping_prefixes {
+        if base.starts_with(p) {
+            return false;
+        }
+    }
+    // ToolSearch is Claude Code's deferred-tool loader — not target-touching.
+    if base == "ToolSearch" || base == "Read" || base == "Grep" || base == "Glob" {
+        return false;
+    }
+    true
+}
+
+/// Scan the assistant's accumulated text for the `[wiki: ...]` citation tag.
+fn has_wiki_tag(text: &str) -> bool {
+    // Permissive: any `[wiki:` (case-insensitive, optional space before colon)
+    // followed by non-`]` content and a closing `]`.
+    let lower = text.to_lowercase();
+    let mut search_from = 0;
+    while let Some(i) = lower[search_from..].find("[wiki") {
+        let abs = search_from + i;
+        let rest = &lower[abs + 5..]; // after "[wiki"
+        let trimmed = rest.trim_start();
+        if trimmed.starts_with(':') && trimmed[1..].contains(']') {
+            return true;
+        }
+        search_from = abs + 5;
+    }
+    false
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WikiRuleStatus {
+    pub satisfied: bool,
+    pub wiki_tool_called: bool,
+    pub wiki_tag_seen: bool,
+    pub had_active_tool: bool,
+    pub message: String,
+}
 
 fn load_htb_token() -> Option<String> {
     let path = dirs::home_dir()?
@@ -324,6 +391,15 @@ pub async fn run_turn(
     let mut lines = BufReader::new(stdout).lines();
     let mut new_session_id: Option<String> = None;
     let mut assistant_text_buf = String::new();
+    // Per-turn tool_use accumulator — persisted alongside the assistant text
+    // at end-of-turn so the Replay tab can show what tools were called.
+    // Entries are { "name": <tool_name>, "input": <args_json> }.
+    let mut assistant_tools_buf: Vec<serde_json::Value> = Vec::new();
+    // Wiki-rule compliance — see end-of-turn check. We accept either a wiki
+    // tool call OR a [wiki: ...] tag in the response text; missing both
+    // triggers a non-blocking UI warning.
+    let mut wiki_tool_called = false;
+    let mut active_tool_called = false;
 
     // Halt channel: install the sender into ClaudeState so the `claude_halt`
     // Tauri command can fire it from anywhere. Use a fused future so the
@@ -421,13 +497,28 @@ pub async fn run_turn(
                                     cost_usd: None,
                                 }
                             },
-                            "tool_use" => ChatChunk {
-                                kind: "tool_use".into(),
-                                text: None,
-                                tool_name: block.name,
-                                tool_input: block.input,
-                                session_id: event.session_id.clone(),
-                                cost_usd: None,
+                            "tool_use" => {
+                                if let Some(ref name) = block.name {
+                                    if is_wiki_tool(name) {
+                                        wiki_tool_called = true;
+                                    } else if is_active_tool(name) {
+                                        active_tool_called = true;
+                                    }
+                                    // Buffer for end-of-turn persistence so the
+                                    // Replay tab can rebuild the timeline.
+                                    assistant_tools_buf.push(serde_json::json!({
+                                        "name": name,
+                                        "input": block.input.clone().unwrap_or(serde_json::Value::Null),
+                                    }));
+                                }
+                                ChatChunk {
+                                    kind: "tool_use".into(),
+                                    text: None,
+                                    tool_name: block.name,
+                                    tool_input: block.input,
+                                    session_id: event.session_id.clone(),
+                                    cost_usd: None,
+                                }
                             },
                             _ => continue,
                         };
@@ -519,8 +610,8 @@ pub async fn run_turn(
         crate::db_commands::write_session_claude_id(db_id, sid);
     }
 
-    // Persist the assistant response to the hash chain (best-effort)
-    if !assistant_text_buf.is_empty() {
+    // Persist the assistant response + tool calls to the hash chain (best-effort)
+    if !assistant_text_buf.is_empty() || !assistant_tools_buf.is_empty() {
         let db_id = state.lock().unwrap().db_session_id;
         if let Some(db_id) = db_id {
             let turn_idx: i64 = if let Ok(conn) = crate::db_commands::open_db() {
@@ -530,11 +621,40 @@ pub async fn run_turn(
                     |r| r.get::<_, i64>(0),
                 ).unwrap_or(0)
             } else { 0 };
-            let content_json = serde_json::to_string(&assistant_text_buf)
+            // Structured shape: { "text": <str>, "tools": [{"name","input"}, ...] }.
+            // Older rows persisted as bare strings — Replay loader accepts both.
+            let payload = serde_json::json!({
+                "text": assistant_text_buf,
+                "tools": assistant_tools_buf,
+            });
+            let content_json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| format!("\"{}\"", assistant_text_buf));
             crate::db_commands::persist_agent_message_internal(
                 db_id, turn_idx, "assistant", &content_json, None,
             );
+        }
+    }
+
+    // Wiki-rule compliance check (non-blocking). The system prompt requires
+    // either a wiki tool call OR a [wiki: ...] tag every turn that runs an
+    // active tool. If both are missing we emit a warning that App.svelte
+    // renders as a small chat banner — the operator can call it out the next
+    // turn, no auto-halt.
+    if active_tool_called {
+        let wiki_tag_seen = has_wiki_tag(&assistant_text_buf);
+        let satisfied = wiki_tool_called || wiki_tag_seen;
+        if !satisfied {
+            let _ = app.emit("claude://wiki-violation", WikiRuleStatus {
+                satisfied: false,
+                wiki_tool_called,
+                wiki_tag_seen,
+                had_active_tool: true,
+                message: "This turn ran an active tool without consulting the wiki. \
+                          Per the wiki-first rule, every turn that touches the target \
+                          must start with wiki_query / wiki_read_page (or include a \
+                          [wiki: page-path] citation tag). Ask the agent to back up \
+                          and cite the relevant page before continuing.".to_string(),
+            });
         }
     }
 

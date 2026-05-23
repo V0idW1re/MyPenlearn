@@ -15,6 +15,7 @@ from mcp.types import Tool, TextContent
 from .register_all import register
 from ._helpers import _ok, _s
 from ._cache import cached, invalidate as cache_invalidate
+from ..db import get_db, init_db
 
 WIKI_DIR = Path.home() / ".local" / "share" / "penlearn-local" / "wiki"
 RAW_DIR = WIKI_DIR / "raw"
@@ -598,4 +599,130 @@ register(
         inputSchema=_s(),
     ),
     _wiki_lint,
+)
+
+
+# ---------------------------------------------------------------------------
+# wiki_request_page  —  record a gap when wiki_query returns nothing useful
+# ---------------------------------------------------------------------------
+
+async def _wiki_request_page(args: dict) -> list[TextContent]:
+    topic = (args.get("topic") or "").strip().lower()
+    why = (args.get("why") or "").strip()
+    attempted_query = (args.get("attempted_query") or "").strip() or None
+    project_id = args.get("project_id")
+    if not topic:
+        return _ok("[wiki_request_page] topic is required (kebab-case page slug, e.g. 'kerberoasting')")
+    if not why:
+        return _ok("[wiki_request_page] why is required (one-line reason this technique was needed)")
+    cache_invalidate("wiki")
+
+    await init_db()
+    now = int(time.time())
+    async with get_db() as db:
+        cur = await db.execute("SELECT request_count FROM wiki_gaps WHERE topic=?", (topic,))
+        row = await cur.fetchone()
+        if row is None:
+            await db.execute(
+                """INSERT INTO wiki_gaps
+                   (topic, why, attempted_query, request_count,
+                    last_project_id, first_requested_at, last_requested_at, status)
+                   VALUES (?,?,?,?,?,?,?,?)""",
+                (topic, why, attempted_query, 1, project_id, now, now, "open"),
+            )
+            await db.commit()
+            return _ok(
+                f"[wiki_request_page] Recorded gap '{topic}' (first request). "
+                f"Why: {why}. Continue with first-principles work and tell the operator: "
+                f"'No wiki page on {topic}; recorded as a wiki gap for follow-up.'"
+            )
+        await db.execute(
+            """UPDATE wiki_gaps SET
+                 why=?, attempted_query=COALESCE(?, attempted_query),
+                 request_count=request_count+1,
+                 last_project_id=COALESCE(?, last_project_id),
+                 last_requested_at=?,
+                 status=CASE WHEN status='dismissed' THEN 'open' ELSE status END
+               WHERE topic=?""",
+            (why, attempted_query, project_id, now, topic),
+        )
+        await db.commit()
+        new_count = row[0] + 1
+        return _ok(
+            f"[wiki_request_page] Incremented gap '{topic}' (now requested {new_count} time(s)). "
+            f"This is a high-priority page to write — same topic surfaced before."
+        )
+
+
+register(
+    Tool(
+        name="wiki_request_page",
+        description=(
+            "Record that the wiki is missing a page on <topic>. Call this WHEN AND ONLY WHEN "
+            "wiki_query returned no relevant page for the technique you are about to apply. "
+            "The operator sees these in the Wiki TODO panel between engagements and fills them in. "
+            "Repeated requests for the same topic increment a counter (the gap becomes higher priority). "
+            "Use a kebab-case slug for the topic, like 'kerberoasting' or 'graphql-introspection-abuse'."
+        ),
+        inputSchema=_s(
+            ["topic", "why"],
+            topic=("string", "Kebab-case page slug to add to the wiki (e.g. 'kerberoasting')"),
+            why=("string", "One-line reason: what technique you needed, what the operator should learn"),
+            attempted_query=("string", "Optional: the exact keywords you passed to wiki_query that returned nothing"),
+            project_id=("integer", "Optional: project id where this gap surfaced"),
+        ),
+    ),
+    _wiki_request_page,
+)
+
+
+# ---------------------------------------------------------------------------
+# wiki_list_gaps  —  read the gap list (operator/UI/agent visibility)
+# ---------------------------------------------------------------------------
+
+@cached("wiki", ttl=10)
+async def _wiki_list_gaps(args: dict) -> list[TextContent]:
+    status = (args.get("status") or "open").strip().lower()
+    limit = int(args.get("limit", 50))
+    await init_db()
+    async with get_db() as db:
+        if status == "all":
+            cur = await db.execute(
+                "SELECT topic, why, request_count, status, last_requested_at "
+                "FROM wiki_gaps ORDER BY request_count DESC, last_requested_at DESC LIMIT ?",
+                (limit,),
+            )
+        else:
+            cur = await db.execute(
+                "SELECT topic, why, request_count, status, last_requested_at "
+                "FROM wiki_gaps WHERE status=? "
+                "ORDER BY request_count DESC, last_requested_at DESC LIMIT ?",
+                (status, limit),
+            )
+        rows = await cur.fetchall()
+
+    if not rows:
+        return _ok(f"[wiki_list_gaps] No wiki gaps with status='{status}'.")
+
+    lines = [f"## Wiki Gaps ({status}) — {len(rows)} entry/entries\n"]
+    for topic, why, count, st, last in rows:
+        when = date.fromtimestamp(last).isoformat() if last else "?"
+        lines.append(f"- **{topic}** (requested {count}× · {st} · last {when}) — {why}")
+    return _ok("\n".join(lines))
+
+
+register(
+    Tool(
+        name="wiki_list_gaps",
+        description=(
+            "List wiki pages the agent has requested via wiki_request_page. "
+            "Default lists open gaps ordered by request_count (most-needed first). "
+            "Pass status='all' to see filled / dismissed too."
+        ),
+        inputSchema=_s(
+            status=("string", "Filter by status: open (default), drafting, filled, dismissed, or all"),
+            limit=("integer", "Maximum rows to return (default 50)"),
+        ),
+    ),
+    _wiki_list_gaps,
 )

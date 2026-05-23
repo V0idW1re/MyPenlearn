@@ -11,6 +11,7 @@
   import Settings from "./lib/Settings.svelte";
   import ApprovalModal from "./lib/ApprovalModal.svelte";
   import Workspace from "./lib/Workspace.svelte";
+  import Replay from "./lib/Replay.svelte";
   import CommandPalette from "./lib/CommandPalette.svelte";
   import ShortcutHelp from "./lib/ShortcutHelp.svelte";
 
@@ -18,6 +19,7 @@
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
   let vpnDropped = $state(null);
   let resumableSession = $state(null);   // { id, claude_session_id, started_at, workDir, vpn_state }
+  let wikiViolation = $state(null);      // { message, wiki_tool_called, wiki_tag_seen }
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
@@ -181,7 +183,8 @@
   let paletteCommands = $derived([
     { id: "tab-chat",     label: "Go to Chat",      hotkey: "Ctrl+1", keywords: "chat tab message", action: () => activeTab = "chat" },
     { id: "tab-work",     label: "Go to Workspace", hotkey: "Ctrl+2", keywords: "workspace files tab", action: () => activeTab = "workspace" },
-    { id: "tab-settings", label: "Go to Settings",  hotkey: "Ctrl+3", keywords: "settings preferences config tab", action: () => activeTab = "settings" },
+    { id: "tab-replay",   label: "Go to Replay",    hotkey: "Ctrl+3", keywords: "replay walkthrough study how steps", action: () => activeTab = "replay" },
+    { id: "tab-settings", label: "Go to Settings",  hotkey: "Ctrl+4", keywords: "settings preferences config tab", action: () => activeTab = "settings" },
     { id: "focus-input",  label: "Focus chat input", hotkey: "Ctrl+J", keywords: "focus input message type", action: focusChatInput },
     { id: "help",         label: "Show keyboard shortcuts", hotkey: "?", keywords: "help shortcuts keys", action: () => helpOpen = true },
     ...(activeProject ? [
@@ -215,10 +218,11 @@
     if (isMod && e.key === ",") { e.preventDefault(); activeTab = "settings"; return; }
     // Ctrl+J — focus chat input
     if (isMod && (e.key === "j" || e.key === "J")) { e.preventDefault(); focusChatInput(); return; }
-    // Ctrl+1/2/3 — tabs
+    // Ctrl+1/2/3/4 — tabs
     if (isMod && e.key === "1") { e.preventDefault(); activeTab = "chat"; return; }
     if (isMod && e.key === "2") { e.preventDefault(); activeTab = "workspace"; return; }
-    if (isMod && e.key === "3") { e.preventDefault(); activeTab = "settings"; return; }
+    if (isMod && e.key === "3") { e.preventDefault(); activeTab = "replay"; return; }
+    if (isMod && e.key === "4") { e.preventDefault(); activeTab = "settings"; return; }
     // ? — help (only when not typing)
     if (!inField && !isMod && e.key === "?") { e.preventDefault(); helpOpen = true; return; }
     // Esc — close palette / help (modal-local Esc handlers are fine too; this is a fallback)
@@ -318,6 +322,14 @@
       if (e.payload?.session_id) sessionId = e.payload.session_id;
       currentTool = null;
       pollApprovals();
+    });
+
+    // Wiki-rule violations from the Rust streaming layer: emitted when a turn
+    // ran an active tool without consulting the wiki and without a [wiki: ...]
+    // citation tag. Non-blocking — just surfaces a banner the operator can
+    // dismiss or use to call the agent out on the next turn.
+    await listen("claude://wiki-violation", (e) => {
+      wikiViolation = e.payload ?? null;
     });
 
     await listen("claude://chunk", (e) => {
@@ -508,6 +520,8 @@
         onclick={() => activeTab = "chat"}>Chat</button>
       <button class="pl-tab" class:active={activeTab === "workspace"}
         onclick={() => activeTab = "workspace"}>Workspace</button>
+      <button class="pl-tab" class:active={activeTab === "replay"}
+        onclick={() => activeTab = "replay"}>Replay</button>
       <button class="pl-tab" class:active={activeTab === "settings"}
         onclick={() => activeTab = "settings"}>Settings</button>
     </div>
@@ -541,6 +555,10 @@
 
   <div class="pl-main" style="display:{activeTab === 'workspace' ? 'flex' : 'none'}">
     <Workspace project={activeProject} onSwitchToChat={() => activeTab = "chat"} />
+  </div>
+
+  <div class="pl-main" style="display:{activeTab === 'replay' ? 'flex' : 'none'}">
+    <Replay project={activeProject} active={activeTab === 'replay'} onSwitchToChat={() => activeTab = "chat"} />
   </div>
 
   <div class="pl-main" style="display:{activeTab === 'settings' ? 'flex' : 'none'}">
@@ -617,6 +635,17 @@
         vpnDropped = null;
       }}>Reconnect</button>
       <button class="pl-vpn-dismiss" onclick={() => vpnDropped = null}>&#x2715;</button>
+    </div>
+  {/if}
+
+  {#if wikiViolation}
+    <div class="pl-wiki-warn">
+      <span class="pl-wiki-warn-icon">&#9888;</span>
+      <span class="pl-wiki-warn-text">
+        <strong>Wiki rule skipped this turn.</strong>
+        {wikiViolation.message ?? "Agent ran an active tool without a wiki_query or [wiki: …] citation."}
+      </span>
+      <button class="pl-vpn-dismiss" onclick={() => wikiViolation = null}>&#x2715;</button>
     </div>
   {/if}
 
@@ -855,6 +884,28 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.5);
   }
   .pl-vpn-drop-icon { color: #d29922; font-size: 14px; }
+
+  .pl-wiki-warn {
+    position: fixed;
+    bottom: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 720px;
+    background: #1d2733;
+    border: 1px solid #388bfd;
+    border-radius: 6px;
+    color: #e6edf3;
+    font-size: 12px;
+    padding: 8px 14px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    z-index: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  }
+  .pl-wiki-warn-icon { color: #58a6ff; font-size: 14px; line-height: 18px; }
+  .pl-wiki-warn-text { flex: 1; line-height: 1.45; }
+  .pl-wiki-warn-text strong { color: #58a6ff; }
   .pl-vpn-reconnect {
     background: #d29922;
     border: none;

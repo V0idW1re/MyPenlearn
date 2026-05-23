@@ -132,6 +132,16 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             region            TEXT,
             last_connected_at INTEGER,
             is_default        INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS wiki_gaps (
+            topic              TEXT PRIMARY KEY,
+            why                TEXT NOT NULL,
+            attempted_query    TEXT,
+            request_count      INTEGER DEFAULT 1,
+            last_project_id    INTEGER,
+            first_requested_at INTEGER DEFAULT (strftime('%s','now')),
+            last_requested_at  INTEGER DEFAULT (strftime('%s','now')),
+            status             TEXT    DEFAULT 'open'
         );",
     )
     .map_err(|e| e.to_string())?;
@@ -1824,4 +1834,267 @@ pub fn mcp_health_check() -> McpHealthStatus {
             error: Some(e.to_string()),
         },
     }
+}
+
+// ── Wiki gaps ────────────────────────────────────────────────────────────────
+// Read-side mirror of the `wiki_gaps` table written by the Python MCP server's
+// wiki_request_page tool. The desktop app surfaces these in Settings → Wiki
+// TODO so the operator can fill the missing pages between engagements.
+
+#[derive(Debug, Serialize)]
+pub struct WikiGap {
+    pub topic: String,
+    pub why: String,
+    pub attempted_query: Option<String>,
+    pub request_count: i64,
+    pub status: String,
+    pub first_requested_at: i64,
+    pub last_requested_at: i64,
+}
+
+#[tauri::command]
+pub fn list_wiki_gaps(status: Option<String>) -> Result<Vec<WikiGap>, String> {
+    let conn = open()?;
+    let filter = status.unwrap_or_else(|| "open".to_string());
+    let (sql, has_param): (&str, bool) = if filter == "all" {
+        (
+            "SELECT topic, why, attempted_query, request_count, status,
+                    first_requested_at, last_requested_at
+             FROM wiki_gaps
+             ORDER BY request_count DESC, last_requested_at DESC",
+            false,
+        )
+    } else {
+        (
+            "SELECT topic, why, attempted_query, request_count, status,
+                    first_requested_at, last_requested_at
+             FROM wiki_gaps WHERE status=?1
+             ORDER BY request_count DESC, last_requested_at DESC",
+            true,
+        )
+    };
+    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
+    let map_row = |r: &rusqlite::Row| {
+        Ok(WikiGap {
+            topic: r.get(0)?,
+            why: r.get(1)?,
+            attempted_query: r.get(2)?,
+            request_count: r.get(3)?,
+            status: r.get(4)?,
+            first_requested_at: r.get(5)?,
+            last_requested_at: r.get(6)?,
+        })
+    };
+    let rows = if has_param {
+        stmt.query_map(params![filter], map_row).map_err(|e| e.to_string())?
+            .filter_map(Result::ok).collect()
+    } else {
+        stmt.query_map([], map_row).map_err(|e| e.to_string())?
+            .filter_map(Result::ok).collect()
+    };
+    Ok(rows)
+}
+
+// ── Replay (engagement walkthrough) ──────────────────────────────────────────
+// Reads the persisted agent_messages timeline and shapes it into per-turn
+// "step cards" for the Replay tab — the operator's "how I should have done it"
+// view. One card per assistant turn: the user prompt that triggered it, the
+// agent's text, and any tools called. We extract the "What this means" sentence
+// when the agent followed the system-prompt's turn shape; otherwise we fall
+// back to the first 240 chars of text.
+
+#[derive(Debug, Serialize)]
+pub struct ReplayToolCall {
+    pub name: String,
+    pub input_json: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReplayStep {
+    pub turn_idx: i64,
+    pub session_id: i64,
+    pub created_at: i64,
+    pub user_prompt: Option<String>,
+    pub text: String,
+    pub insight: Option<String>,
+    pub tools: Vec<ReplayToolCall>,
+    pub has_active_tool: bool,
+    pub finding_ids: Vec<i64>,
+}
+
+fn extract_insight(text: &str) -> Option<String> {
+    // The system prompt mandates a turn shape with a "What this means" block;
+    // grab the line(s) after that header up to the next markdown header or
+    // double newline. Falls back to None when the agent skipped the format.
+    for marker in [
+        "**What this means**",
+        "What this means:",
+        "**What I just did**",
+    ] {
+        if let Some(idx) = text.find(marker) {
+            let after = &text[idx + marker.len()..];
+            // Skip a leading ":" or " " or "**"
+            let trimmed = after.trim_start_matches(|c: char| c == ':' || c == '*' || c.is_whitespace());
+            // Cut at next markdown header or "## Next Steps" or double-newline.
+            let stop = trimmed
+                .find("\n## ")
+                .or_else(|| trimmed.find("\n\n"))
+                .or_else(|| trimmed.find("\n**"))
+                .unwrap_or(trimmed.len().min(420));
+            let cut = trimmed[..stop].trim();
+            if !cut.is_empty() {
+                return Some(cut.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn is_active_tool_name(name: &str) -> bool {
+    let base = name.rsplit("__").next().unwrap_or(name);
+    let bookkeeping_prefixes = [
+        "wiki_", "plan_", "list_", "record_finding", "update_finding",
+        "verify_finding", "workspace_", "task_", "scope_", "audit_log",
+        "ttp_lookup", "risk_summary", "map_", "approve_intent",
+        "htb_machines_search", "htb_machine_info", "htb_machines_get_active",
+    ];
+    for p in bookkeeping_prefixes {
+        if base.starts_with(p) {
+            return false;
+        }
+    }
+    !matches!(base, "ToolSearch" | "Read" | "Grep" | "Glob")
+}
+
+#[tauri::command]
+pub fn load_replay_steps(project_id: i64) -> Result<Vec<ReplayStep>, String> {
+    let conn = open()?;
+    // Order: ascending session start, ascending turn_idx within session.
+    let mut stmt = conn
+        .prepare(
+            "SELECT am.session_id, am.turn_idx, am.role, am.content_json, am.created_at
+             FROM agent_messages am
+             JOIN agent_sessions s ON am.session_id = s.id
+             WHERE s.project_id = ?1
+             ORDER BY s.started_at ASC, am.turn_idx ASC",
+        )
+        .map_err(|e| e.to_string())?;
+    let raw: Vec<(i64, i64, String, String, i64)> = stmt
+        .query_map(params![project_id], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .collect();
+
+    // Pair user → assistant rows. Each assistant row becomes one step.
+    let mut steps: Vec<ReplayStep> = Vec::new();
+    let mut pending_user: Option<String> = None;
+    for (session_id, turn_idx, role, content_json, created_at) in raw {
+        // content_json is JSON-encoded — could be a bare string or an object.
+        let parsed: serde_json::Value = serde_json::from_str(&content_json)
+            .unwrap_or(serde_json::Value::Null);
+
+        let text: String = match &parsed {
+            serde_json::Value::String(s) => s.clone(),
+            serde_json::Value::Object(o) => o.get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string(),
+            _ => String::new(),
+        };
+
+        if role == "user" {
+            pending_user = Some(text);
+            continue;
+        }
+        if role != "assistant" {
+            continue;
+        }
+
+        // Extract tool list from object form; older string-form rows have none.
+        let mut tools: Vec<ReplayToolCall> = Vec::new();
+        let mut has_active = false;
+        if let serde_json::Value::Object(o) = &parsed {
+            if let Some(serde_json::Value::Array(arr)) = o.get("tools") {
+                for t in arr {
+                    let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if name.is_empty() { continue; }
+                    if is_active_tool_name(&name) { has_active = true; }
+                    let input_json = t.get("input")
+                        .map(|v| serde_json::to_string(v).unwrap_or_default())
+                        .unwrap_or_default();
+                    tools.push(ReplayToolCall { name, input_json });
+                }
+            }
+        }
+
+        let insight = extract_insight(&text);
+        steps.push(ReplayStep {
+            turn_idx,
+            session_id,
+            created_at,
+            user_prompt: pending_user.take(),
+            text,
+            insight,
+            tools,
+            has_active_tool: has_active,
+            finding_ids: Vec::new(), // populated below
+        });
+    }
+
+    // Cross-reference findings: assign each finding to the most recent
+    // assistant step whose created_at <= finding.created_at AND same project.
+    // Approximate but good enough — the UI just needs to highlight which
+    // turns produced findings, not perfect attribution.
+    let risk_exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='risk_items'",
+            [],
+            |r| r.get::<_, i32>(0),
+        )
+        .unwrap_or(0) > 0;
+    if risk_exists {
+        let mut fstmt = conn
+            .prepare("SELECT id, created_at FROM risk_items WHERE project_id=?1 ORDER BY created_at ASC")
+            .map_err(|e| e.to_string())?;
+        let findings: Vec<(i64, i64)> = fstmt
+            .query_map(params![project_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?
+            .filter_map(Result::ok)
+            .collect();
+        for (fid, fts) in findings {
+            // Find the last step with created_at <= fts.
+            let mut best: Option<usize> = None;
+            for (i, s) in steps.iter().enumerate() {
+                if s.created_at <= fts { best = Some(i); } else { break; }
+            }
+            if let Some(i) = best {
+                steps[i].finding_ids.push(fid);
+            }
+        }
+    }
+
+    Ok(steps)
+}
+
+#[tauri::command]
+pub fn update_wiki_gap_status(topic: String, status: String) -> Result<(), String> {
+    let allowed = ["open", "drafting", "filled", "dismissed"];
+    if !allowed.contains(&status.as_str()) {
+        return Err(format!("invalid status: {status}"));
+    }
+    let conn = open()?;
+    conn.execute(
+        "UPDATE wiki_gaps SET status=?1 WHERE topic=?2",
+        params![status, topic],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }

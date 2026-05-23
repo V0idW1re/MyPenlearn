@@ -81,6 +81,9 @@ pub fn run() {
             db_commands::count_mcp_tools,
             db_commands::get_claude_version,
             db_commands::mcp_health_check,
+            db_commands::list_wiki_gaps,
+            db_commands::update_wiki_gap_status,
+            db_commands::load_replay_steps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running penlearn-local");

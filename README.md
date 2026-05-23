@@ -15,8 +15,8 @@ exec $SHELL                  # pick up the new PATH entry
 claude                       # one-time browser OAuth, then exit
 
 # 2. Install Penlearn Local
-wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penlearn-local_0.1.19_amd64.deb
-sudo dpkg -i penlearn-local_0.1.19_amd64.deb
+wget https://github.com/V0idW1re/MyPenteligent/releases/latest/download/penlearn-local_0.1.20_amd64.deb
+sudo dpkg -i penlearn-local_0.1.20_amd64.deb
 
 # 3. Launch
 penlearn-local
@@ -154,10 +154,10 @@ exec $SHELL
 claude              # browser OAuth on first run, then exit
 ```
 
-Then download `penlearn-local_0.1.19_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
+Then download `penlearn-local_0.1.20_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest):
 
 ```bash
-sudo dpkg -i penlearn-local_0.1.19_amd64.deb
+sudo dpkg -i penlearn-local_0.1.20_amd64.deb
 penlearn-local
 ```
 
@@ -483,7 +483,15 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.19 (current)
+### v0.1.20 (current)
+
+Headline: new **Replay** tab (Ctrl+3) that turns every engagement into a step-by-step walkthrough — the operator-facing "how I should have done it" view, driven by the actual agent timeline. Each step shows phase badge (RECON / ENUM / EXPLOIT / AUTH / CUSTOM), the user prompt that triggered the turn, every tool call with args + ⧉ Copy button (drop the call onto the clipboard so the operator can re-run the technique themselves on the next box), the agent's "Why this matters" insight pulled from the mandated turn shape, and a findings badge when the turn recorded one. Filter modes: Active tool turns only (default, skips bookkeeping), Wins (only turns that produced findings), All. Arrow keys ← / → navigate; thin progress bar at the bottom. This reframes the learning loop from "read wiki pages" to "watch the path and re-run individual steps" — built after ThirdTest review showed the operator copy-pasting Next Steps text into chat instead of engaging with explanatory content.
+
+Data path: Rust now persists `tool_use` blocks alongside the assistant text in `agent_messages` as a structured payload (`{"text": …, "tools": [{name, input}, …]}`); older string-form rows still load. New `load_replay_steps(project_id)` Tauri command joins agent_messages + risk_items, extracts the insight sentence via regex on "What this means" / "What I just did" markers, cross-references findings to the step that created them, returns a flat step array. `Replay.svelte` renders the slideshow with phase-coloured cards and a thin progress bar. Keybindings shifted: Workspace stays Ctrl+2, Replay is now Ctrl+3, Settings moves to Ctrl+4.
+
+Wiki visibility infrastructure shipped alongside (the agent now has both a teach-as-you-go ritual AND a way to record gaps it hits): 6 new methodology pages bundled with the .deb (mcpjam-inspector-abuse, jwt-forgery, ssrf-proxy-endpoints, arcane-cve-chain, docker-group-privesc, privatebin-misconfig — all written from the techniques ThirdTest needed but the wiki lacked); new `wiki_request_page(topic, why, attempted_query)` MCP tool with idempotent counter (repeated requests for the same topic increment instead of duplicating) backed by a new `wiki_gaps` SQLite table; new `wiki_list_gaps(status?)` MCP tool; new Wiki TODO section in Settings showing topic, request count, why, attempted query, with **✓ Filled** and **✕ Dismiss** buttons so the operator can manage the backlog between engagements. Rust-side wiki rule enforcement: per-turn the streaming layer tracks whether any wiki tool fired and whether the assistant text contains a `[wiki: …]` citation tag; if a turn ran an active tool with neither signal, a non-blocking blue chat banner appears with text explaining the violation. System prompt updated: requires `wiki_request_page` when `wiki_query` returns nothing useful, requires the exact `[wiki: <page-path>]` tag form (which the Rust validator scans for), adds the two new wiki tools to the bookkeeping allowlist. Verification: `cargo check` clean, `vite build` clean, Python `compileall` clean.
+
+### v0.1.19
 
 Renames the product from Penligent → Penlearn across the entire codebase and rewires the agent loop around teach-as-you-go. The rename touches the Python package (`penligent_mcp` → `penlearn_mcp`), Rust crate (`penligent-local` → `penlearn-local`), Tauri identifier and product name, `.desktop` launcher, post-install / pre-remove scripts, Svelte UI strings, README, and the `mcpServers.penligent-local` registration key (now `mcpServers.penlearn-local`) — existing installs need a one-shot re-register via Settings → Diagnostics so Claude Code picks up the new key. Stale `penligent-local_*` bundles from prior releases were pruned from `desktop/target/release/bundle/deb/`. Agent loop (driven by ThirdTest review where the agent ran 20+ raw Bash commands with no wiki lookup, no plan, no findings recorded): every user turn now starts with a mandatory wiki ritual (`wiki_query` → `wiki_read_page` → cite the page in the response), one active tool per turn (bookkeeping calls chain freely), `plan_create` required on the first turn with `plan_update_step` wrapped around every active call, every turn ends with a Next Steps block where each option carries a `Wiki:` line tying back to a technique, `record_finding` always lands as `verify_status=open` with an `attack_chain_position`, and `verify_finding` / `update_finding` / `delete_finding` are never agent-initiated — the operator picks from Next Steps. Findings branch out (tech stack / security headers / sensitive paths get their own records) instead of one fat scan dump. Verification: `cargo check` clean, `vite build` clean, Python byte-compile clean, no `penligent` strings remain in source.
 
