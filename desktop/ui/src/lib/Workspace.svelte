@@ -204,10 +204,13 @@
 
   function buildKillChain(steps) {
     const ROOT_W = 152, ROOT_H = 58;
-    const NODE_W = 160, NODE_H = 70;
+    // NODE_H bumped 70 → 96 so an in-progress step that needs phase-pill +
+    // verb + target + footer (T+5:45 · running… · HOST COMPROMISE) actually
+    // fits without the footer overflowing on top of the target line.
+    const NODE_W = 160, NODE_H = 96;
     const ROOT_GAP  = 52;   // gap between root right-edge and first node left-edge
     const MIN_GAP   = 44;   // minimum gap between nodes
-    const LANE_H    = 88;   // vertical spacing between lanes
+    const LANE_H    = 112;  // vertical spacing between lanes (was 88 — bumped to match new NODE_H)
     const PAD_X = 20, PAD_Y = 20;
     const PX_PER_SEC = 3.5; // horizontal scale for time
 
@@ -1073,6 +1076,12 @@
     gap: 5px;
     flex-wrap: wrap;
     margin-top: 1px;
+    /* Cap the foot — IMPACT badges + running… + duration combined sometimes
+       wrap; with overflow:hidden on .ck-node and a tight height that used to
+       push content on top of the target line. Bumped node height + this cap
+       keep things readable when the foot wraps. */
+    max-height: 28px;
+    overflow: hidden;
   }
 
   .ck-elapsed {

@@ -118,7 +118,14 @@
     e.preventDefault();
     e.stopPropagation();
     ctxCopied = false;
-    ctxMenu = { x: e.clientX, y: e.clientY, title };
+    // The Settings → Appearance zoom slider sets `document.documentElement.style.zoom`.
+    // In WebKitGTK this is implemented as a scale on the root which establishes a
+    // containing block for position:fixed descendants — so `left: clientX px` ends
+    // up rendering at `clientX × zoom` visually and the menu drifts away from the
+    // cursor. Compensate by dividing the click coords by the current zoom factor.
+    const zoom = parseFloat(getComputedStyle(document.documentElement).zoom) ||
+                 parseFloat(document.documentElement.style.zoom) || 1;
+    ctxMenu = { x: e.clientX / zoom, y: e.clientY / zoom, title };
   }
   async function copyCtxTitle() {
     if (!ctxMenu) return;
