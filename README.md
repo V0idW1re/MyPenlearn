@@ -72,10 +72,10 @@ A self-hosted, autonomous penetration testing agent that runs entirely on your m
 
 ### Option A — Install the pre-built .deb (recommended)
 
-Download `penligent-local_0.1.8_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
+Download `penligent-local_0.1.9_amd64.deb` from the [latest release](https://github.com/V0idW1re/MyPenteligent/releases/latest), then:
 
 ```bash
-sudo dpkg -i penligent-local_0.1.8_amd64.deb
+sudo dpkg -i penligent-local_0.1.9_amd64.deb
 penligent-local
 ```
 
@@ -103,7 +103,7 @@ cd desktop/ui && npm install && cd ../..
 cd desktop && cargo tauri build
 
 # 4. Install
-sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.8_amd64.deb
+sudo dpkg -i target/release/bundle/deb/penligent-local_0.1.9_amd64.deb
 ```
 
 #### MCP server (source builds only)
@@ -262,7 +262,13 @@ rm -rf ~/.claude/
 
 ## Changelog
 
-### v0.1.8 (current)
+### v0.1.9 (current)
+
+**Bug fixes:**
+
+- **Status-bar model label now reflects the actual running model.** The bottom-right corner has been displaying the hardcoded string `Sonnet 4.6` since v0.1.4 with no detection. If your Claude Code config selected Opus or Haiku, or Anthropic shipped a new Sonnet variant, the status bar still said `Sonnet 4.6`. Now sourced from the `message.model` field that Claude Code emits on every `assistant` event in stream-json. A new `claude://model` Tauri event wires it through to the UI, where a `fmtModel()` helper turns `claude-sonnet-4-5-20250929` into `Sonnet 4.5`. Falls back to the raw id for unknown families so a fresh release still shows something useful. The label is now visible alongside token telemetry (was hidden once the first turn completed), with the full model id available on hover.
+
+### v0.1.8
 
 **Features:**
 
