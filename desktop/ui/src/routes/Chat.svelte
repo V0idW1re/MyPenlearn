@@ -382,7 +382,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar ai">C</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author pl-author-ai">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-author pl-author-ai">AI</div>
                     <div class="pl-msg-md">{@html renderMarkdown(part.text)}</div>
                   </div>
                 </div>
@@ -422,7 +422,7 @@
                 <div class="pl-msg">
                   <div class="pl-avatar ai">C</div>
                   <div class="pl-msg-body">
-                    <div class="pl-msg-author pl-author-ai">Claude · Sonnet 4.6</div>
+                    <div class="pl-msg-author pl-author-ai">AI</div>
                     <div class="pl-msg-md">{@html renderMarkdown(part.text)}<span class="pl-cursor">▌</span></div>
                   </div>
                 </div>

@@ -534,8 +534,8 @@
          onpointerdown={(e) => startResize('findings', e)}
          aria-label="Resize findings panel" role="separator" aria-orientation="vertical"></div>
     <div class="pl-findings-wrap" style="width:{findingsWidth}px">
-      <NextSteps project={activeProject} />
       <Findings project={activeProject} />
+      <NextSteps project={activeProject} />
     </div>
   </div>
 

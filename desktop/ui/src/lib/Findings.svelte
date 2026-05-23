@@ -272,16 +272,28 @@
 
     unlistenPlan = await listen("claude://chunk", (e) => {
       const c = e.payload;
-      if (c.kind === "tool_use" && (
+      if (c.kind !== "tool_use") return;
+      // Plan / attack-path events → reload the kill chain graph.
+      if (
         c.tool_name === "plan_create" ||
         c.tool_name === "plan_update_step" ||
         c.tool_name === "plan_next_step"
-      )) {
+      ) {
         setTimeout(() => { if (project?.id) loadPlan(project.id); }, 700);
+      }
+      // Finding events → reload the finding list mid-turn so the operator
+      // sees discoveries appear in real time instead of waiting for done.
+      if (
+        c.tool_name === "record_finding" ||
+        c.tool_name === "update_finding" ||
+        c.tool_name === "verify_finding" ||
+        c.tool_name === "delete_finding"
+      ) {
+        setTimeout(() => { if (project?.id) load(project.id); }, 700);
       }
     });
     unlisten = await listen("claude://done", () => {
-      if (project?.id) load(project.id);
+      if (project?.id) { load(project.id); loadPlan(project.id); }
     });
   });
 
@@ -421,7 +433,7 @@
               style="color:{SEV_COLOR[f.severity] ?? '#8b949e'}; border-color:{SEV_COLOR[f.severity] ?? '#8b949e'}33">
               {(f.severity ?? "info").toUpperCase().slice(0, 4)}
             </span>
-            <span class="pl-finding-title">{f.title}</span>
+            <span class="pl-finding-title" title={f.title}>{f.title}</span>
             {#if f.chain_position != null}
               <span class="pl-chain-badge" title="Attack chain step {f.chain_position}">→{f.chain_position}</span>
             {/if}
@@ -672,6 +684,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     min-width: 0;
+    word-break: break-word;
+  }
+  /* When the finding is expanded, let the title wrap so the operator can
+     see it fully — collapsed rows still single-line for a clean list view. */
+  .pl-finding.open .pl-finding-title {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   .pl-chain-badge {

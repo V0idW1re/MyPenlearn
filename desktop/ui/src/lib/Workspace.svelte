@@ -27,6 +27,17 @@
   let plan      = $state(null);
   let planSteps = $state([]);
   let planLoading = $state(false);
+  // Findings shown inline on the Plan view (grouped under each step by
+  // chain_position). The agent records every discovery with status='open';
+  // verification is operator-driven, so the badge shows OPEN vs VERIFIED.
+  let planFindings = $state([]);
+
+  const FINDING_STATUS_LABEL = { open: "UNVERIFIED", verified: "VERIFIED", false_positive: "FALSE POSITIVE" };
+  const FINDING_STATUS_COLOR = { open: "#d29922", verified: "#3fb950", false_positive: "#484f58" };
+  const FINDING_SEV_COLOR = {
+    critical: "#f85149", high: "#f85149", medium: "#d29922",
+    low: "#3fb950", info: "#388bfd",
+  };
 
   let unlisten, unlistenPlan;
 
@@ -167,7 +178,7 @@
   }
 
   async function loadPlan() {
-    if (!project) { plan = null; planSteps = []; return; }
+    if (!project) { plan = null; planSteps = []; planFindings = []; return; }
     const pid = project.id;
     planLoading = true;
     try {
@@ -175,9 +186,20 @@
       if (project?.id !== pid) return;
       plan = p;
       planSteps = p ? await invoke("get_plan_steps", { planId: p.id }) : [];
-      if (project?.id !== pid) { plan = null; planSteps = []; }
-    } catch (_) { plan = null; planSteps = []; }
+      try {
+        planFindings = await invoke("list_findings", { projectId: pid });
+      } catch (_) { planFindings = []; }
+      if (project?.id !== pid) { plan = null; planSteps = []; planFindings = []; }
+    } catch (_) { plan = null; planSteps = []; planFindings = []; }
     finally { planLoading = false; }
+  }
+
+  function findingsForStep(stepIdx) {
+    return planFindings.filter(f => f.chain_position === stepIdx);
+  }
+  function ungroupedFindings() {
+    const idxs = new Set(planSteps.map(s => s.step_idx));
+    return planFindings.filter(f => f.chain_position == null || !idxs.has(f.chain_position));
   }
 
   async function togglePreview(f) {
@@ -202,22 +224,24 @@
     } catch (e) { error = String(e); }
   }
 
-  function buildKillChain(steps) {
-    const ROOT_W = 152, ROOT_H = 58;
-    // NODE_H bumped 70 → 96 so an in-progress step that needs phase-pill +
-    // verb + target + footer (T+5:45 · running… · HOST COMPROMISE) actually
-    // fits without the footer overflowing on top of the target line.
+  function buildKillChain(steps, findings) {
+    const ROOT_W = 168, ROOT_H = 78;
     const NODE_W = 160, NODE_H = 96;
-    const ROOT_GAP  = 52;   // gap between root right-edge and first node left-edge
-    const MIN_GAP   = 44;   // minimum gap between nodes
-    const LANE_H    = 112;  // vertical spacing between lanes (was 88 — bumped to match new NODE_H)
+    const ROOT_GAP  = 52;
+    const MIN_GAP   = 44;
+    const LANE_H    = 112;
     const PAD_X = 20, PAD_Y = 20;
-    const PX_PER_SEC = 3.5; // horizontal scale for time
+    const PX_PER_SEC = 3.5;
+
+    // Finding branch nodes (smaller cards hanging off the producing step)
+    const FIND_W = 152, FIND_H = 50;
+    const FIND_GAP_Y = 8;          // vertical gap between findings under a step
+    const FIND_GAP_X = 14;         // horizontal indent of finding column from step
+    const STEP_TO_FIND_GAP = 18;   // gap below step node before first finding
 
     const startedTimes = steps.filter(s => s.started_at).map(s => s.started_at);
     const baseTime = startedTimes.length > 0 ? Math.min(...startedTimes) : null;
 
-    // Greedy lane assignment based on time overlap
     const laneEnd = [];
     const nodeInfos = steps.map(step => {
       const startT = step.started_at ?? null;
@@ -233,7 +257,6 @@
       return { step, lane, startT, endT };
     });
 
-    // X positions: time-based with minimum spacing enforced
     const stepStartX = PAD_X + ROOT_W + ROOT_GAP;
     let cursor = stepStartX - NODE_W - MIN_GAP;
     const xPos = nodeInfos.map(ni => {
@@ -249,12 +272,6 @@
     });
 
     const nLanes  = Math.max(...nodeInfos.map(n => n.lane), 0) + 1;
-    const totalW  = (xPos.length > 0 ? Math.max(...xPos) + NODE_W : PAD_X + ROOT_W) + PAD_X;
-    const totalH  = nLanes * LANE_H + PAD_Y * 2;
-
-    const rootY    = PAD_Y;
-    const rootMidY = rootY + ROOT_H / 2;
-    const rootRX   = PAD_X + ROOT_W;
 
     const nodes = nodeInfos.map((ni, i) => {
       const x = xPos[i];
@@ -263,12 +280,55 @@
         ...ni, x, y,
         midY:    y + NODE_H / 2,
         rightX:  x + NODE_W,
+        bottomY: y + NODE_H,
         elapsed: (ni.startT !== null && baseTime !== null) ? ni.startT - baseTime : null,
         duration: (ni.startT && ni.endT) ? ni.endT - ni.startT : null,
       };
     });
 
-    // Edges
+    // Finding branches: for each step, lay out its findings in a column
+    // hanging off the step's bottom. The branch x is offset by FIND_GAP_X
+    // so the elbow joint is visible. The branches' Y stacks downward.
+    const findingNodes = [];
+    const findingEdges = [];
+    let maxFindBottom = 0;
+    for (const n of nodes) {
+      const stepFinds = (findings ?? []).filter(f => f.chain_position === n.step.step_idx);
+      const fx = n.x + FIND_GAP_X;
+      let fy = n.bottomY + STEP_TO_FIND_GAP;
+      // Elbow joint origin: bottom-center of the step node
+      const elbowSrcX = n.x + NODE_W / 2;
+      const elbowSrcY = n.bottomY;
+      for (const f of stepFinds) {
+        const findRect = {
+          finding: f,
+          x: fx,
+          y: fy,
+          midY: fy + FIND_H / 2,
+          rightX: fx + FIND_W,
+          stepIdx: n.step.step_idx,
+        };
+        findingNodes.push(findRect);
+        // L-shaped edge: down from step bottom, then right into finding left.
+        const elbowY = fy + FIND_H / 2;
+        findingEdges.push({
+          d: `M ${elbowSrcX},${elbowSrcY} L ${elbowSrcX},${elbowY} L ${fx},${elbowY}`,
+          status: f.status,
+        });
+        fy += FIND_H + FIND_GAP_Y;
+      }
+      if (fy > maxFindBottom) maxFindBottom = fy;
+    }
+
+    const totalW  = (xPos.length > 0 ? Math.max(...xPos) + NODE_W : PAD_X + ROOT_W) + PAD_X;
+    const stepsBottom = nLanes * LANE_H + PAD_Y;
+    const totalH  = Math.max(stepsBottom + PAD_Y, maxFindBottom + PAD_Y);
+
+    const rootY    = PAD_Y;
+    const rootMidY = rootY + ROOT_H / 2;
+    const rootRX   = PAD_X + ROOT_W;
+
+    // Step-to-step edges
     const edges = [];
     if (nodes.length > 0) {
       const x2 = nodes[0].x, y2 = nodes[0].midY;
@@ -285,7 +345,12 @@
       });
     }
 
-    return { nodes, edges, totalW, totalH, ROOT_W, ROOT_H, NODE_W, NODE_H, rootX: PAD_X, rootY, rootMidY };
+    return {
+      nodes, edges, findingNodes, findingEdges,
+      totalW, totalH,
+      ROOT_W, ROOT_H, NODE_W, NODE_H, FIND_W, FIND_H,
+      rootX: PAD_X, rootY, rootMidY,
+    };
   }
 
   // U7: previously the $effect cleared the debounce timer on project switch
@@ -328,11 +393,18 @@
   onMount(async () => {
     unlistenPlan = await listen("claude://chunk", (e) => {
       const c = e.payload;
-      if (c.kind === "tool_use" && (
+      if (c.kind !== "tool_use") return;
+      // Reload Plan/Attack-Path on plan_* AND on finding records — the
+      // Attack Path renders findings as spurs off the chain, so a new
+      // record_finding mid-turn should appear immediately, not at turn end.
+      if (
         c.tool_name === "plan_create" ||
         c.tool_name === "plan_update_step" ||
-        c.tool_name === "plan_next_step"
-      )) {
+        c.tool_name === "plan_next_step" ||
+        c.tool_name === "record_finding" ||
+        c.tool_name === "update_finding" ||
+        c.tool_name === "verify_finding"
+      ) {
         setTimeout(() => { if (project) loadPlan(); }, 700);
       }
     });
@@ -462,17 +534,57 @@
         {/if}
         <div class="pl-plan-steps">
           {#each planSteps as s (s.id)}
-            <div class="pl-plan-step" class:active={s.status === 'in_progress'}>
-              <span class="pl-step-icon" style="color:{STEP_COLOR[s.status] ?? '#484f58'}">{STEP_ICON[s.status] ?? '?'}</span>
-              <span class="pl-step-verb">{s.verb}</span>
-              {#if s.target}
-                <span class="pl-step-target">{s.target}</span>
+            {@const sFindings = findingsForStep(s.step_idx)}
+            <div class="pl-plan-step-group">
+              <div class="pl-plan-step" class:active={s.status === 'in_progress'}>
+                <span class="pl-step-icon" style="color:{STEP_COLOR[s.status] ?? '#484f58'}">{STEP_ICON[s.status] ?? '?'}</span>
+                <span class="pl-step-verb">{s.verb}</span>
+                {#if s.target}
+                  <span class="pl-step-target">{s.target}</span>
+                {/if}
+                <span class="pl-step-status" style="color:{STEP_COLOR[s.status] ?? '#484f58'}">{s.status}</span>
+                {#if sFindings.length > 0}
+                  <span class="pl-step-find-count">{sFindings.length} finding{sFindings.length === 1 ? '' : 's'}</span>
+                {/if}
+              </div>
+              {#if sFindings.length > 0}
+                <div class="pl-step-findings">
+                  {#each sFindings as f (f.id)}
+                    <div class="pl-step-finding" style="border-left-color:{FINDING_SEV_COLOR[f.severity] ?? '#8b949e'}">
+                      <span class="pl-sf-sev" style="color:{FINDING_SEV_COLOR[f.severity] ?? '#8b949e'}">
+                        {(f.severity ?? 'info').toUpperCase()}
+                      </span>
+                      <span class="pl-sf-title" title={f.title}>{f.title}</span>
+                      <span class="pl-sf-status"
+                            style="color:{FINDING_STATUS_COLOR[f.status] ?? '#8b949e'}; border-color:{FINDING_STATUS_COLOR[f.status] ?? '#8b949e'}66">
+                        {FINDING_STATUS_LABEL[f.status] ?? f.status}
+                      </span>
+                    </div>
+                  {/each}
+                </div>
               {/if}
-              <span class="pl-step-status" style="color:{STEP_COLOR[s.status] ?? '#484f58'}">{s.status}</span>
             </div>
           {/each}
           {#if planSteps.length === 0}
             <div class="pl-ws-empty" style="padding:12px 0">No steps defined yet.</div>
+          {/if}
+          {#if ungroupedFindings().length > 0}
+            {@const ungrouped = ungroupedFindings()}
+            <div class="pl-plan-ungrouped-head">Findings not yet linked to a plan step</div>
+            <div class="pl-step-findings" style="margin-left:0">
+              {#each ungrouped as f (f.id)}
+                <div class="pl-step-finding" style="border-left-color:{FINDING_SEV_COLOR[f.severity] ?? '#8b949e'}">
+                  <span class="pl-sf-sev" style="color:{FINDING_SEV_COLOR[f.severity] ?? '#8b949e'}">
+                    {(f.severity ?? 'info').toUpperCase()}
+                  </span>
+                  <span class="pl-sf-title" title={f.title}>{f.title}</span>
+                  <span class="pl-sf-status"
+                        style="color:{FINDING_STATUS_COLOR[f.status] ?? '#8b949e'}; border-color:{FINDING_STATUS_COLOR[f.status] ?? '#8b949e'}66">
+                    {FINDING_STATUS_LABEL[f.status] ?? f.status}
+                  </span>
+                </div>
+              {/each}
+            </div>
           {/if}
         </div>
       </div>
@@ -488,7 +600,7 @@
         No attack path yet.<br>The agent builds one automatically when it starts working.
       </div>
     {:else}
-      {@const layout = buildKillChain(planSteps)}
+      {@const layout = buildKillChain(planSteps, planFindings)}
       {@const doneCount = planSteps.filter(s => s.status === 'done').length}
       {@const isRunning = planSteps.some(s => s.status === 'in_progress')}
       <div class="ck-wrap">
@@ -513,13 +625,25 @@
                     fill="none"
                     marker-end={e.done ? 'url(#ck-arr-g)' : e.live ? 'url(#ck-arr-b)' : 'url(#ck-arr)'}/>
             {/each}
+            <!-- Finding branch edges: L-shaped joints from step bottom to finding card -->
+            {#each layout.findingEdges as e}
+              <path d={e.d}
+                    stroke={e.status === 'verified' ? '#3fb95088' : e.status === 'false_positive' ? '#484f58' : '#d2992288'}
+                    stroke-width="1.4"
+                    fill="none"
+                    stroke-dasharray={e.status === 'open' ? '4 3' : ''}/>
+            {/each}
           </svg>
 
-          <!-- Objective / root node -->
+          <!-- Target / root node — shows the engagement target prominently so
+               the operator can see "everything branches off THIS host". -->
           <div class="ck-root"
                style="left:{layout.rootX}px; top:{layout.rootY}px; width:{layout.ROOT_W}px; height:{layout.ROOT_H}px">
-            <div class="ck-root-label">OBJECTIVE</div>
-            <div class="ck-root-obj">{plan.objective}</div>
+            <div class="ck-root-label">TARGET</div>
+            <div class="ck-root-target">{project?.target || "(no target set)"}</div>
+            {#if plan.objective && plan.objective !== project?.target}
+              <div class="ck-root-obj" title={plan.objective}>{plan.objective}</div>
+            {/if}
             <div class="ck-root-bar-wrap">
               <div class="ck-root-bar">
                 <div class="ck-root-fill" style="width:{Math.round(doneCount / planSteps.length * 100)}%"></div>
@@ -570,6 +694,29 @@
                   <span class="ck-impact">{impact}</span>
                 {/if}
               </div>
+            </div>
+          {/each}
+
+          <!-- Finding branch nodes — small cards hanging off each step that
+               recorded findings. UNVERIFIED ones are dashed; verified solid. -->
+          {#each layout.findingNodes as fn (fn.finding.id)}
+            <div class="ck-find"
+                 class:ck-find-open={fn.finding.status === 'open'}
+                 class:ck-find-verified={fn.finding.status === 'verified'}
+                 class:ck-find-fp={fn.finding.status === 'false_positive'}
+                 style="left:{fn.x}px; top:{fn.y}px; width:{layout.FIND_W}px; height:{layout.FIND_H}px;
+                        border-left-color:{FINDING_SEV_COLOR[fn.finding.severity] ?? '#8b949e'}">
+              <div class="ck-find-top">
+                <span class="ck-find-sev"
+                      style="color:{FINDING_SEV_COLOR[fn.finding.severity] ?? '#8b949e'}">
+                  {(fn.finding.severity ?? 'info').toUpperCase().slice(0, 4)}
+                </span>
+                <span class="ck-find-status"
+                      style="color:{FINDING_STATUS_COLOR[fn.finding.status] ?? '#8b949e'}; border-color:{FINDING_STATUS_COLOR[fn.finding.status] ?? '#8b949e'}66">
+                  {FINDING_STATUS_LABEL[fn.finding.status] ?? fn.finding.status}
+                </span>
+              </div>
+              <div class="ck-find-title" title={fn.finding.title}>{fn.finding.title}</div>
             </div>
           {/each}
 
@@ -890,6 +1037,71 @@
     letter-spacing: 0.04em;
     flex-shrink: 0;
   }
+  .pl-step-find-count {
+    font-size: 9px;
+    color: #d29922;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+  }
+
+  .pl-plan-step-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pl-step-findings {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    margin: 2px 0 6px 28px;
+  }
+  .pl-step-finding {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-left: 3px solid;
+    font-size: 11px;
+  }
+  .pl-sf-sev {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+    min-width: 50px;
+  }
+  .pl-sf-title {
+    flex: 1;
+    color: #c9d1d9;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pl-sf-status {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    padding: 1px 6px;
+    border: 1px solid;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .pl-plan-ungrouped-head {
+    margin-top: 12px;
+    padding: 4px 8px;
+    font-size: 10px;
+    color: #6e7681;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-top: 1px dashed #21262d;
+    padding-top: 8px;
+  }
 
   /* ── Kill-Chain Attack Path ──────────────────────────────────────── */
 
@@ -938,15 +1150,26 @@
     text-transform: uppercase;
   }
 
+  .ck-root-target {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    color: #9fef00;
+    font-weight: 600;
+    line-height: 1.2;
+    letter-spacing: 0.01em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .ck-root-obj {
-    font-size: 11px;
-    color: #e6edf3;
-    font-weight: 500;
-    line-height: 1.35;
-    flex: 1;
+    font-size: 10px;
+    color: #8b949e;
+    font-weight: 400;
+    line-height: 1.3;
     overflow: hidden;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
   }
 
@@ -1129,4 +1352,54 @@
   }
 
   @keyframes ck-blink { 50% { opacity: 0; } }
+
+  /* Finding branch cards on the Attack Path */
+  .ck-find {
+    position: absolute;
+    z-index: 1;
+    background: #0d1117;
+    border: 1px solid #21262d;
+    border-left: 3px solid;
+    border-radius: 5px;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    overflow: hidden;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.35);
+  }
+  .ck-find-open { border-style: dashed; }
+  .ck-find-verified { background: #0d1f14; }
+  .ck-find-fp { opacity: 0.55; }
+  .ck-find-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ck-find-sev {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .ck-find-status {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 0 4px;
+    border: 1px solid;
+    border-radius: 2px;
+    margin-left: auto;
+  }
+  .ck-find-title {
+    font-size: 10px;
+    color: #c9d1d9;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
 </style>

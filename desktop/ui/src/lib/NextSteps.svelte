@@ -14,9 +14,10 @@
   // Then STOPs. We parse that block out of the streamed assistant text so the
   // operator can click an option instead of typing "do step 1" — which is what
   // the first-test user explicitly asked for.
-  let items   = $state([]);    // { idx, tag, action, why, cost }
-  let busy    = $state(false);
-  let lastSent = $state(null); // idx of the option the user clicked this turn
+  let items     = $state([]);    // { idx, tag, action, why, cost }
+  let busy      = $state(false);
+  let lastSent  = $state(null);  // idx of the option the user clicked this turn
+  let collapsed = $state(false);
 
   let assistantBuf = "";
   let unlistenChunk, unlistenDone;
@@ -47,7 +48,7 @@
       const m = raw.match(itemRe);
       if (m) {
         if (cur) out.push(cur);
-        cur = { idx: Number(m[1]), tag: m[2].trim().toUpperCase(), action: m[3], why: "", cost: "" };
+        cur = { idx: Number(m[1]), tag: m[2].trim().toUpperCase(), action: m[3], why: "", cost: "", wiki: "" };
         continue;
       }
       if (!cur) continue;
@@ -55,8 +56,9 @@
       if (why) { cur.why = (cur.why ? cur.why + " " : "") + why[1]; continue; }
       const cost = raw.match(/^\s*Cost:\s*(.+?)\s*$/i);
       if (cost) { cur.cost = (cur.cost ? cur.cost + " " : "") + cost[1]; continue; }
-      // continuation of the action line (rare)
-      if (raw.trim() && !cur.why && !cur.cost) cur.action += " " + raw.trim();
+      const wiki = raw.match(/^\s*Wiki:\s*(.+?)\s*$/i);
+      if (wiki) { cur.wiki = (cur.wiki ? cur.wiki + " " : "") + wiki[1]; continue; }
+      if (raw.trim() && !cur.why && !cur.cost && !cur.wiki) cur.action += " " + raw.trim();
     }
     if (cur) out.push(cur);
     return out;
@@ -110,40 +112,90 @@
 </script>
 
 {#if items.length > 0}
-  <div class="pl-next">
-    <div class="pl-next-head">
+  <div class="pl-next" class:pl-next-collapsed={collapsed}>
+    <button
+      class="pl-next-head"
+      onclick={() => (collapsed = !collapsed)}
+      aria-expanded={!collapsed}
+      title={collapsed ? "Expand Next Steps" : "Collapse Next Steps"}
+    >
+      <span class="pl-next-caret">{collapsed ? "▸" : "▾"}</span>
       <span class="pl-rail-label">Next Steps</span>
-      <span class="pl-next-hint">click to run</span>
-    </div>
-    <div class="pl-next-list">
-      {#each items as it (it.idx)}
-        <button
-          class="pl-next-item"
-          class:pl-next-active={lastSent === it.idx}
-          disabled={busy}
-          onclick={() => pick(it)}
-          title={it.why ? `Why: ${it.why}\nCost: ${it.cost}` : it.action}
-        >
-          <span class="pl-next-tag" style="color:{TAG_COLOR[it.tag] ?? '#8b949e'}; border-color:{TAG_COLOR[it.tag] ?? '#8b949e'}">{it.tag}</span>
-          <span class="pl-next-action">{it.action}</span>
-          {#if it.cost}<span class="pl-next-cost">{it.cost}</span>{/if}
-        </button>
-      {/each}
-    </div>
+      <span class="pl-next-count">{items.length}</span>
+      {#if !collapsed}
+        <span class="pl-next-hint">click to run</span>
+      {/if}
+    </button>
+    {#if !collapsed}
+      <div class="pl-next-list">
+        {#each items as it (it.idx)}
+          <button
+            class="pl-next-item"
+            class:pl-next-active={lastSent === it.idx}
+            disabled={busy}
+            onclick={() => pick(it)}
+            title={[it.wiki && `Wiki: ${it.wiki}`, it.why && `Why: ${it.why}`, it.cost && `Cost: ${it.cost}`].filter(Boolean).join("\n") || it.action}
+          >
+            <span class="pl-next-tag" style="color:{TAG_COLOR[it.tag] ?? '#8b949e'}; border-color:{TAG_COLOR[it.tag] ?? '#8b949e'}">{it.tag}</span>
+            <span class="pl-next-action">{it.action}</span>
+            {#if it.wiki}<span class="pl-next-wiki">📖 {it.wiki}</span>{/if}
+            {#if it.cost}<span class="pl-next-cost">{it.cost}</span>{/if}
+          </button>
+        {/each}
+      </div>
+    {/if}
   </div>
 {/if}
 
 <style>
   .pl-next {
-    border-bottom: 1px solid #21262d;
+    border-top: 1px solid #21262d;
     padding: 10px 12px 12px;
     background: #0d1117;
+    max-height: 40%;
+    overflow-y: auto;
+  }
+  .pl-next-collapsed {
+    max-height: none;
+    padding: 6px 12px;
+    overflow: hidden;
   }
   .pl-next-head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     margin-bottom: 8px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    color: inherit;
+    font-family: inherit;
+    text-align: left;
+  }
+  .pl-next-collapsed .pl-next-head {
+    margin-bottom: 0;
+  }
+  .pl-next-head:hover .pl-rail-label {
+    color: #c9d1d9;
+  }
+  .pl-next-caret {
+    font-size: 10px;
+    color: #6e7681;
+    width: 10px;
+    display: inline-block;
+  }
+  .pl-next-count {
+    font-size: 10px;
+    color: #6e7681;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 0 6px;
+    line-height: 14px;
+    min-width: 16px;
+    text-align: center;
   }
   .pl-rail-label {
     font-size: 11px;
@@ -155,6 +207,7 @@
   .pl-next-hint {
     font-size: 10px;
     color: #484f58;
+    margin-left: auto;
   }
   .pl-next-list {
     display: flex;
@@ -164,7 +217,7 @@
   .pl-next-item {
     display: grid;
     grid-template-columns: auto 1fr;
-    grid-template-rows: auto auto;
+    grid-template-rows: auto auto auto;
     grid-column-gap: 8px;
     align-items: start;
     background: #161b22;
@@ -215,5 +268,20 @@
     font-size: 10px;
     color: #6e7681;
     margin-top: 3px;
+  }
+  .pl-next-wiki {
+    grid-row: 2 / 3;
+    grid-column: 2 / 3;
+    font-size: 10px;
+    color: #58a6ff;
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* If both wiki and cost are present, stack them on rows 2 and 3 */
+  .pl-next-wiki + .pl-next-cost {
+    grid-row: 3 / 4;
+    margin-top: 1px;
   }
 </style>
