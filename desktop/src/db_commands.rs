@@ -1270,17 +1270,27 @@ pub fn register_htb_mcp_server(token: String) -> Result<String, String> {
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
     if output.status.success() || stdout.contains("htb-mcp-ctf") || stderr.contains("htb-mcp-ctf") {
+        // Refresh penligent-local so HTB_APP_TOKEN in its env stays in sync
+        // with the new token. The MCP's HTB tools read this env var directly.
+        let _ = register_local_mcp_server();
         Ok("HTB MCP server registered successfully.".into())
     } else {
         Err(format!("claude mcp add failed: {stdout}{stderr}"))
     }
 }
 
-// ── Register the Penligent MCP server in ~/.claude/settings.json ──────────────
-// Idempotent: merges the entry without clobbering other keys. Called on every
-// app launch so a settings.json that was overwritten by the Claude installer
-// (which happens on a fresh `curl claude.ai/install.sh | bash`) gets healed
-// without the user having to know what went wrong.
+// ── Register the Penligent MCP server in ~/.claude.json ───────────────────────
+// MCP server entries must live in ~/.claude.json (top-level `mcpServers` =
+// user scope) for Claude Code to surface them from any working directory.
+// Earlier versions wrote to ~/.claude/settings.json — that file is read by
+// claude for hooks/permissions but NOT for MCP discovery, so the agent
+// reported "Penligent MCP server is not registered" even when diagnostics
+// claimed it was registered. The hook config still goes to settings.json
+// (correct location); only the MCP entry moved.
+//
+// Idempotent: merges without clobbering other keys. Called on every app
+// launch so a config rewritten by the Claude installer gets healed without
+// the user having to know what went wrong.
 
 fn locate_mcp_python() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = vec![
@@ -1314,41 +1324,84 @@ pub fn register_local_mcp_server() -> Result<String, String> {
     let python_str = python.to_string_lossy().to_string();
 
     let home = dirs::home_dir().ok_or("HOME not set")?;
+
+    // Pass the HTB token through as env so the MCP's HTB tools can call the
+    // HTB API. The dedicated htb-mcp-ctf server uses the same token via a
+    // bearer header; penligent_mcp.tools.htb_machines reads HTB_APP_TOKEN
+    // straight from the process env, so the MCP launcher needs to inject it.
+    let htb_token = load_config_str("htb_app_token");
+    let desired_mcp = if htb_token.trim().is_empty() {
+        serde_json::json!({
+            "command": python_str,
+            "args": ["-m", "penligent_mcp"],
+        })
+    } else {
+        serde_json::json!({
+            "command": python_str,
+            "args": ["-m", "penligent_mcp"],
+            "env": { "HTB_APP_TOKEN": htb_token.trim() },
+        })
+    };
+
+    // ── Step 1: write the MCP entry to ~/.claude.json top-level `mcpServers`
+    // (user scope — visible from any cwd). This is what `claude mcp list` reads.
+    let claude_json_path = home.join(".claude.json");
+    let mut claude_cfg: serde_json::Value = std::fs::read_to_string(&claude_json_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !claude_cfg.is_object() { claude_cfg = serde_json::json!({}); }
+
+    let mut changed_claude_json = false;
+    {
+        let obj = claude_cfg.as_object_mut().unwrap();
+        let mcp = obj.entry("mcpServers".to_string())
+            .or_insert_with(|| serde_json::json!({}));
+        if !mcp.is_object() { *mcp = serde_json::json!({}); }
+        let mcp_obj = mcp.as_object_mut().unwrap();
+        if mcp_obj.get("penligent-local") != Some(&desired_mcp) {
+            mcp_obj.insert("penligent-local".to_string(), desired_mcp);
+            changed_claude_json = true;
+        }
+    }
+    if changed_claude_json {
+        let pretty = serde_json::to_string_pretty(&claude_cfg).map_err(|e| e.to_string())?;
+        std::fs::write(&claude_json_path, pretty).map_err(|e| e.to_string())?;
+    }
+
+    // ── Step 2: settings.json — strip any stale mcpServers.penligent-local
+    // entry from older installs (wrong file), then ensure the agent-guard
+    // PreToolUse hook is wired up. Hooks DO belong in settings.json.
     let claude_dir = home.join(".claude");
     let settings_path = claude_dir.join("settings.json");
     std::fs::create_dir_all(&claude_dir).map_err(|e| e.to_string())?;
 
-    let mut cfg: serde_json::Value = match std::fs::read_to_string(&settings_path) {
-        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| serde_json::json!({})),
-        Err(_) => serde_json::json!({}),
-    };
-    if !cfg.is_object() {
-        cfg = serde_json::json!({});
+    let mut settings_cfg: serde_json::Value = std::fs::read_to_string(&settings_path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !settings_cfg.is_object() { settings_cfg = serde_json::json!({}); }
+
+    let mut changed_settings = false;
+
+    // Strip legacy mcpServers.penligent-local (wrong file). If the resulting
+    // mcpServers map is empty, drop the key entirely so settings.json stays
+    // clean.
+    if let Some(obj) = settings_cfg.as_object_mut() {
+        let mut empty_after = false;
+        if let Some(mcp) = obj.get_mut("mcpServers").and_then(|m| m.as_object_mut()) {
+            if mcp.remove("penligent-local").is_some() {
+                changed_settings = true;
+            }
+            empty_after = mcp.is_empty();
+        }
+        if empty_after {
+            obj.remove("mcpServers");
+        }
     }
 
-    let obj = cfg.as_object_mut().unwrap();
-    let mcp = obj.entry("mcpServers".to_string())
-        .or_insert_with(|| serde_json::json!({}));
-    if !mcp.is_object() {
-        *mcp = serde_json::json!({});
-    }
-    let mcp_obj = mcp.as_object_mut().unwrap();
-
-    let desired_mcp = serde_json::json!({
-        "command": python_str,
-        "args": ["-m", "penligent_mcp"],
-    });
-
-    let mut changed = false;
-    if mcp_obj.get("penligent-local") != Some(&desired_mcp) {
-        mcp_obj.insert("penligent-local".to_string(), desired_mcp);
-        changed = true;
-    }
-
-    // Also install the PreToolUse guard so the agent can't kill claude / rm
-    // ~/.claude / unregister MCP servers / disable the VPN. The guard is a
-    // small Python script bundled in the .deb (or repo for dev builds);
-    // settings.json points at its absolute path.
+    // Install the PreToolUse guard so the agent can't kill claude / rm
+    // ~/.claude / unregister MCP servers / disable the VPN.
     if let Some(guard) = locate_agent_guard() {
         let guard_str = guard.canonicalize().unwrap_or(guard).to_string_lossy().to_string();
         let desired_hook = serde_json::json!({
@@ -1356,7 +1409,7 @@ pub fn register_local_mcp_server() -> Result<String, String> {
             "hooks": [ { "type": "command", "command": guard_str } ],
         });
 
-        let hooks = cfg.as_object_mut().unwrap()
+        let hooks = settings_cfg.as_object_mut().unwrap()
             .entry("hooks".to_string())
             .or_insert_with(|| serde_json::json!({}));
         if !hooks.is_object() { *hooks = serde_json::json!({}); }
@@ -1381,18 +1434,26 @@ pub fn register_local_mcp_server() -> Result<String, String> {
         }
         match existing_idx {
             Some(i) if arr[i] == desired_hook => {}
-            Some(i) => { arr[i] = desired_hook; changed = true; }
-            None    => { arr.push(desired_hook); changed = true; }
+            Some(i) => { arr[i] = desired_hook; changed_settings = true; }
+            None    => { arr.push(desired_hook); changed_settings = true; }
         }
     }
 
-    if changed {
-        let pretty = serde_json::to_string_pretty(&cfg).map_err(|e| e.to_string())?;
+    if changed_settings {
+        let pretty = serde_json::to_string_pretty(&settings_cfg).map_err(|e| e.to_string())?;
         std::fs::write(&settings_path, pretty).map_err(|e| e.to_string())?;
-        Ok(format!("Registered penligent-local MCP server + guard at {}", settings_path.display()))
-    } else {
-        Ok("penligent-local MCP entry and guard already present.".into())
     }
+
+    let mut summary = String::new();
+    if changed_claude_json {
+        summary.push_str(&format!("Registered penligent-local at user scope in {}.", claude_json_path.display()));
+    } else {
+        summary.push_str("penligent-local already at user scope.");
+    }
+    if changed_settings {
+        summary.push_str(&format!(" Updated hook config at {}.", settings_path.display()));
+    }
+    Ok(summary)
 }
 
 // ── Install Claude Code via the official installer ────────────────────────────
@@ -1559,9 +1620,13 @@ pub fn run_diagnostics() -> Vec<DiagItem> {
         fix: if claude_ok { "".into() } else { "install_claude".into() },
     });
 
-    // 2. Penligent MCP registered in ~/.claude/settings.json
+    // 2. Penligent MCP registered at user scope in ~/.claude.json. This is the
+    //    file `claude mcp list` actually reads — checking settings.json (old
+    //    location) produced false positives where diagnostics looked green
+    //    but the agent reported "Penligent MCP is not registered".
+    let claude_json_path = home.join(".claude.json");
     let settings_path = home.join(".claude/settings.json");
-    let mcp_registered = std::fs::read_to_string(&settings_path)
+    let mcp_registered = std::fs::read_to_string(&claude_json_path)
         .ok()
         .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
         .and_then(|v| v.get("mcpServers").and_then(|m| m.get("penligent-local")).cloned())
@@ -1570,8 +1635,8 @@ pub fn run_diagnostics() -> Vec<DiagItem> {
         id: "penligent_mcp_registered".into(),
         name: "Penligent MCP registered".into(),
         ok: mcp_registered,
-        hint: if mcp_registered { "Entry present in ~/.claude/settings.json".into() }
-              else { "mcpServers.penligent-local missing — agent has no Penligent tools.".into() },
+        hint: if mcp_registered { "Entry present in ~/.claude.json (user scope)".into() }
+              else { "mcpServers.penligent-local missing in ~/.claude.json — agent has no Penligent tools.".into() },
         fix: if mcp_registered { "".into() } else { "register_local_mcp".into() },
     });
 
