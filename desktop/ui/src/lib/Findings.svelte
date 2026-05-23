@@ -250,7 +250,7 @@
             </span>
             <span class="pl-sev-badge"
               style="color:{SEV_COLOR[f.severity] ?? '#8b949e'}; border-color:{SEV_COLOR[f.severity] ?? '#8b949e'}33">
-              {f.severity.toUpperCase().slice(0, 4)}
+              {(f.severity ?? "info").toUpperCase().slice(0, 4)}
             </span>
             <span class="pl-finding-title">{f.title}</span>
             {#if f.chain_position != null}

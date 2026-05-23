@@ -211,7 +211,8 @@
     <div class="pl-field">
       <span class="pl-label">Add profile</span>
       <div class="pl-row">
-        <input class="pl-input pl-input-mono" value={ovpnPath} placeholder="Select .ovpn file…" readonly style="flex:1" />
+        <!-- U5: was readonly — paste didn't work. Now editable alongside Browse. -->
+        <input class="pl-input pl-input-mono" bind:value={ovpnPath} placeholder="Select or paste .ovpn path…" spellcheck="false" style="flex:1" />
         <button class="pl-btn" onclick={browseOvpn}>Browse</button>
         <button class="pl-btn pl-btn-primary" onclick={saveProfile} disabled={!ovpnPath}>
           {profileSaved ? "Saved ✓" : "Save"}

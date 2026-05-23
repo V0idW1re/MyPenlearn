@@ -5,6 +5,7 @@
 
   let reason = $state("");
   let deciding = $state(false);
+  let decideErr = $state("");
 
   let stopConditions = $derived((() => {
     if (!approval.stop_conditions_json) return [];
@@ -14,6 +15,7 @@
 
   async function decide(decision) {
     deciding = true;
+    decideErr = "";
     try {
       await invoke("decide_approval", {
         approvalId: approval.id,
@@ -22,12 +24,26 @@
       });
       onDecide?.(decision);
     } catch (e) {
-      console.error("decide_approval failed:", e);
+      // U1: was logged to console only — the modal sat frozen with no feedback.
+      // Surface to the user; they need to know why their action didn't take.
+      decideErr = String(e);
     } finally {
       deciding = false;
     }
   }
+
+  // U2: Escape key dismisses the modal as a "deferred — neither approve nor deny".
+  // We just clear pendingApproval upstream by calling onDecide with null; the
+  // approval row in the DB stays in pending state for the next poll cycle to surface.
+  function onKey(e) {
+    if (e.key === "Escape" && !deciding) {
+      e.preventDefault();
+      onDecide?.(null);
+    }
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <div class="pl-modal-backdrop" role="dialog" aria-modal="true" aria-label="Approval Required">
   <div class="pl-modal">
@@ -100,6 +116,10 @@
         />
       </div>
     </div>
+
+    {#if decideErr}
+      <div class="pl-decide-err">decide_approval failed: {decideErr}</div>
+    {/if}
 
     <div class="pl-modal-actions">
       <button
@@ -301,5 +321,17 @@
     position: absolute;
     left: 0;
     color: #484f58;
+  }
+
+  .pl-decide-err {
+    margin: 0 18px 8px;
+    padding: 8px 10px;
+    font-size: 11px;
+    color: #ff7b72;
+    background: #1c0a0a;
+    border: 1px solid #5d1f1f;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    word-break: break-word;
   }
 </style>

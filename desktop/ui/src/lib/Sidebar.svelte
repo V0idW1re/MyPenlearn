@@ -24,10 +24,11 @@
   let creating    = $state(false);
   let createError = $state("");
   let ctxMenu     = $state(null);
-  let savedId     = $state(null);
   let renamingId  = $state(null);
   let renameVal   = $state("");
+  let renameErr   = $state("");
   let deleteTarget = $state(null);
+  let deleteErr    = $state("");
 
   onMount(async () => {
     try { projects = await invoke("list_projects"); } catch (_) {}
@@ -80,12 +81,18 @@
 
   async function commitRename() {
     if (!renameVal.trim() || !renamingId) { renamingId = null; return; }
+    renameErr = "";
     try {
       const updated = await invoke("rename_project", { id: renamingId, name: renameVal.trim() });
       projects = projects.map(p => p.id === updated.id ? updated : p);
       if (activeProject?.id === updated.id) onSelect(updated);
-    } catch (_) {}
-    renamingId = null;
+      renamingId = null;
+    } catch (e) {
+      // U3: was silent — user couldn't tell why a rename didn't take
+      // (e.g. duplicate name, FS-unsafe characters).
+      renameErr = String(e);
+      // Leave the input open so the user can fix and retry.
+    }
   }
 
   function renameKey(e) {
@@ -93,22 +100,20 @@
     if (e.key === "Escape") renamingId = null;
   }
 
-  function askDelete(proj) { ctxMenu = null; deleteTarget = proj; }
+  function askDelete(proj) { ctxMenu = null; deleteTarget = proj; deleteErr = ""; }
 
   async function confirmDelete() {
     if (!deleteTarget) return;
+    deleteErr = "";
     try {
       await invoke("delete_project", { id: deleteTarget.id });
       projects = projects.filter(p => p.id !== deleteTarget.id);
       if (activeProject?.id === deleteTarget.id) onSelect(null);
-    } catch (_) {}
-    deleteTarget = null;
-  }
-
-  function showSaved(proj) {
-    ctxMenu = null;
-    savedId = proj.id;
-    setTimeout(() => { savedId = null; }, 1500);
+      deleteTarget = null;
+    } catch (e) {
+      // U3: was silent — surface so the user knows why their engagement persists.
+      deleteErr = String(e);
+    }
   }
 
   function focusOnMount(node) { node.focus(); node.select(); return {}; }
@@ -133,12 +138,16 @@
           <span class="pl-dot" style="background:{k?.color ?? '#8b949e'}"></span>
           <input
             class="rename-input"
+            class:has-err={renameErr}
             bind:value={renameVal}
             onkeydown={renameKey}
             onblur={commitRename}
             use:focusOnMount
           />
         </div>
+        {#if renameErr}
+          <div class="pl-inline-err" role="alert">{renameErr}</div>
+        {/if}
       {:else}
         <button
           class="pl-project"
@@ -151,7 +160,6 @@
           <div class="pl-project-info">
             <div class="pl-project-name">
               {proj.name}
-              {#if savedId === proj.id}<span class="saved-badge">✓</span>{/if}
             </div>
             <div class="pl-project-meta">
               <span class="pl-kind-tag">{k?.name ?? proj.kind}</span>
@@ -174,9 +182,6 @@
     <button class="ctx-item" onclick={() => startRename(ctxMenu.proj)}>
       <span class="ctx-icon">✏</span> Rename
     </button>
-    <button class="ctx-item" onclick={() => showSaved(ctxMenu.proj)}>
-      <span class="ctx-icon">✓</span> Save
-    </button>
     <div class="ctx-sep"></div>
     <button class="ctx-item danger" onclick={() => askDelete(ctxMenu.proj)}>
       <span class="ctx-icon">🗑</span> Delete
@@ -191,6 +196,9 @@
     <div class="pl-modal">
       <h2>Delete "{deleteTarget.name}"?</h2>
       <p class="delete-warn">This will permanently remove the engagement and its chat history. Findings will also be deleted.</p>
+      {#if deleteErr}
+        <div class="pl-inline-err" role="alert">{deleteErr}</div>
+      {/if}
       <div class="pl-modal-actions">
         <button class="pl-btn" onclick={() => deleteTarget = null}>Cancel</button>
         <button class="pl-btn pl-btn-danger" onclick={confirmDelete}>Delete</button>
@@ -399,9 +407,20 @@
     text-overflow: ellipsis;
   }
 
-  .saved-badge { font-size: 10px; color: #9fef00; font-weight: 600; }
-
   .pl-empty { color: #484f58; font-size: 12px; padding: 20px 8px; text-align: center; }
+
+  .rename-input.has-err { border-color: #f85149; }
+  .pl-inline-err {
+    margin: 4px 16px 0;
+    padding: 6px 8px;
+    font-size: 11px;
+    color: #ff7b72;
+    background: #1c0a0a;
+    border: 1px solid #5d1f1f;
+    border-radius: 4px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    word-break: break-word;
+  }
 
   /* ── Context menu ────────────────────────────────────────────── */
 

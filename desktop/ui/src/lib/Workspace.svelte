@@ -285,11 +285,42 @@
     return { nodes, edges, totalW, totalH, ROOT_W, ROOT_H, NODE_W, NODE_H, rootX: PAD_X, rootY, rootMidY };
   }
 
+  // U7: previously the $effect cleared the debounce timer on project switch
+  // without flushing — fast tab switches lost unsaved notes. Now we flush
+  // synchronously via the captured project name in the effect's cleanup,
+  // which runs BEFORE the next effect body sees the new project.
+  let lastNotesProjectName = null;
+  let lastNotesContent     = "";
+
   $effect(() => {
-    if (notesTimer) { clearTimeout(notesTimer); notesTimer = null; }
-    if (project) { refresh(); loadNotes(); loadPlan(); }
-    else { files = []; notesContent = ""; plan = null; planSteps = []; }
+    if (project) {
+      refresh(); loadNotes(); loadPlan();
+      lastNotesProjectName = project.name;
+    } else {
+      files = []; notesContent = ""; plan = null; planSteps = [];
+      lastNotesProjectName = null;
+    }
+    return () => {
+      // Cleanup fires before next $effect run / on component destroy.
+      if (notesTimer) {
+        clearTimeout(notesTimer);
+        notesTimer = null;
+        if (lastNotesProjectName && !notesSaved) {
+          // Fire-and-forget; we cannot await inside a cleanup. Use the
+          // captured project name + content, not the (possibly already-new)
+          // reactive values.
+          invoke("write_project_notes", {
+            projectName: lastNotesProjectName,
+            content: lastNotesContent,
+          }).catch(() => {});
+        }
+      }
+    };
   });
+
+  // Track the latest content seen by the debounce so the cleanup above
+  // can flush it without racing the new project's loadNotes() reset.
+  $effect(() => { lastNotesContent = notesContent; });
 
   onMount(async () => {
     unlistenPlan = await listen("claude://chunk", (e) => {
