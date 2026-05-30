@@ -75,7 +75,7 @@ cat > "$SNAP_ROOT/USER_NOTES.md" <<'EOF'
 - [ ] Submitted flag(s)
 
 ## What worked well
-(e.g. "Ctrl+K palette was great", "wiki_query gave me the right answer for X")
+(e.g. "Ctrl+K palette was great", "the recon flow surfaced the right path for X")
 
 ## What felt slow / wrong / surprising
 (e.g. "Got stuck on Y for 6 turns", "Agent kept retrying a failed tool",

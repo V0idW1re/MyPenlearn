@@ -229,18 +229,6 @@ CREATE_STATEMENTS = [
         asvs_id TEXT
     )
     """,
-    """
-    CREATE TABLE IF NOT EXISTS wiki_gaps (
-        topic TEXT PRIMARY KEY,
-        why TEXT NOT NULL,
-        attempted_query TEXT,
-        request_count INTEGER DEFAULT 1,
-        last_project_id INTEGER,
-        first_requested_at INTEGER DEFAULT (strftime('%s','now')),
-        last_requested_at INTEGER DEFAULT (strftime('%s','now')),
-        status TEXT DEFAULT 'open' CHECK(status IN ('open','drafting','filled','dismissed'))
-    )
-    """,
 ]
 
 INDEXES = [

@@ -70,20 +70,9 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
               │  • Exploitation helpers     │
               │  • Post-exploit toolkit     │
               │  • Findings / workspace DB  │
-              │  • Wiki / second brain      │
               │  • CVSS / MITRE / OWASP     │
               │  • HITL guardrails          │
               │  • HTB API integration      │
-              └──────────────┬──────────────┘
-                             │ reads
-              ┌──────────────▼──────────────┐
-              │ Wiki second-brain           │
-              │ ~/.local/share/penlearn-   │
-              │  local/wiki/                │
-              │   pages/methodology/*.md    │
-              │   pages/modules/*.md        │
-              │   raw/ (HTB Academy /       │
-              │         course notes)       │
               └─────────────────────────────┘
 ```
 
@@ -98,13 +87,7 @@ First launch shows a 2-step welcome wizard (Claude Code → OpenVPN sudoers). Af
 - **Real-time token telemetry** in the status bar: `turn N · cache N · $X · session N · $Y` parsed from `result.usage`. Cache-read tokens highlighted green
 - **Live model detection** — status bar shows the actual model the agent is using (e.g. `Sonnet 4.6`), parsed from `message.model` on every assistant event. No more hardcoded labels
 - **GUI walkthrough mode** — when a GUI app is required (Burp, browser, VNC, MSF GUI), the agent stops and delivers numbered, sub-stepped manual instructions with expected visual feedback
-
-### Knowledge base (second brain)
-
-- **Persistent pentest wiki** at `~/.local/share/penlearn-local/wiki/`
-- **12 methodology pages bundled in the `.deb`** — evidence-first, compliance-mappings, waf-bypass, web-engagement-startup, osint-pre-engagement, auth-session-testing, broken-access-control, cloud-attack-surface, llm-attack-surface, document-parser-exploits, detection-blind-spots, pentest-engagement
-- **System prompt mandates `wiki_query()`** before every task so the agent prefers your synthesized notes over its training data
-- **Per-process LRU+TTL cache** on idempotent wiki and workspace reads — same `wiki_query()` within a turn doesn't re-execute file scans
+- **Per-process LRU+TTL cache** on idempotent workspace reads — repeating the same `workspace_read` within a turn doesn't re-execute file scans
 
 ### Safety & reliability
 
@@ -165,7 +148,6 @@ The installer automatically:
 
 - Installs the binary to `/usr/bin/penlearn-local`
 - Bundles the Python MCP server to `/usr/lib/penlearn-local/mcp-server/`
-- Ships 12 baseline methodology wiki pages under `penlearn_mcp/data/methodology/` (seeded on first wiki tool call into `~/.local/share/penlearn-local/wiki/pages/methodology/`)
 - Creates a Python virtual environment and `pip install -e .` the MCP server package
 - On first app launch, registers the MCP server at user scope in `~/.claude.json` (visible to claude from any workspace cwd) and wires the PreToolUse agent guard hook into `~/.claude/settings.json`
 - Adds a narrow sudoers rule (`NOPASSWD: /usr/sbin/openvpn`) so VPN connects without a password prompt
@@ -238,45 +220,6 @@ Palette commands also include:
 - MCP: re-run health check
 - Clear chat for the current engagement
 - Re-run first-run setup wizard
-
----
-
-## Second-brain wiki
-
-Every install ships with a baseline knowledge base under `~/.local/share/penlearn-local/wiki/`. The agent reads from this **before every task** via the `wiki_query()` MCP tool.
-
-### Layout
-
-```
-~/.local/share/penlearn-local/wiki/
-├── index.md                  ← top-level index of every page; first thing Claude reads
-├── manifest.json             ← raw-source → page tracking (sha256-keyed)
-├── log.md                    ← append-only ingest log
-├── pages/                    ← Claude-owned synthesised pages
-│   ├── methodology/          ← 12 baseline pages bundled with the .deb
-│   ├── modules/              ← module/topic pages (Web Apps, Active Directory, etc.)
-│   ├── techniques/           ← attack technique pages
-│   └── machines/             ← per-machine writeups
-└── raw/                      ← immutable original sources (your notes, HTB Academy markdown, etc.)
-```
-
-### MCP tools
-
-The agent has nine wiki tools registered:
-
-- `wiki_query(keywords)` — keyword-rank search across all pages
-- `wiki_read_page(path)` — read one synthesised page
-- `wiki_read_raw(path)` — read an original raw source
-- `wiki_write_page(path, content)` — Claude can author / update pages
-- `wiki_mark_ingested(raw_path, pages_created)` — mark a raw file as processed
-- `wiki_ingest_all()` — return the queue of un-ingested raw files
-- `wiki_status` — summary counts of ingested / pending / stale
-- `wiki_log(entry)` — append an entry to `log.md`
-- `wiki_lint` — find broken page links and orphan pages
-
-### Adding your own knowledge
-
-Drop any markdown file into `~/.local/share/penlearn-local/wiki/raw/<topic>/<name>.md`, then in the chat tell the agent: "ingest the new files in raw/". Claude reads the schema, synthesises pages, updates the manifest and log, and the content is queryable on the next task.
 
 ---
 
@@ -420,7 +363,6 @@ Hover the red dot for the exact error. Common causes: a Python syntax error in a
 | `~/.local/share/penlearn-local/penlearn.db` | Projects, findings, chat history, agent sessions, plans (SQLite WAL) |
 | `~/.local/share/penlearn-local/config.json` | HTB token, UI zoom, VPN auto-reconnect, setup_complete flag |
 | `~/.local/share/penlearn-local/artifacts/` | Raw tool stdout/stderr saved per execution |
-| `~/.local/share/penlearn-local/wiki/` | Second-brain: methodology pages, modules, raw sources, manifest |
 | `~/penlearn/projects/<name>/workspace/` | Per-engagement files, notes, evidence, scan output |
 | `~/.claude/settings.json` | MCP server registration (Penlearn + HTB) |
 | `/etc/sudoers.d/penlearn-openvpn` | Narrow passwordless sudo rule for OpenVPN only |
@@ -446,7 +388,7 @@ sudo rm /etc/sudoers.d/penlearn-openvpn
 ### 3 — Remove user data (optional)
 
 ```bash
-# App database, HTB token, settings, tool output artifacts, wiki
+# App database, HTB token, settings, tool output artifacts
 rm -rf ~/.local/share/penlearn-local/
 
 # Per-engagement workspace files, notes, scan output, evidence
@@ -476,7 +418,7 @@ rm -rf ~/.claude/
 - All data stays on the local machine — no telemetry, no analytics
 - Sudoers rule is scoped to `/usr/sbin/openvpn` only — **never** `NOPASSWD: ALL`
 - HITL approve_intent guardrails surface dangerous operations to the user; the system prompt mandates them for every exploit / scan / shell / file-write / OOB / flag-submit / machine-reset
-- The wiki second-brain is local-only; the agent is instructed to treat fetched tool output as data, not instructions (prompt-injection defence)
+- The agent is instructed to treat fetched tool output as data, not instructions (prompt-injection defence)
 - Intended for use on a dedicated pentesting VM, not a daily-driver machine
 
 ---
@@ -485,15 +427,13 @@ rm -rf ~/.claude/
 
 ### v0.1.20 (current)
 
-Headline: new **Replay** tab (Ctrl+3) that turns every engagement into a step-by-step walkthrough — the operator-facing "how I should have done it" view, driven by the actual agent timeline. Each step shows phase badge (RECON / ENUM / EXPLOIT / AUTH / CUSTOM), the user prompt that triggered the turn, every tool call with args + ⧉ Copy button (drop the call onto the clipboard so the operator can re-run the technique themselves on the next box), the agent's "Why this matters" insight pulled from the mandated turn shape, and a findings badge when the turn recorded one. Filter modes: Active tool turns only (default, skips bookkeeping), Wins (only turns that produced findings), All. Arrow keys ← / → navigate; thin progress bar at the bottom. This reframes the learning loop from "read wiki pages" to "watch the path and re-run individual steps" — built after ThirdTest review showed the operator copy-pasting Next Steps text into chat instead of engaging with explanatory content.
+Headline: new **Replay** tab (Ctrl+3) that turns every engagement into a step-by-step walkthrough — the operator-facing "how I should have done it" view, driven by the actual agent timeline. Each step shows phase badge (RECON / ENUM / EXPLOIT / AUTH / CUSTOM), the user prompt that triggered the turn, every tool call with args + ⧉ Copy button (drop the call onto the clipboard so the operator can re-run the technique themselves on the next box), the agent's "Why this matters" insight pulled from the mandated turn shape, and a findings badge when the turn recorded one. Filter modes: Active tool turns only (default, skips bookkeeping), Wins (only turns that produced findings), All. Arrow keys ← / → navigate; thin progress bar at the bottom. This reframes the learning loop toward "watch the path and re-run individual steps" — built after ThirdTest review showed the operator copy-pasting Next Steps text into chat instead of engaging with explanatory content.
 
 Data path: Rust now persists `tool_use` blocks alongside the assistant text in `agent_messages` as a structured payload (`{"text": …, "tools": [{name, input}, …]}`); older string-form rows still load. New `load_replay_steps(project_id)` Tauri command joins agent_messages + risk_items, extracts the insight sentence via regex on "What this means" / "What I just did" markers, cross-references findings to the step that created them, returns a flat step array. `Replay.svelte` renders the slideshow with phase-coloured cards and a thin progress bar. Keybindings shifted: Workspace stays Ctrl+2, Replay is now Ctrl+3, Settings moves to Ctrl+4.
 
-Wiki visibility infrastructure shipped alongside (the agent now has both a teach-as-you-go ritual AND a way to record gaps it hits): 6 new methodology pages bundled with the .deb (mcpjam-inspector-abuse, jwt-forgery, ssrf-proxy-endpoints, arcane-cve-chain, docker-group-privesc, privatebin-misconfig — all written from the techniques ThirdTest needed but the wiki lacked); new `wiki_request_page(topic, why, attempted_query)` MCP tool with idempotent counter (repeated requests for the same topic increment instead of duplicating) backed by a new `wiki_gaps` SQLite table; new `wiki_list_gaps(status?)` MCP tool; new Wiki TODO section in Settings showing topic, request count, why, attempted query, with **✓ Filled** and **✕ Dismiss** buttons so the operator can manage the backlog between engagements. Rust-side wiki rule enforcement: per-turn the streaming layer tracks whether any wiki tool fired and whether the assistant text contains a `[wiki: …]` citation tag; if a turn ran an active tool with neither signal, a non-blocking blue chat banner appears with text explaining the violation. System prompt updated: requires `wiki_request_page` when `wiki_query` returns nothing useful, requires the exact `[wiki: <page-path>]` tag form (which the Rust validator scans for), adds the two new wiki tools to the bookkeeping allowlist. Verification: `cargo check` clean, `vite build` clean, Python `compileall` clean.
-
 ### v0.1.19
 
-Renames the product from Penligent → Penlearn across the entire codebase and rewires the agent loop around teach-as-you-go. The rename touches the Python package (`penligent_mcp` → `penlearn_mcp`), Rust crate (`penligent-local` → `penlearn-local`), Tauri identifier and product name, `.desktop` launcher, post-install / pre-remove scripts, Svelte UI strings, README, and the `mcpServers.penligent-local` registration key (now `mcpServers.penlearn-local`) — existing installs need a one-shot re-register via Settings → Diagnostics so Claude Code picks up the new key. Stale `penligent-local_*` bundles from prior releases were pruned from `desktop/target/release/bundle/deb/`. Agent loop (driven by ThirdTest review where the agent ran 20+ raw Bash commands with no wiki lookup, no plan, no findings recorded): every user turn now starts with a mandatory wiki ritual (`wiki_query` → `wiki_read_page` → cite the page in the response), one active tool per turn (bookkeeping calls chain freely), `plan_create` required on the first turn with `plan_update_step` wrapped around every active call, every turn ends with a Next Steps block where each option carries a `Wiki:` line tying back to a technique, `record_finding` always lands as `verify_status=open` with an `attack_chain_position`, and `verify_finding` / `update_finding` / `delete_finding` are never agent-initiated — the operator picks from Next Steps. Findings branch out (tech stack / security headers / sensitive paths get their own records) instead of one fat scan dump. Verification: `cargo check` clean, `vite build` clean, Python byte-compile clean, no `penligent` strings remain in source.
+Renames the product from Penligent → Penlearn across the entire codebase and rewires the agent loop around teach-as-you-go. The rename touches the Python package (`penligent_mcp` → `penlearn_mcp`), Rust crate (`penligent-local` → `penlearn-local`), Tauri identifier and product name, `.desktop` launcher, post-install / pre-remove scripts, Svelte UI strings, README, and the `mcpServers.penligent-local` registration key (now `mcpServers.penlearn-local`) — existing installs need a one-shot re-register via Settings → Diagnostics so Claude Code picks up the new key. Stale `penligent-local_*` bundles from prior releases were pruned from `desktop/target/release/bundle/deb/`. Agent loop (driven by ThirdTest review where the agent ran 20+ raw Bash commands with no plan, no findings recorded): one active tool per turn (bookkeeping calls chain freely), `plan_create` required on the first turn with `plan_update_step` wrapped around every active call, every turn ends with a Next Steps block tying each option back to a technique, `record_finding` always lands as `verify_status=open` with an `attack_chain_position`, and `verify_finding` / `update_finding` / `delete_finding` are never agent-initiated — the operator picks from Next Steps. Findings branch out (tech stack / security headers / sensitive paths get their own records) instead of one fat scan dump. Verification: `cargo check` clean, `vite build` clean, Python byte-compile clean, no `penligent` strings remain in source.
 
 Closes the last false-positive surface around Penlearn MCP registration plus a README polish pass. Symptom that exposed the gap in 0.1.17: every Settings diagnostic ticked green, the status-bar MCP dot stayed green, then the agent reported "Penlearn MCP server is not registered" on the first tool call. Cause: `mcp_health_check` only verified that the Python module imports — it never looked at `~/.claude.json` for the actual entry, so a missing or hand-deleted `mcpServers.penlearn-local` slipped past the 15s health poll. Fix: `mcp_health_check` now reads `~/.claude.json` top-level `mcpServers` first and short-circuits with `ok:false` + a directive error message ("Open Settings → Diagnostics → Fix next to \"Penlearn MCP registered\"") when the entry is absent. That cascades through the existing UI plumbing in `App.svelte:103` — status-bar dot flips red, any running agent turn gets halted via `claude_halt`, the MCP-down modal opens with the action hint, and the user sees the failure *before* an agent turn does. README quick-start pass: claude-first install order surfaced as the recommended path (so first-launch diagnostics come up all-green and the wizard's Claude step shows ✓ immediately); 2-step wizard description matches the trimmed 0.1.17 layout; source-build snippet now writes to `~/.claude.json` instead of `~/.claude/settings.json`. Verification: `cargo check` clean.
 
@@ -523,7 +463,7 @@ Resizable left/right sidebars + no-repeat agent rule. Drag the 1px guide line be
 
 ### v0.1.11
 
-Findings panel migration fix + README polish. `list_findings` on the Rust side queried `risk_items` columns (`impact`, `compliance_controls_json`, `remediation_json`, …) that only Python's MCP server's migration code added to the table — if the user opened the app before MCP ever connected to the DB, the SELECT failed, the silent `catch (_) {}` swallowed the error, and the panel showed "No findings yet." even when findings existed. Rust `ensure_schema()` now mirrors the same `ALTER TABLE` migrations Python runs, and the frontend surfaces any future schema-drift errors as a red block instead of an empty list. Discovered via a structured test pass with 5 seeded findings — see the screenshot trail referenced in commit `368e3c8`. The README also got a full polish pass (394 → 507 lines): new Quick Start, Shortcuts, Second-brain wiki, Troubleshooting sections, plus the Features list now reflects every v0.1.2–v0.1.10 feature instead of just the v0.1.0 set.
+Findings panel migration fix + README polish. `list_findings` on the Rust side queried `risk_items` columns (`impact`, `compliance_controls_json`, `remediation_json`, …) that only Python's MCP server's migration code added to the table — if the user opened the app before MCP ever connected to the DB, the SELECT failed, the silent `catch (_) {}` swallowed the error, and the panel showed "No findings yet." even when findings existed. Rust `ensure_schema()` now mirrors the same `ALTER TABLE` migrations Python runs, and the frontend surfaces any future schema-drift errors as a red block instead of an empty list. Discovered via a structured test pass with 5 seeded findings — see the screenshot trail referenced in commit `368e3c8`. The README also got a full polish pass (394 → 507 lines): new Quick Start, Shortcuts, Troubleshooting sections, plus the Features list now reflects every v0.1.2–v0.1.10 feature instead of just the v0.1.0 set.
 
 ### v0.1.10
 
@@ -555,11 +495,11 @@ Token telemetry, message virtualization, command palette + shortcuts. Status bar
 
 ### v0.1.3
 
-Wiki bootstrap. 12 baseline methodology pages (evidence-first, compliance-mappings, waf-bypass, etc.) ship in the `.deb` under `penlearn_mcp/data/methodology/` and seed into `~/.local/share/penlearn-local/wiki/pages/methodology/` on first wiki tool call. Idempotent — never overwrites existing user edits. Closes the v0.1.2 carry-over where the trimmed system prompt routed to wiki pages that only existed on the maintainer's machine.
+Baseline methodology content bootstrap (since removed — see v0.1.20+). Closes the v0.1.2 carry-over where the trimmed system prompt routed to methodology pages that only existed on the maintainer's machine.
 
 ### v0.1.2
 
-System prompt trim (-67%, ~5,900 → ~1,935 tokens per turn), chat-streaming perf (O(N²) → O(N), capped at 60 Hz; markdown LRU cache), MCP read caching (60s TTL, 64 entries per namespace for wiki/workspace reads). Bundle fixes: `cloud.py` and `binary.py` were imported by `register_all.py` but missing from the `.deb` — fresh installs of 0.1.1 silently failed to start the MCP server. Also added the new `wiki.py` and `_cache.py` modules to the bundle.
+System prompt trim (-67%, ~5,900 → ~1,935 tokens per turn), chat-streaming perf (O(N²) → O(N), capped at 60 Hz; markdown LRU cache), MCP read caching (60s TTL, 64 entries per namespace for workspace reads). Bundle fixes: `cloud.py` and `binary.py` were imported by `register_all.py` but missing from the `.deb` — fresh installs of 0.1.1 silently failed to start the MCP server. Also added the new `_cache.py` module to the bundle.
 
 ### v0.1.0
 

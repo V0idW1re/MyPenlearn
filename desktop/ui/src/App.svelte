@@ -19,7 +19,6 @@
   let vpnState   = $state({ status: "disconnected", tun_ip: null, profile_name: null });
   let vpnDropped = $state(null);
   let resumableSession = $state(null);   // { id, claude_session_id, started_at, workDir, vpn_state }
-  let wikiViolation = $state(null);      // { message, wiki_tool_called, wiki_tag_seen }
   let sessionId  = $state(null);
   let activeTab  = $state("chat");
   let currentTool = $state(null);
@@ -322,14 +321,6 @@
       if (e.payload?.session_id) sessionId = e.payload.session_id;
       currentTool = null;
       pollApprovals();
-    });
-
-    // Wiki-rule violations from the Rust streaming layer: emitted when a turn
-    // ran an active tool without consulting the wiki and without a [wiki: ...]
-    // citation tag. Non-blocking — just surfaces a banner the operator can
-    // dismiss or use to call the agent out on the next turn.
-    await listen("claude://wiki-violation", (e) => {
-      wikiViolation = e.payload ?? null;
     });
 
     await listen("claude://chunk", (e) => {
@@ -638,17 +629,6 @@
     </div>
   {/if}
 
-  {#if wikiViolation}
-    <div class="pl-wiki-warn">
-      <span class="pl-wiki-warn-icon">&#9888;</span>
-      <span class="pl-wiki-warn-text">
-        <strong>Wiki rule skipped this turn.</strong>
-        {wikiViolation.message ?? "Agent ran an active tool without a wiki_query or [wiki: …] citation."}
-      </span>
-      <button class="pl-vpn-dismiss" onclick={() => wikiViolation = null}>&#x2715;</button>
-    </div>
-  {/if}
-
   {#if wizardOpen}
     <div class="pl-wizard-backdrop">
       <div class="pl-wizard">
@@ -885,27 +865,6 @@
   }
   .pl-vpn-drop-icon { color: #d29922; font-size: 14px; }
 
-  .pl-wiki-warn {
-    position: fixed;
-    bottom: 72px;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: 720px;
-    background: #1d2733;
-    border: 1px solid #388bfd;
-    border-radius: 6px;
-    color: #e6edf3;
-    font-size: 12px;
-    padding: 8px 14px;
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    z-index: 500;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
-  }
-  .pl-wiki-warn-icon { color: #58a6ff; font-size: 14px; line-height: 18px; }
-  .pl-wiki-warn-text { flex: 1; line-height: 1.45; }
-  .pl-wiki-warn-text strong { color: #58a6ff; }
   .pl-vpn-reconnect {
     background: #d29922;
     border: none;

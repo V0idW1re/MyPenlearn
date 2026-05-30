@@ -49,42 +49,7 @@
     fetchToolCount();
     loadProfiles().then(autoLoadDefaultProfile);
     runDiagnostics();
-    loadWikiGaps();
   });
-
-  // ── Wiki gaps (pages the agent asked for during engagements) ──
-  let wikiGaps        = $state([]);
-  let wikiGapsLoading = $state(false);
-  let wikiGapsFilter  = $state("open"); // "open" | "all"
-  let wikiGapBusy     = $state(null);
-
-  async function loadWikiGaps() {
-    wikiGapsLoading = true;
-    try {
-      wikiGaps = await invoke("list_wiki_gaps", { status: wikiGapsFilter });
-    } catch (e) {
-      wikiGaps = [];
-    } finally {
-      wikiGapsLoading = false;
-    }
-  }
-
-  async function setGapStatus(topic, status) {
-    wikiGapBusy = topic;
-    try {
-      await invoke("update_wiki_gap_status", { topic, status });
-      await loadWikiGaps();
-    } finally {
-      wikiGapBusy = null;
-    }
-  }
-
-  function fmtAge(unixSec) {
-    const ageSec = Math.max(0, Math.floor(Date.now() / 1000) - unixSec);
-    if (ageSec < 3600)   return `${Math.floor(ageSec / 60)}m`;
-    if (ageSec < 86400)  return `${Math.floor(ageSec / 3600)}h`;
-    return `${Math.floor(ageSec / 86400)}d`;
-  }
 
   function applyZoom(z) {
     document.documentElement.style.zoom = z;
@@ -530,72 +495,6 @@
       {/each}
       {#if diagItems.length === 0 && !diagLoading}
         <div class="pl-diag-empty">No diagnostics yet — click "Run all checks".</div>
-      {/if}
-    </div>
-  </section>
-
-  <!-- Wiki TODO ─ pages the agent asked for during engagements -->
-  <section class="pl-section">
-    <div class="pl-section-head">
-      <h3>Wiki TODO</h3>
-      <span class="pl-section-sub">Pages the agent needed but couldn't find · fill these between engagements</span>
-    </div>
-
-    <div class="pl-diag-bar">
-      <button class="pl-btn" onclick={loadWikiGaps} disabled={wikiGapsLoading}>
-        {wikiGapsLoading ? "Loading…" : "↻ Refresh"}
-      </button>
-      <select class="pl-input" style="max-width:140px"
-              bind:value={wikiGapsFilter}
-              onchange={loadWikiGaps}>
-        <option value="open">Open</option>
-        <option value="all">All</option>
-      </select>
-      {#if wikiGaps.length > 0}
-        <span class="pl-diag-summary pl-diag-ok">{wikiGaps.length} entry/entries</span>
-      {/if}
-    </div>
-
-    <div class="pl-diag-list">
-      {#each wikiGaps as g (g.topic)}
-        <div class="pl-diag-row" class:pl-diag-row-bad={g.request_count >= 3}>
-          <span class="pl-diag-status" style="color:#58a6ff">{g.request_count}×</span>
-          <div class="pl-diag-body">
-            <div class="pl-diag-name">
-              <code style="background:#161b22;padding:1px 6px;border-radius:3px;color:#c9d1d9">{g.topic}</code>
-              <span style="font-size:10px;color:#6e7681;margin-left:8px">
-                {g.status} · last {fmtAge(g.last_requested_at)} ago
-              </span>
-            </div>
-            <div class="pl-diag-hint">{g.why}</div>
-            {#if g.attempted_query}
-              <div class="pl-diag-hint" style="margin-top:2px;color:#484f58">
-                attempted query: <code>{g.attempted_query}</code>
-              </div>
-            {/if}
-          </div>
-          {#if g.status !== "filled"}
-            <button class="pl-rt-install"
-                    onclick={() => setGapStatus(g.topic, "filled")}
-                    disabled={wikiGapBusy === g.topic}
-                    title="Mark filled (you wrote the page)">
-              {wikiGapBusy === g.topic ? "…" : "✓ Filled"}
-            </button>
-          {/if}
-          {#if g.status === "open"}
-            <button class="pl-rt-install"
-                    onclick={() => setGapStatus(g.topic, "dismissed")}
-                    disabled={wikiGapBusy === g.topic}
-                    title="Dismiss (not worth a page)">
-              ✕
-            </button>
-          {/if}
-        </div>
-      {/each}
-      {#if wikiGaps.length === 0 && !wikiGapsLoading}
-        <div class="pl-diag-empty">
-          No wiki gaps yet. The agent calls wiki_request_page when wiki_query returns nothing — entries appear here for follow-up.
-        </div>
       {/if}
     </div>
   </section>

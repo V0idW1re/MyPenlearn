@@ -3,9 +3,8 @@ Lightweight in-process LRU + TTL cache for idempotent MCP tool reads.
 
 The MCP server runs as a stdio subprocess that lives for the duration of a
 Claude turn. Within one turn the agent often calls the same read tool
-repeatedly (e.g. `wiki_query` mandated before every task, then `wiki_read_page`
-of the returned hits; or `workspace_ls` from several sub-tools during a
-continuity check). Without caching each call re-runs file I/O, manifest
+repeatedly (e.g. `workspace_ls` / `workspace_read` from several sub-tools
+during a continuity check). Without caching each call re-runs file I/O, manifest
 parsing, and / or full content search.
 
 Cache state is per-process, so it never outlives a single turn — fresh state

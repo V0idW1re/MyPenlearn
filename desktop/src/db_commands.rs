@@ -132,16 +132,6 @@ fn ensure_schema(conn: &Connection) -> Result<(), String> {
             region            TEXT,
             last_connected_at INTEGER,
             is_default        INTEGER DEFAULT 0
-        );
-        CREATE TABLE IF NOT EXISTS wiki_gaps (
-            topic              TEXT PRIMARY KEY,
-            why                TEXT NOT NULL,
-            attempted_query    TEXT,
-            request_count      INTEGER DEFAULT 1,
-            last_project_id    INTEGER,
-            first_requested_at INTEGER DEFAULT (strftime('%s','now')),
-            last_requested_at  INTEGER DEFAULT (strftime('%s','now')),
-            status             TEXT    DEFAULT 'open'
         );",
     )
     .map_err(|e| e.to_string())?;
@@ -1836,65 +1826,6 @@ pub fn mcp_health_check() -> McpHealthStatus {
     }
 }
 
-// ── Wiki gaps ────────────────────────────────────────────────────────────────
-// Read-side mirror of the `wiki_gaps` table written by the Python MCP server's
-// wiki_request_page tool. The desktop app surfaces these in Settings → Wiki
-// TODO so the operator can fill the missing pages between engagements.
-
-#[derive(Debug, Serialize)]
-pub struct WikiGap {
-    pub topic: String,
-    pub why: String,
-    pub attempted_query: Option<String>,
-    pub request_count: i64,
-    pub status: String,
-    pub first_requested_at: i64,
-    pub last_requested_at: i64,
-}
-
-#[tauri::command]
-pub fn list_wiki_gaps(status: Option<String>) -> Result<Vec<WikiGap>, String> {
-    let conn = open()?;
-    let filter = status.unwrap_or_else(|| "open".to_string());
-    let (sql, has_param): (&str, bool) = if filter == "all" {
-        (
-            "SELECT topic, why, attempted_query, request_count, status,
-                    first_requested_at, last_requested_at
-             FROM wiki_gaps
-             ORDER BY request_count DESC, last_requested_at DESC",
-            false,
-        )
-    } else {
-        (
-            "SELECT topic, why, attempted_query, request_count, status,
-                    first_requested_at, last_requested_at
-             FROM wiki_gaps WHERE status=?1
-             ORDER BY request_count DESC, last_requested_at DESC",
-            true,
-        )
-    };
-    let mut stmt = conn.prepare(sql).map_err(|e| e.to_string())?;
-    let map_row = |r: &rusqlite::Row| {
-        Ok(WikiGap {
-            topic: r.get(0)?,
-            why: r.get(1)?,
-            attempted_query: r.get(2)?,
-            request_count: r.get(3)?,
-            status: r.get(4)?,
-            first_requested_at: r.get(5)?,
-            last_requested_at: r.get(6)?,
-        })
-    };
-    let rows = if has_param {
-        stmt.query_map(params![filter], map_row).map_err(|e| e.to_string())?
-            .filter_map(Result::ok).collect()
-    } else {
-        stmt.query_map([], map_row).map_err(|e| e.to_string())?
-            .filter_map(Result::ok).collect()
-    };
-    Ok(rows)
-}
-
 // ── Replay (engagement walkthrough) ──────────────────────────────────────────
 // Reads the persisted agent_messages timeline and shapes it into per-turn
 // "step cards" for the Replay tab — the operator's "how I should have done it"
@@ -1953,7 +1884,7 @@ fn extract_insight(text: &str) -> Option<String> {
 fn is_active_tool_name(name: &str) -> bool {
     let base = name.rsplit("__").next().unwrap_or(name);
     let bookkeeping_prefixes = [
-        "wiki_", "plan_", "list_", "record_finding", "update_finding",
+        "plan_", "list_", "record_finding", "update_finding",
         "verify_finding", "workspace_", "task_", "scope_", "audit_log",
         "ttp_lookup", "risk_summary", "map_", "approve_intent",
         "htb_machines_search", "htb_machine_info", "htb_machines_get_active",
@@ -2082,19 +2013,4 @@ pub fn load_replay_steps(project_id: i64) -> Result<Vec<ReplayStep>, String> {
     }
 
     Ok(steps)
-}
-
-#[tauri::command]
-pub fn update_wiki_gap_status(topic: String, status: String) -> Result<(), String> {
-    let allowed = ["open", "drafting", "filled", "dismissed"];
-    if !allowed.contains(&status.as_str()) {
-        return Err(format!("invalid status: {status}"));
-    }
-    let conn = open()?;
-    conn.execute(
-        "UPDATE wiki_gaps SET status=?1 WHERE topic=?2",
-        params![status, topic],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
 }

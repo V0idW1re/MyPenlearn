@@ -48,7 +48,7 @@
       const m = raw.match(itemRe);
       if (m) {
         if (cur) out.push(cur);
-        cur = { idx: Number(m[1]), tag: m[2].trim().toUpperCase(), action: m[3], why: "", cost: "", wiki: "" };
+        cur = { idx: Number(m[1]), tag: m[2].trim().toUpperCase(), action: m[3], why: "", cost: "" };
         continue;
       }
       if (!cur) continue;
@@ -56,9 +56,7 @@
       if (why) { cur.why = (cur.why ? cur.why + " " : "") + why[1]; continue; }
       const cost = raw.match(/^\s*Cost:\s*(.+?)\s*$/i);
       if (cost) { cur.cost = (cur.cost ? cur.cost + " " : "") + cost[1]; continue; }
-      const wiki = raw.match(/^\s*Wiki:\s*(.+?)\s*$/i);
-      if (wiki) { cur.wiki = (cur.wiki ? cur.wiki + " " : "") + wiki[1]; continue; }
-      if (raw.trim() && !cur.why && !cur.cost && !cur.wiki) cur.action += " " + raw.trim();
+      if (raw.trim() && !cur.why && !cur.cost) cur.action += " " + raw.trim();
     }
     if (cur) out.push(cur);
     return out;
@@ -134,11 +132,10 @@
             class:pl-next-active={lastSent === it.idx}
             disabled={busy}
             onclick={() => pick(it)}
-            title={[it.wiki && `Wiki: ${it.wiki}`, it.why && `Why: ${it.why}`, it.cost && `Cost: ${it.cost}`].filter(Boolean).join("\n") || it.action}
+            title={[it.why && `Why: ${it.why}`, it.cost && `Cost: ${it.cost}`].filter(Boolean).join("\n") || it.action}
           >
             <span class="pl-next-tag" style="color:{TAG_COLOR[it.tag] ?? '#8b949e'}; border-color:{TAG_COLOR[it.tag] ?? '#8b949e'}">{it.tag}</span>
             <span class="pl-next-action">{it.action}</span>
-            {#if it.wiki}<span class="pl-next-wiki">📖 {it.wiki}</span>{/if}
             {#if it.cost}<span class="pl-next-cost">{it.cost}</span>{/if}
           </button>
         {/each}
@@ -268,20 +265,5 @@
     font-size: 10px;
     color: #6e7681;
     margin-top: 3px;
-  }
-  .pl-next-wiki {
-    grid-row: 2 / 3;
-    grid-column: 2 / 3;
-    font-size: 10px;
-    color: #58a6ff;
-    margin-top: 3px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  /* If both wiki and cost are present, stack them on rows 2 and 3 */
-  .pl-next-wiki + .pl-next-cost {
-    grid-row: 3 / 4;
-    margin-top: 1px;
   }
 </style>

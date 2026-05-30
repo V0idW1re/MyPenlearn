@@ -66,20 +66,7 @@
           "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/scanner.py": "../mcp-server/penlearn_mcp/tools/scanner.py",
           "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/utils.py": "../mcp-server/penlearn_mcp/tools/utils.py",
           "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/web.py": "../mcp-server/penlearn_mcp/tools/web.py",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/wiki.py": "../mcp-server/penlearn_mcp/tools/wiki.py",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/workspace.py": "../mcp-server/penlearn_mcp/tools/workspace.py",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/auth-session-testing.md": "../mcp-server/penlearn_mcp/data/methodology/auth-session-testing.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/broken-access-control.md": "../mcp-server/penlearn_mcp/data/methodology/broken-access-control.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/cloud-attack-surface.md": "../mcp-server/penlearn_mcp/data/methodology/cloud-attack-surface.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/compliance-mappings.md": "../mcp-server/penlearn_mcp/data/methodology/compliance-mappings.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/detection-blind-spots.md": "../mcp-server/penlearn_mcp/data/methodology/detection-blind-spots.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/document-parser-exploits.md": "../mcp-server/penlearn_mcp/data/methodology/document-parser-exploits.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/evidence-first.md": "../mcp-server/penlearn_mcp/data/methodology/evidence-first.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/llm-attack-surface.md": "../mcp-server/penlearn_mcp/data/methodology/llm-attack-surface.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/osint-pre-engagement.md": "../mcp-server/penlearn_mcp/data/methodology/osint-pre-engagement.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/pentest-engagement.md": "../mcp-server/penlearn_mcp/data/methodology/pentest-engagement.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/waf-bypass.md": "../mcp-server/penlearn_mcp/data/methodology/waf-bypass.md",
-          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/data/methodology/web-engagement-startup.md": "../mcp-server/penlearn_mcp/data/methodology/web-engagement-startup.md"
+          "/usr/lib/penlearn-local/mcp-server/penlearn_mcp/tools/workspace.py": "../mcp-server/penlearn_mcp/tools/workspace.py"
         }
       }
     }

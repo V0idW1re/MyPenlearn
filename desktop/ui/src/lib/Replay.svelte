@@ -78,7 +78,7 @@
   function isActive(name) {
     if (!name) return false;
     const base = name.split("__").pop();
-    const bookkeep = ["wiki_", "plan_", "list_", "record_finding", "update_finding",
+    const bookkeep = ["plan_", "list_", "record_finding", "update_finding",
                       "verify_finding", "workspace_", "task_", "scope_", "audit_log",
                       "ttp_lookup", "risk_summary", "map_", "approve_intent",
                       "htb_machines_search", "htb_machine_info", "htb_machines_get_active"];
@@ -159,7 +159,7 @@
       </p>
       <p class="pl-replay-empty-body" style="margin-top:8px">
         Filter is currently <strong>{filter}</strong> — switch to <em>All turns</em>
-        if you want to see bookkeeping and wiki lookups too.
+        if you want to see bookkeeping lookups too.
       </p>
     </div>
   {/if}
